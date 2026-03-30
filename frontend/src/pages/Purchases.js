@@ -20,7 +20,12 @@ export default function Purchases() {
   const load = () => {
     setLoading(true);
     Promise.all([api.get('/purchases'), api.get('/suppliers'), api.get('/products')])
-      .then(([p, s, pr]) => { setPurchases(p.data); setSuppliers(s.data); setProducts(pr.data); })
+      .then(([p, s, pr]) => {
+  setPurchases(Array.isArray(p.data) ? p.data : (p.data?.data || []));
+  setSuppliers(Array.isArray(s.data) ? s.data : (s.data?.data || []));
+  setProducts(Array.isArray(pr.data) ? pr.data : (pr.data?.data || []));
+})
+
       .finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);

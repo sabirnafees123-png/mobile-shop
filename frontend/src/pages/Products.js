@@ -15,7 +15,6 @@ export default function Products() {
   const load = () => {
     setLoading(true);
     api.get('/products').then(r => setProducts(Array.isArray(r.data) ? r.data : (r.data?.data || []))).finally(() => setLoading(false));
-  };
 
   useEffect(() => { load(); }, []);
 

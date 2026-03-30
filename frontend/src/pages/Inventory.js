@@ -12,7 +12,8 @@ export default function Inventory() {
 
   const load = () => {
     setLoading(true);
-    api.get(`/inventory?status=${filter}`).then(r => setStock(r.data)).finally(() => setLoading(false));
+    api.get(`/inventory?status=${filter}`).then(r => setStock(Array.isArray(r.data) ? r.data : (r.data?.data || []))).finally(() => setLoading(false));
+
   };
 
   useEffect(() => { load(); }, [filter]);

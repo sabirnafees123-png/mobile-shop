@@ -10,7 +10,8 @@ export default function Sales() {
   const fmt = n => `${currency} ${parseFloat(n || 0).toFixed(2)}`;
 
   useEffect(() => {
-    api.get('/sales').then(r => setSales(r.data)).finally(() => setLoading(false));
+    api.get('/sales').then(r => setSales(Array.isArray(r.data) ? r.data : (r.data?.data || []))).finally(() => setLoading(false));
+
   }, []);
 
   const payStatus = s => ({ paid: 'badge-green', partial: 'badge-yellow', unpaid: 'badge-red' }[s] || 'badge-gray');
