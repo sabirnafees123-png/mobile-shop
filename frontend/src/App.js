@@ -6,19 +6,14 @@ import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Products from './pages/Products';
-// ... rest of your imports
-
-
-// Import all your existing pages
-import Dashboard from './pages/Dashboard';
-import Products from './pages/Products';
 import Inventory from './pages/Inventory';
 import Purchases from './pages/Purchases';
 import Sales from './pages/Sales';
 import Suppliers from './pages/Suppliers';
 import Customers from './pages/Customers';
 import Expenses from './pages/Expenses';
-// Add any other pages you have
+
+
 
 // ── Protected Route wrapper ──────────────────────────────────────────────────
 function ProtectedRoute({ children, allowedRoles }) {
