@@ -21,7 +21,7 @@ export default function Inventory() {
 
   const fmt = (n) => `${currency} ${parseFloat(n || 0).toFixed(2)}`;
 
-  const filtered = stock.filter(s =>
+  const filtered = (Array.isArray(stock) ? stock : []).filter(s =>
     s.product_name?.toLowerCase().includes(search.toLowerCase()) ||
     s.imei?.includes(search) ||
     s.purchase_number?.includes(search)
