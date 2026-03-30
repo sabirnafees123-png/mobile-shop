@@ -3,7 +3,7 @@ const router = express.Router();
 const {
   getProducts, getProductById, createProduct,
   updateProduct, deleteProduct, getCategories
-} = require('../controllers/productController');
+} = require('../controllers/productsController');
 const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
 
 // All routes require JWT
