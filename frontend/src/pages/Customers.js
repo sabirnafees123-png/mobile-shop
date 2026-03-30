@@ -15,7 +15,7 @@ export default function Customers() {
 
   const load = () => {
     setLoading(true);
-    api.get('/customers').then(r => setCustomers(Array.isArray(r.data) ? r.data : (r.data?.data || []))).finally(() => setLoading(false));
+    api.get('/customers').then(r => setCustomers(r.data?.data || [])).finally(() => setLoading(false));
   };
   useEffect(() => { load(); }, []);
 

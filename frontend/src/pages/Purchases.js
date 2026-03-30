@@ -20,14 +20,12 @@ export default function Purchases() {
   const load = () => {
     setLoading(true);
     Promise.all([api.get('/purchases'), api.get('/suppliers'), api.get('/products')])
-      .then(([p, s, pr]) => {
-  const purchases = p.data?.data ?? p.data?.rows ?? p.data ?? [];
-  const suppliers = s.data?.data ?? s.data?.rows ?? s.data ?? [];
-  const products = pr.data?.data ?? pr.data?.rows ?? pr.data ?? [];
-  setPurchases(Array.isArray(purchases) ? purchases : []);
-  setSuppliers(Array.isArray(suppliers) ? suppliers : []);
-  setProducts(Array.isArray(products) ? products : []);
+     .then(([p, s, pr]) => {
+  setPurchases(p.data?.data || []);
+  setSuppliers(s.data?.data || []);
+  setProducts(pr.data?.data || []);
 })
+
 
 
       .finally(() => setLoading(false));

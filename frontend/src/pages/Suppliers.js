@@ -14,7 +14,7 @@ export default function Suppliers() {
 
   const load = () => {
     setLoading(true);
-    api.get('/suppliers').then(r => setSuppliers(Array.isArray(r.data) ? r.data : (r.data?.data || []))).finally(() => setLoading(false));
+    api.get('/suppliers').then(r => setSuppliers(r.data?.data || [])).finally(() => setLoading(false));
 
   };
   useEffect(() => { load(); }, []);

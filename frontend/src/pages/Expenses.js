@@ -15,7 +15,7 @@ export default function Expenses() {
 
   const load = () => {
     setLoading(true);
-    api.get('/expenses').then(r => setExpenses(Array.isArray(r.data) ? r.data : (r.data?.data || []))).finally(() => setLoading(false));
+    api.get('/expenses').then(r => setExpenses(r.data?.data || [])).finally(() => setLoading(false));
 
   };
   useEffect(() => { load(); }, []);

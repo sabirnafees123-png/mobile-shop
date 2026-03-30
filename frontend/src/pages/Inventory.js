@@ -13,8 +13,7 @@ export default function Inventory() {
   const load = () => {
     setLoading(true);
     api.get(`/inventory?status=${filter}`).then(r => {
-  const d = r.data?.data ?? r.data?.rows ?? r.data ?? [];
-  setStock(Array.isArray(d) ? d : []);
+  setStock(r.data?.data || []);
 }).finally(() => setLoading(false));
 
   };
