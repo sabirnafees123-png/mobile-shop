@@ -9,7 +9,11 @@ export default function Dashboard() {
 
   useEffect(() => {
     api.get('/dashboard/summary')
-      .then(res => setData(res.data))
+      .then(res => {
+        // Handle both response structures
+        const responseData = res.data?.data || res.data;
+        setData(responseData);
+      })
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
@@ -18,6 +22,14 @@ export default function Dashboard() {
   if (!data) return <div className="empty-state">Failed to load dashboard</div>;
 
   const fmt = (n) => `${currency} ${parseFloat(n || 0).toLocaleString('en-AE', { minimumFractionDigits: 2 })}`;
+
+  // Safe accessors with fallbacks
+  const sales = data.sales || {};
+  const today = sales.today || { total: 0, count: 0 };
+  const this_month = sales.this_month || { total: 0, count: 0 };
+  const inventory = data.inventory || { total_units: 0, total_lines: 0, low_stock_alerts: 0 };
+  const financials = data.financials || { owed_to_suppliers: 0, owed_by_customers: 0 };
+  const top_products = data.top_products || [];
 
   return (
     <div>
@@ -30,45 +42,43 @@ export default function Dashboard() {
           {new Date().toLocaleDateString('en-AE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
         </span>
       </div>
-
       <div className="stat-grid">
         <div className="stat-card green">
           <div className="label">Today's Sales</div>
-          <div className="value">{fmt(data.sales.today.total)}</div>
-          <div className="sub">{data.sales.today.count} invoice(s)</div>
+          <div className="value">{fmt(today.total)}</div>
+          <div className="sub">{today.count} invoice(s)</div>
         </div>
         <div className="stat-card blue">
           <div className="label">This Month</div>
-          <div className="value">{fmt(data.sales.this_month.total)}</div>
-          <div className="sub">{data.sales.this_month.count} invoice(s)</div>
+          <div className="value">{fmt(this_month.total)}</div>
+          <div className="sub">{this_month.count} invoice(s)</div>
         </div>
         <div className="stat-card yellow">
           <div className="label">Stock Units</div>
-          <div className="value">{data.inventory.total_units}</div>
-          <div className="sub">{data.inventory.total_lines} stock lines</div>
+          <div className="value">{inventory.total_units}</div>
+          <div className="sub">{inventory.total_lines} stock lines</div>
         </div>
         <div className="stat-card red">
           <div className="label">Low Stock Alerts</div>
-          <div className="value">{data.inventory.low_stock_alerts}</div>
+          <div className="value">{inventory.low_stock_alerts}</div>
           <div className="sub">products ≤ 2 units</div>
         </div>
         <div className="stat-card red">
           <div className="label">Owed to Suppliers</div>
-          <div className="value">{fmt(data.financials.owed_to_suppliers)}</div>
+          <div className="value">{fmt(financials.owed_to_suppliers)}</div>
           <div className="sub">outstanding payables</div>
         </div>
         <div className="stat-card blue">
           <div className="label">Customer Credit</div>
-          <div className="value">{fmt(data.financials.owed_by_customers)}</div>
+          <div className="value">{fmt(financials.owed_by_customers)}</div>
           <div className="sub">outstanding receivables</div>
         </div>
       </div>
-
       <div className="card">
         <div className="card-header">
           <div className="card-title">🏆 Top Products This Month</div>
         </div>
-        {data.top_products.length === 0 ? (
+        {top_products.length === 0 ? (
           <div className="empty-state"><p>No sales recorded this month yet</p></div>
         ) : (
           <div className="table-wrapper">
@@ -82,7 +92,7 @@ export default function Dashboard() {
                 </tr>
               </thead>
               <tbody>
-                {data.top_products.map((p, i) => (
+                {top_products.map((p, i) => (
                   <tr key={i}>
                     <td><span className="badge badge-blue">{i + 1}</span></td>
                     <td><strong>{p.brand}</strong> {p.name}</td>
