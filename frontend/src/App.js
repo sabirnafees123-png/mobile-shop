@@ -117,8 +117,8 @@ export default function App() {
             <ProtectedRoute>
               <Layout user={user} onLogout={handleLogout}>
                 <Routes>
-                  <Route path="/" element={<Products />} />
-                  <Route path="/products" element={<Products />} />
+                  <Route path="/" element={<Dashboard />} />
+		  <Route path="/products" element={<Products />} />
                   <Route path="/inventory" element={<Inventory />} />
                   <Route path="/purchases" element={<Purchases />} />
                   <Route path="/sales" element={<Sales />} />
