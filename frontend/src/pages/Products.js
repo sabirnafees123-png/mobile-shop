@@ -15,8 +15,10 @@ export default function Products() {
   const load = () => {
     setLoading(true);
     api.get('/products').then(r => setProducts(r.data?.data || [])).finally(() => setLoading(false));
+  };  // ← this closing brace was missing
 
   useEffect(() => { load(); }, []);
+
 
   const handleSubmit = async () => {
     if (!form.name) return toast.error('Product name is required');
