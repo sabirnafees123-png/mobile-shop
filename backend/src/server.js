@@ -10,6 +10,7 @@ const app = express();
 app.use(helmet());
 app.use(cors({
   origin: [
+    'https://mobile-shop-3j79.vercel.app',
     'https://frontend-chi-jet-38.vercel.app',
     'http://localhost:3000'
   ],
