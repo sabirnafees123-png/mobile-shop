@@ -1,11 +1,21 @@
-// src/routes/products.js
-const router = require('express').Router();
-const ctrl = require('../controllers/productsController');
+const express = require('express');
+const router = express.Router();
+const {
+  getProducts, getProductById, createProduct,
+  updateProduct, deleteProduct, getCategories
+} = require('../controllers/productController');
+const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
 
-router.get('/low-stock', ctrl.getLowStock);
-router.get('/', ctrl.getAllProducts);
-router.get('/:id', ctrl.getProduct);
-router.post('/', ctrl.createProduct);
-router.put('/:id', ctrl.updateProduct);
+// All routes require JWT
+router.use(verifyToken);
+
+router.get('/',           getProducts);
+router.get('/categories', getCategories);
+router.get('/:id',        getProductById);
+
+// Only Admin & Accountant can create/edit/delete
+router.post('/',    authorizeRoles('admin', 'accountant'), createProduct);
+router.put('/:id',  authorizeRoles('admin', 'accountant'), updateProduct);
+router.delete('/:id', authorizeRoles('admin'),             deleteProduct);
 
 module.exports = router;

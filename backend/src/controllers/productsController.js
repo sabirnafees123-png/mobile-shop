@@ -1,98 +1,136 @@
-// src/controllers/productsController.js
-const { query } = require('../config/database');
+const pool = require('../config/database');
 
-// GET /api/v1/products
-exports.getAllProducts = async (req, res) => {
+// GET all products
+const getProducts = async (req, res) => {
   try {
-    const { brand, category, condition, search } = req.query;
-    
-    let sql = `SELECT * FROM products WHERE is_active = true`;
+    const { search, category, is_active } = req.query;
+    let query = `SELECT * FROM products WHERE 1=1`;
     const params = [];
-    let idx = 1;
 
-    if (brand) { sql += ` AND brand ILIKE $${idx++}`; params.push(`%${brand}%`); }
-    if (category) { sql += ` AND category = $${idx++}`; params.push(category); }
-    if (condition) { sql += ` AND condition = $${idx++}`; params.push(condition); }
-    if (search) { sql += ` AND (name ILIKE $${idx++} OR model ILIKE $${idx - 1})`; params.push(`%${search}%`); }
+    if (search) {
+      params.push(`%${search}%`);
+      query += ` AND (name ILIKE $${params.length}
+                   OR brand ILIKE $${params.length}
+                   OR model ILIKE $${params.length}
+                   OR barcode ILIKE $${params.length})`;
+    }
+    if (category) {
+      params.push(category);
+      query += ` AND category = $${params.length}`;
+    }
+    if (is_active !== undefined && is_active !== '') {
+      params.push(is_active === 'true');
+      query += ` AND is_active = $${params.length}`;
+    }
 
-    sql += ` ORDER BY brand, name`;
-
-    const result = await query(sql, params);
-    res.json({ success: true, count: result.rows.length, data: result.rows });
+    query += ` ORDER BY created_at DESC`;
+    const result = await pool.query(query, params);
+    res.json({ success: true, data: result.rows });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error('getProducts error:', err);
+    res.status(500).json({ success: false, message: 'Server error fetching products' });
   }
 };
 
-// GET /api/v1/products/:id
-exports.getProduct = async (req, res) => {
+// GET single product
+const getProductById = async (req, res) => {
   try {
-    const result = await query(
-      `SELECT p.*, 
-        COALESCE(SUM(i.qty_remaining), 0) as stock_qty,
-        MIN(i.unit_cost) as min_cost,
-        MAX(i.unit_cost) as max_cost
-       FROM products p
-       LEFT JOIN inventory_stock i ON i.product_id = p.id AND i.status = 'in_stock'
-       WHERE p.id = $1 AND p.is_active = true
-       GROUP BY p.id`,
-      [req.params.id]
-    );
-    if (!result.rows.length) return res.status(404).json({ success: false, message: 'Product not found' });
+    const result = await pool.query('SELECT * FROM products WHERE id = $1', [req.params.id]);
+    if (result.rows.length === 0)
+      return res.status(404).json({ success: false, message: 'Product not found' });
     res.json({ success: true, data: result.rows[0] });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Server error' });
   }
 };
 
-// POST /api/v1/products
-exports.createProduct = async (req, res) => {
+// POST create product
+const createProduct = async (req, res) => {
   try {
-    const { name, brand, model, category, storage, color, condition, description, imei_required } = req.body;
-    if (!name) return res.status(400).json({ success: false, message: 'Product name is required' });
+    const { name, brand, model, category, storage, color, condition, description, base_cost, selling_price, barcode, is_active = true } = req.body;
 
-    const result = await query(
-      `INSERT INTO products (name, brand, model, category, storage, color, condition, description, imei_required)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
-      [name, brand, model, category || 'Mobile Phone', storage, color, condition || 'Used', description, imei_required !== false]
+    if (!name)
+      return res.status(400).json({ success: false, message: 'Product name is required' });
+
+    if (barcode) {
+      const dup = await pool.query('SELECT 1 FROM products WHERE barcode = $1', [barcode]);
+      if (dup.rows.length > 0)
+        return res.status(400).json({ success: false, message: 'Barcode already exists' });
+    }
+
+    const result = await pool.query(
+      `INSERT INTO products (name, brand, model, category, storage, color, condition, description, base_cost, selling_price, barcode, is_active)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+      [name, brand, model, category, storage, color, condition, description, base_cost || 0, selling_price || 0, barcode, is_active]
     );
-    res.status(201).json({ success: true, data: result.rows[0] });
+    res.status(201).json({ success: true, data: result.rows[0], message: 'Product created' });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error('createProduct error:', err);
+    res.status(500).json({ success: false, message: 'Server error creating product' });
   }
 };
 
-// PUT /api/v1/products/:id
-exports.updateProduct = async (req, res) => {
+// PUT update product
+const updateProduct = async (req, res) => {
   try {
-    const { name, brand, model, category, storage, color, condition, description } = req.body;
-    const result = await query(
-      `UPDATE products SET name=$1, brand=$2, model=$3, category=$4, storage=$5, color=$6, condition=$7, description=$8
-       WHERE id=$9 RETURNING *`,
-      [name, brand, model, category, storage, color, condition, description, req.params.id]
+    const { id } = req.params;
+    const { name, brand, model, category, storage, color, condition, description, base_cost, selling_price, barcode, is_active } = req.body;
+
+    const existing = await pool.query('SELECT * FROM products WHERE id = $1', [id]);
+    if (existing.rows.length === 0)
+      return res.status(404).json({ success: false, message: 'Product not found' });
+
+    if (barcode) {
+      const dup = await pool.query('SELECT 1 FROM products WHERE barcode = $1 AND id != $2', [barcode, id]);
+      if (dup.rows.length > 0)
+        return res.status(400).json({ success: false, message: 'Barcode already used by another product' });
+    }
+
+    const result = await pool.query(
+      `UPDATE products SET
+        name          = COALESCE($1,  name),
+        brand         = COALESCE($2,  brand),
+        model         = COALESCE($3,  model),
+        category      = COALESCE($4,  category),
+        storage       = COALESCE($5,  storage),
+        color         = COALESCE($6,  color),
+        condition     = COALESCE($7,  condition),
+        description   = COALESCE($8,  description),
+        base_cost     = COALESCE($9,  base_cost),
+        selling_price = COALESCE($10, selling_price),
+        barcode       = COALESCE($11, barcode),
+        is_active     = COALESCE($12, is_active),
+        updated_at    = NOW()
+       WHERE id = $13 RETURNING *`,
+      [name, brand, model, category, storage, color, condition, description, base_cost, selling_price, barcode, is_active, id]
     );
-    if (!result.rows.length) return res.status(404).json({ success: false, message: 'Product not found' });
-    res.json({ success: true, data: result.rows[0] });
+    res.json({ success: true, data: result.rows[0], message: 'Product updated' });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error('updateProduct error:', err);
+    res.status(500).json({ success: false, message: 'Server error updating product' });
   }
 };
 
-// GET /api/v1/products/stock/low - products with low or zero stock
-exports.getLowStock = async (req, res) => {
+// DELETE product
+const deleteProduct = async (req, res) => {
   try {
-    const result = await query(`
-      SELECT p.id, p.name, p.brand, p.model, p.condition,
-             COALESCE(SUM(i.qty_remaining), 0) as stock_qty
-      FROM products p
-      LEFT JOIN inventory_stock i ON i.product_id = p.id AND i.status = 'in_stock'
-      WHERE p.is_active = true
-      GROUP BY p.id
-      HAVING COALESCE(SUM(i.qty_remaining), 0) <= 2
-      ORDER BY stock_qty ASC
-    `);
-    res.json({ success: true, count: result.rows.length, data: result.rows });
+    const result = await pool.query('DELETE FROM products WHERE id = $1 RETURNING id', [req.params.id]);
+    if (result.rows.length === 0)
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    res.json({ success: true, message: 'Product deleted' });
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    res.status(500).json({ success: false, message: 'Server error deleting product' });
   }
 };
+
+// GET distinct categories
+const getCategories = async (req, res) => {
+  try {
+    const result = await pool.query('SELECT DISTINCT category FROM products WHERE category IS NOT NULL ORDER BY category');
+    res.json({ success: true, data: result.rows.map(r => r.category) });
+  } catch (err) {
+    res.status(500).json({ success: false, message: 'Server error' });
+  }
+};
+
+module.exports = { getProducts, getProductById, createProduct, updateProduct, deleteProduct, getCategories };
