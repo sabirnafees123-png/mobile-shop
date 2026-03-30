@@ -21,10 +21,14 @@ export default function Purchases() {
     setLoading(true);
     Promise.all([api.get('/purchases'), api.get('/suppliers'), api.get('/products')])
       .then(([p, s, pr]) => {
-  setPurchases(Array.isArray(p.data) ? p.data : (p.data?.data || []));
-  setSuppliers(Array.isArray(s.data) ? s.data : (s.data?.data || []));
-  setProducts(Array.isArray(pr.data) ? pr.data : (pr.data?.data || []));
+  const purchases = p.data?.data ?? p.data?.rows ?? p.data ?? [];
+  const suppliers = s.data?.data ?? s.data?.rows ?? s.data ?? [];
+  const products = pr.data?.data ?? pr.data?.rows ?? pr.data ?? [];
+  setPurchases(Array.isArray(purchases) ? purchases : []);
+  setSuppliers(Array.isArray(suppliers) ? suppliers : []);
+  setProducts(Array.isArray(products) ? products : []);
 })
+
 
       .finally(() => setLoading(false));
   };
