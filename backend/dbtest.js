@@ -1,0 +1,1 @@
+const {Pool}=require('pg');require('dotenv').config();const p=new Pool({connectionString:process.env.DATABASE_URL,ssl:{rejectUnauthorized:false}});p.query('SELECT NOW()').then(r=>console.log('CONNECTED',r.rows[0])).catch(e=>console.log('ERROR',e.message))
