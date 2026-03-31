@@ -4,18 +4,13 @@ const {
   getProducts, getProductById, createProduct,
   updateProduct, deleteProduct, getCategories
 } = require('../controllers/productsController');
-const { verifyToken, authorizeRoles } = require('../middleware/authMiddleware');
 
-// All routes require JWT
-router.use(verifyToken);
-
+// No role middleware — just use protect from server.js (already applied)
 router.get('/',           getProducts);
 router.get('/categories', getCategories);
 router.get('/:id',        getProductById);
-
-// Only Admin & Accountant can create/edit/delete
-router.post('/',    authorizeRoles('admin', 'accountant'), createProduct);
-router.put('/:id',  authorizeRoles('admin', 'accountant'), updateProduct);
-router.delete('/:id', authorizeRoles('admin'),             deleteProduct);
+router.post('/',          createProduct);
+router.put('/:id',        updateProduct);
+router.delete('/:id',     deleteProduct);
 
 module.exports = router;
