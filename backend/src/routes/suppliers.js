@@ -17,7 +17,7 @@ router.get("/setup", async (req, res) => {
         note          TEXT,
         created_at    TIMESTAMPTZ DEFAULT NOW()
       );
-
+ 
       CREATE INDEX IF NOT EXISTS idx_sp_supplier ON supplier_payments(supplier_id);
       CREATE INDEX IF NOT EXISTS idx_sp_date     ON supplier_payments(payment_date);
     `);
