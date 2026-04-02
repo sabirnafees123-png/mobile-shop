@@ -12,6 +12,7 @@ import Sales from './pages/Sales';
 import Suppliers from './pages/Suppliers';
 import Customers from './pages/Customers';
 import Expenses from './pages/Expenses';
+import Cheques from './pages/Cheques';
 
 
 
@@ -131,6 +132,14 @@ export default function App() {
                     element={
                       <ProtectedRoute allowedRoles={['admin', 'accountant']}>
                         <Expenses />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
+                    path="/cheques"
+                    element={
+                      <ProtectedRoute allowedRoles={['admin', 'accountant']}>
+                        <Cheques />
                       </ProtectedRoute>
                     }
                   />

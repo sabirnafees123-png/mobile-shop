@@ -37,6 +37,8 @@ const salesRoutes     = require('./routes/sales');
 const supplierRoutes  = require('./routes/suppliers');
 const customerRoutes  = require('./routes/customers');
 const expenseRoutes   = require('./routes/expenses');
+const chequeRoutes    = require('./routes/cheques');
+
 
 app.use('/api/v1/dashboard',  dashboardRoutes);
 app.use('/api/v1/products',   productRoutes);
@@ -46,6 +48,8 @@ app.use('/api/v1/sales',      salesRoutes);
 app.use('/api/v1/suppliers',  supplierRoutes);
 app.use('/api/v1/customers',  customerRoutes);
 app.use('/api/v1/expenses',   expenseRoutes);
+app.use('/api/v1/cheques',    chequeRoutes);
+
 
 // ─── Health check (public) ───────────────────────────────────────────────────
 app.get('/health', (req, res) => res.json({ status: 'OK', timestamp: new Date().toISOString() }));

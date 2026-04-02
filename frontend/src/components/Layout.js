@@ -21,6 +21,7 @@ export default function Layout({ children, user, onLogout }) {
     { path: '/suppliers', label: 'Suppliers', icon: '🏭', roles: ['admin','staff','accountant'] },
     { path: '/customers', label: 'Customers', icon: '👥', roles: ['admin','staff','accountant'] },
     { path: '/expenses',  label: 'Expenses',  icon: '💸', roles: ['admin','accountant'] },
+    { path: '/cheques',   label: 'Cheques',   icon: '🏦', roles: ['admin','accountant'] },
   ];
 
   const roleColors = { admin: '#16a34a', accountant: '#2563eb', staff: '#d97706' };
