@@ -98,8 +98,8 @@ exports.createSale = async (req, res) => {
     // ── Validate items ──
     const enrichedItems = [];
     for (const item of items) {
-      if (!item.product_id || !item.unit_price)
-        throw new Error('Each item needs product_id and unit_price');
+      if (!item.product_id)
+ 	 throw new Error('Each item needs a product');
       enrichedItems.push({ ...item, stockRow: null });
     }
 
