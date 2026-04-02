@@ -19,12 +19,12 @@ router.get('/', async (req, res) => {
 
 router.post('/', async (req, res) => {
   try {
-    const { category, description, amount, payment_method, expense_date, receipt_number, notes } = req.body;
+    const { category, description, amount, payment_method, expense_date, receipt_number, notes, payee, expense_type, status } = req.body;
     if (!category || !amount) return res.status(400).json({ success: false, message: 'Category and amount required' });
     const result = await query(
-      `INSERT INTO expenses (category, description, amount, payment_method, expense_date, receipt_number, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [category, description, amount, payment_method || 'cash', expense_date || new Date().toISOString().split('T')[0], receipt_number, notes]
+      `INSERT INTO expenses (category, description, amount, payment_method, expense_date, receipt_number, notes, payee, expense_type, status)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      [category, description, amount, payment_method || 'cash', expense_date || new Date().toISOString().split('T')[0], receipt_number, notes, payee, expense_type || 'one-time', status || 'paid']
     );
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
