@@ -134,12 +134,10 @@ exports.createSale = async (req, res) => {
 
       await client.query(
         `INSERT INTO sale_items
-          (invoice_id, product_id, qty, unit_cost, unit_price, discount, total_price, profit)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+          (invoice_id, product_id, qty, unit_cost, unit_price, discount)
+         VALUES ($1,$2,$3,$4,$5,$6)`,
         [invoiceId, item.product_id, qty, unitCost,
-         item.unit_price, item.discount || 0,
-         qty * item.unit_price,
-         qty * (item.unit_price - unitCost)]
+         item.unit_price, item.discount || 0]
       );
 
       // ✅ Decrease inventory
