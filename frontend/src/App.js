@@ -9,7 +9,7 @@ import Products from './pages/Products';
 import Inventory from './pages/Inventory';
 import Purchases from './pages/Purchases';
 import Sales from './pages/Sales';
-import Suppliers from './pages/Suppliers';
+import Suppliers from './pages/SuppliersLedgerPage';
 import Customers from './pages/Customers';
 import Expenses from './pages/Expenses';
 import Cheques from './pages/Cheques';
