@@ -97,11 +97,15 @@ exports.createPurchase = async (req, res) => {
         [purchaseId, item.product_id, item.imei, item.qty || 1, item.unit_cost]
       );
 
-      // Insert inventory stock line (one per item)
+            // ✅ Update inventory quantity
       await client.query(
-        `INSERT INTO inventory_stock (product_id, purchase_id, purchase_item_id, imei, unit_cost, selling_price, qty_purchased, status)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, 'in_stock')`,
-        [item.product_id, purchaseId, piResult.rows[0].id, item.imei, item.unit_cost, item.selling_price, item.qty || 1]
+        `INSERT INTO inventory (product_id, quantity, min_stock)
+         VALUES ($1, $2, 5)
+         ON CONFLICT (product_id)
+         DO UPDATE SET
+           quantity     = inventory.quantity + $2,
+           last_updated = NOW()`,
+        [item.product_id, item.qty || 1]
       );
     }
 
