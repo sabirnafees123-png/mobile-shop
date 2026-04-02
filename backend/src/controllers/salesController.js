@@ -1,6 +1,3 @@
-// src/controllers/salesController.js
-// Business Logic: Create invoice → sale_items → decrease inventory_stock
-
 const { query, getClient } = require('../config/database');
 
 async function generateInvoiceNumber() {
@@ -49,7 +46,8 @@ exports.getSale = async (req, res) => {
        WHERE si.id = $1`,
       [req.params.id]
     );
-    if (!invoice.rows.length) return res.status(404).json({ success: false, message: 'Invoice not found' });
+    if (!invoice.rows.length)
+      return res.status(404).json({ success: false, message: 'Invoice not found' });
 
     const items = await query(
       `SELECT s.*, p.name as product_name, p.brand, p.model
@@ -65,82 +63,109 @@ exports.getSale = async (req, res) => {
 };
 
 // POST /api/v1/sales
-// Body: { customer_id, sale_date, discount, payment_method, amount_paid, notes,
-//         items: [{product_id, inventory_stock_id, imei, qty, unit_price, discount}] }
 exports.createSale = async (req, res) => {
   const client = await getClient();
   try {
     await client.query('BEGIN');
 
-    const { customer_id, sale_date, discount = 0, payment_method = 'cash', amount_paid = 0, notes, items } = req.body;
+    const {
+      customer_id, customer_name, customer_phone,
+      sale_date, discount = 0, payment_method = 'cash',
+      amount_paid = 0, notes, items
+    } = req.body;
 
-    if (!items || !items.length) throw new Error('At least one sale item is required');
+    if (!items || !items.length)
+      throw new Error('At least one sale item is required');
 
-    // Validate and get stock for each item
-    const enrichedItems = [];
-    for (const item of items) {
-      if (!item.product_id || !item.unit_price) throw new Error('Each item needs product_id and unit_price');
+    // ── Handle walk-in or named customer ──
+    let finalCustomerId = customer_id || null;
+    if (!customer_id && customer_name) {
+      const existing = customer_phone
+        ? await client.query('SELECT id FROM customers WHERE phone = $1', [customer_phone])
+        : { rows: [] };
 
-      let stockRow = null;
-      if (item.inventory_stock_id) {
-        const stock = await client.query(
-          `SELECT * FROM inventory_stock WHERE id = $1 AND status = 'in_stock' AND qty_remaining >= $2`,
-          [item.inventory_stock_id, item.qty || 1]
+      if (existing.rows.length) {
+        finalCustomerId = existing.rows[0].id;
+      } else {
+        const newCust = await client.query(
+          `INSERT INTO customers (name, phone) VALUES ($1, $2) RETURNING id`,
+          [customer_name, customer_phone || null]
         );
-        if (!stock.rows.length) throw new Error(`Stock item ${item.inventory_stock_id} not available or insufficient qty`);
-        stockRow = stock.rows[0];
+        finalCustomerId = newCust.rows[0].id;
       }
-      enrichedItems.push({ ...item, stockRow });
     }
 
-    // Calculate totals
-    const subtotal = enrichedItems.reduce((sum, item) => sum + ((item.qty || 1) * item.unit_price), 0);
-    const totalAmount = subtotal - discount;
+    // ── Validate items ──
+    const enrichedItems = [];
+    for (const item of items) {
+      if (!item.product_id || !item.unit_price)
+        throw new Error('Each item needs product_id and unit_price');
+      enrichedItems.push({ ...item, stockRow: null });
+    }
+
+    // ── Calculate totals ──
+    const subtotal    = enrichedItems.reduce((sum, i) => sum + ((i.qty || 1) * i.unit_price), 0);
+    const totalAmount = subtotal - parseFloat(discount);
+    const paid        = parseFloat(amount_paid);
+    const amountDue   = totalAmount - paid;
     const invoiceNumber = await generateInvoiceNumber();
 
-    // 1. Create invoice
+    // ── 1. Create invoice ──
     const invoice = await client.query(
-      `INSERT INTO sales_invoices (invoice_number, customer_id, sale_date, subtotal, discount, total_amount, amount_paid, payment_method, payment_status, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
+      `INSERT INTO sales_invoices
+        (invoice_number, customer_id, sale_date, subtotal, discount, total_amount,
+         amount_paid, amount_due, payment_method, payment_status, notes)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
       [
-        invoiceNumber, customer_id, sale_date || new Date().toISOString().split('T')[0],
-        subtotal, discount, totalAmount, amount_paid, payment_method,
-        amount_paid >= totalAmount ? 'paid' : amount_paid > 0 ? 'partial' : 'unpaid',
+        invoiceNumber, finalCustomerId,
+        sale_date || new Date().toISOString().split('T')[0],
+        subtotal, discount, totalAmount, paid, amountDue,
+        payment_method,
+        paid >= totalAmount ? 'paid' : paid > 0 ? 'partial' : 'unpaid',
         notes
       ]
     );
     const invoiceId = invoice.rows[0].id;
 
-    // 2. Create sale items and update inventory
+    // ── 2. Insert items + update inventory ──
     for (const item of enrichedItems) {
-      const qty = item.qty || 1;
-      const unitCost = item.stockRow ? item.stockRow.unit_cost : 0;
+      const qty      = parseInt(item.qty) || 1;
+      const unitCost = 0;
 
       await client.query(
-        `INSERT INTO sale_items (invoice_id, product_id, inventory_stock_id, imei, qty, unit_cost, unit_price, discount)
+        `INSERT INTO sale_items
+          (invoice_id, product_id, qty, unit_cost, unit_price, discount, total_price, profit)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [invoiceId, item.product_id, item.inventory_stock_id, item.imei, qty, unitCost, item.unit_price, item.discount || 0]
+        [invoiceId, item.product_id, qty, unitCost,
+         item.unit_price, item.discount || 0,
+         qty * item.unit_price,
+         qty * (item.unit_price - unitCost)]
       );
 
-      // Decrease inventory stock
-      if (item.inventory_stock_id) {
-        const newQtySold = (item.stockRow.qty_sold || 0) + qty;
-        const isFullySold = newQtySold >= item.stockRow.qty_purchased;
-        await client.query(
-          `UPDATE inventory_stock SET qty_sold = $1, status = $2 WHERE id = $3`,
-          [newQtySold, isFullySold ? 'sold' : 'in_stock', item.inventory_stock_id]
-        );
-      }
+      // ✅ Decrease inventory
+      await client.query(
+        `UPDATE inventory SET quantity = quantity - $1, last_updated = NOW()
+         WHERE product_id = $2 AND quantity >= $1`,
+        [qty, item.product_id]
+      );
+
+      // Log movement
+      await client.query(
+        `INSERT INTO stock_movements (product_id, type, quantity, note, created_by)
+         VALUES ($1, 'out', $2, $3, $4)`,
+        [item.product_id, qty, `Sale ${invoiceNumber}`, req.user?.id]
+      );
     }
 
-    // 3. Update customer balance if amount_due > 0
-    if (customer_id && amount_paid < totalAmount) {
-      const amountDue = totalAmount - amount_paid;
-      await client.query('UPDATE customers SET balance = balance + $1 WHERE id = $2', [amountDue, customer_id]);
+    // ── 3. Update customer balance if due ──
+    if (finalCustomerId && amountDue > 0) {
+      await client.query(
+        `UPDATE customers SET balance = balance + $1 WHERE id = $2`,
+        [amountDue, finalCustomerId]
+      );
     }
 
     await client.query('COMMIT');
-
     res.status(201).json({
       success: true,
       message: `Invoice ${invoiceNumber} created successfully`,
