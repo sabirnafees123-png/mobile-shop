@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const pool = require("../db"); // your existing pg pool
+const pool = require("../config/db"); // your existing pg pool
 
 // ─── SETUP: Run once to create the payments table ────────────────────────────
 // Call GET /api/v1/suppliers/setup to create the table if it doesn't exist
