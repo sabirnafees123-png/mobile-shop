@@ -22,7 +22,7 @@ export default function Purchases() {
     Promise.all([api.get('/purchases'), api.get('/suppliers'), api.get('/products')])
      .then(([p, s, pr]) => {
   setPurchases(p.data?.data || []);
-  setSuppliers(s.data?.data || []);
+  setSuppliers(Array.isArray(s.data) ? s.data : s.data?.data || []);
   setProducts(pr.data?.data || []);
 })
 
