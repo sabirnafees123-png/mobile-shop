@@ -13,6 +13,109 @@ const EMPTY_FORM = {
 const fmt = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
 const fmtDate = d => new Date(d).toLocaleDateString('en-AE');
 
+// ── Print Invoice ────────────────────────────────────────────────────────────
+function printInvoice(sale) {
+  const items = (sale.items || []).map(item => `
+    <tr>
+      <td style="padding:8px;border-bottom:1px solid #eee;">${item.brand || ''} ${item.product_name || ''}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">${item.qty}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">AED ${Math.round(item.unit_price).toLocaleString()}</td>
+      <td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">AED ${Math.round((item.qty||1)*item.unit_price).toLocaleString()}</td>
+    </tr>
+  `).join('');
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <title>Invoice ${sale.invoice_number}</title>
+      <style>
+        body { font-family: Arial, sans-serif; max-width: 700px; margin: 0 auto; padding: 20px; color: #1a1a2e; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 30px; border-bottom: 2px solid #1a1a2e; padding-bottom: 20px; }
+        .shop-name { font-size: 24px; font-weight: bold; color: #1a1a2e; }
+        .shop-sub { font-size: 12px; color: #6b7280; margin-top: 4px; }
+        .invoice-title { font-size: 28px; font-weight: bold; color: #6366f1; }
+        .invoice-meta { font-size: 13px; color: #6b7280; text-align: right; }
+        .details { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 24px; }
+        .detail-box { background: #f8f9fc; padding: 14px; border-radius: 8px; }
+        .detail-label { font-size: 11px; color: #6b7280; text-transform: uppercase; margin-bottom: 6px; }
+        .detail-value { font-size: 14px; font-weight: 600; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 20px; }
+        thead tr { background: #1a1a2e; color: white; }
+        thead th { padding: 10px 8px; text-align: left; font-size: 13px; }
+        thead th:last-child, thead th:nth-child(3), thead th:nth-child(2) { text-align: right; }
+        .totals { text-align: right; border-top: 2px solid #1a1a2e; padding-top: 12px; }
+        .total-row { display: flex; justify-content: flex-end; gap: 20px; margin-bottom: 6px; font-size: 14px; }
+        .total-final { font-size: 20px; font-weight: bold; color: #6366f1; }
+        .status-badge { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600;
+          background: ${sale.payment_status==='paid'?'#d1fae5': sale.payment_status==='partial'?'#fef3c7':'#fee2e2'};
+          color: ${sale.payment_status==='paid'?'#065f46': sale.payment_status==='partial'?'#92400e':'#dc2626'}; }
+        .footer { margin-top: 40px; border-top: 1px solid #e8eaf0; padding-top: 16px; text-align: center; font-size: 12px; color: #9ca3af; }
+        @media print { body { padding: 0; } }
+      </style>
+    </head>
+    <body>
+      <div class="header">
+        <div>
+          <div class="shop-name">MobileShop</div>
+          <div class="shop-sub">Sharjah Management System</div>
+        </div>
+        <div>
+          <div class="invoice-title">INVOICE</div>
+          <div class="invoice-meta">
+            <div><strong>${sale.invoice_number}</strong></div>
+            <div>Date: ${fmtDate(sale.sale_date)}</div>
+            <div><span class="status-badge">${sale.payment_status?.toUpperCase()}</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="details">
+        <div class="detail-box">
+          <div class="detail-label">Customer</div>
+          <div class="detail-value">${sale.customer_name || 'Walk-in Customer'}</div>
+          ${sale.customer_phone ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${sale.customer_phone}</div>` : ''}
+        </div>
+        <div class="detail-box">
+          <div class="detail-label">Payment</div>
+          <div class="detail-value">${sale.payment_method?.toUpperCase()}</div>
+          ${sale.notes ? `<div style="font-size:13px;color:#6b7280;margin-top:4px;">${sale.notes}</div>` : ''}
+        </div>
+      </div>
+
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th style="text-align:center;">Qty</th>
+            <th style="text-align:right;">Unit Price</th>
+            <th style="text-align:right;">Total</th>
+          </tr>
+        </thead>
+        <tbody>${items}</tbody>
+      </table>
+
+      <div class="totals">
+        ${sale.discount > 0 ? `<div class="total-row"><span>Discount:</span><span style="color:#dc2626;">- AED ${Math.round(sale.discount).toLocaleString()}</span></div>` : ''}
+        <div class="total-row total-final"><span>Total:</span><span>AED ${Math.round(sale.total_amount).toLocaleString()}</span></div>
+        <div class="total-row" style="color:#059669;"><span>Paid:</span><span>AED ${Math.round(sale.amount_paid).toLocaleString()}</span></div>
+        ${sale.amount_due > 0 ? `<div class="total-row" style="color:#dc2626;"><span>Due:</span><span>AED ${Math.round(sale.amount_due).toLocaleString()}</span></div>` : ''}
+      </div>
+
+      <div class="footer">
+        Thank you for your business! · Generated on ${new Date().toLocaleDateString('en-AE')}
+      </div>
+
+      <script>window.onload = () => window.print();</script>
+    </body>
+    </html>
+  `;
+
+  const win = window.open('', '_blank');
+  win.document.write(html);
+  win.document.close();
+}
+
 export default function Sales() {
   const [sales, setSales]         = useState([]);
   const [products, setProducts]   = useState([]);
@@ -20,6 +123,8 @@ export default function Sales() {
   const [showModal, setShowModal] = useState(false);
   const [viewSale, setViewSale]   = useState(null);
   const [viewLoading, setViewLoading] = useState(false);
+  const [showReturn, setShowReturn]   = useState(null);
+  const [returnNote, setReturnNote]   = useState('');
   const [form, setForm]           = useState(EMPTY_FORM);
   const [search, setSearch]       = useState('');
 
@@ -33,10 +138,8 @@ export default function Sales() {
       .catch(() => toast.error('Failed to load'))
       .finally(() => setLoading(false));
   };
-
   useEffect(() => { load(); }, []);
 
-  // ── Open invoice view — fetch full details with items ──
   const openView = async (sale) => {
     setViewSale({ ...sale, items: [] });
     setViewLoading(true);
@@ -50,22 +153,33 @@ export default function Sales() {
     }
   };
 
-  // ── item helpers ──
+  const handleReturn = async () => {
+    if (!returnNote) return toast.error('Please enter a return reason');
+    try {
+      await api.post(`/sales/${showReturn.id}/return`, { note: returnNote });
+      toast.success('Return processed successfully');
+      setShowReturn(null);
+      setReturnNote('');
+      setViewSale(null);
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Failed to process return');
+    }
+  };
+
   const addItem = () => setForm(f => ({
     ...f, items: [...f.items, { product_id: '', product_name: '', qty: 1, unit_price: '', recommended_price: '', discount: 0 }]
   }));
-
   const removeItem = i => setForm(f => ({ ...f, items: f.items.filter((_, idx) => idx !== i) }));
-
   const updateItem = (i, key, val) => {
     const items = [...form.items];
     items[i] = { ...items[i], [key]: val };
     if (key === 'product_id') {
       const p = products.find(p => p.id === val);
       if (p) {
-        items[i].unit_price       = p.selling_price ? Math.round(p.selling_price).toString() : '';
+        items[i].unit_price        = p.selling_price ? Math.round(p.selling_price).toString() : '';
         items[i].recommended_price = p.selling_price ? Math.round(p.selling_price).toString() : '';
-        items[i].product_name     = p.name;
+        items[i].product_name      = p.name;
       }
     }
     setForm(f => ({ ...f, items }));
@@ -119,13 +233,11 @@ export default function Sales() {
         </button>
       </div>
 
-      {/* Search */}
-      <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
+      <div className="card" style={{padding:'1rem',marginBottom:'1rem'}}>
         <input className="form-control" placeholder="🔍 Search invoice # or customer..."
-          value={search} onChange={e => setSearch(e.target.value)} style={{ maxWidth: '400px' }} />
+          value={search} onChange={e => setSearch(e.target.value)} style={{maxWidth:'400px'}} />
       </div>
 
-      {/* Table */}
       <div className="card">
         {loading ? <div className="loading">Loading...</div> : (
           <div className="table-wrapper">
@@ -151,7 +263,9 @@ export default function Sales() {
                     <td><span className="badge badge-blue">{s.payment_method}</span></td>
                     <td><span className={`badge ${payStatus(s.payment_status)}`}>{s.payment_status}</span></td>
                     <td>
-                      <button className="btn btn-ghost btn-sm" onClick={() => openView(s)} title="View">👁️</button>
+                      <div style={{display:'flex',gap:'4px'}}>
+                        <button className="btn btn-ghost btn-sm" onClick={() => openView(s)} title="View">👁️</button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -198,67 +312,64 @@ export default function Sales() {
                 </div>
               </div>
 
-              {/* Items */}
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'1rem 0 0.5rem'}}>
                 <strong>Items</strong>
                 <button className="btn btn-ghost btn-sm" onClick={addItem}>+ Add Item</button>
               </div>
 
               {form.items.map((item, i) => (
-  <div key={i} style={{background:'var(--bg-secondary)',borderRadius:'8px',padding:'0.75rem',marginBottom:'0.5rem'}}>
-    <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr 1fr auto',gap:'8px',alignItems:'end'}}>
-      <div className="form-group" style={{marginBottom:0}}>
-        <label className="form-label">Product *</label>
-        <select className="form-control" value={item.product_id}
-          onChange={e => updateItem(i, 'product_id', e.target.value)}>
-          <option value="">Select product...</option>
-          {products.map(p => (
-            <option key={p.id} value={p.id}>
-              {p.brand} {p.name} {p.storage ? `- ${p.storage}` : ''} {p.color ? `(${p.color})` : ''}
-            </option>
-          ))}
-        </select>
-      </div>
-      <div className="form-group" style={{marginBottom:0}}>
-        <label className="form-label">Rec. Price</label>
-        <input type="number" className="form-control" value={item.recommended_price || ''}
-          readOnly
-          style={{background:'var(--bg-tertiary,#f3f4f6)',color:'var(--text-muted)',cursor:'not-allowed'}} />
-      </div>
-      <div className="form-group" style={{marginBottom:0}}>
-        <label className="form-label">Qty</label>
-        <input type="number" min="1" className="form-control" value={item.qty}
-          onChange={e => updateItem(i, 'qty', e.target.value)} />
-      </div>
-      <div className="form-group" style={{marginBottom:0}}>
-        <label className="form-label">Selling Price</label>
-        <input type="number" className="form-control" value={item.unit_price}
-          onChange={e => updateItem(i, 'unit_price', e.target.value)} placeholder="0" />
-      </div>
-      <div className="form-group" style={{marginBottom:0}}>
-        <label className="form-label">Discount</label>
-        <input type="number" className="form-control" value={item.discount}
-          onChange={e => updateItem(i, 'discount', e.target.value)} placeholder="0" />
-      </div>
-      {form.items.length > 1 && (
-        <button onClick={() => removeItem(i)}
-          style={{marginBottom:'2px',background:'none',border:'none',color:'var(--accent-red)',cursor:'pointer',fontSize:'1.2rem'}}>✕</button>
-      )}
-    </div>
-    {item.unit_price && item.qty && (
-      <div style={{textAlign:'right',fontSize:'.8rem',color:'var(--text-muted)',marginTop:'4px'}}>
-        Subtotal: AED {Math.round((parseFloat(item.qty)||0)*(parseFloat(item.unit_price)||0)).toLocaleString()}
-        {item.recommended_price && item.unit_price && (
-          <span style={{marginLeft:'12px', color: parseFloat(item.unit_price) >= parseFloat(item.recommended_price) ? 'var(--accent-green)' : 'var(--accent-red)'}}>
-            {parseFloat(item.unit_price) >= parseFloat(item.recommended_price) ? '✅ Above rec.' : '⚠️ Below rec.'}
-          </span>
-        )}
-      </div>
-    )}
-  </div>
-))}
+                <div key={i} style={{background:'var(--bg-secondary)',borderRadius:'8px',padding:'0.75rem',marginBottom:'0.5rem'}}>
+                  <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr 1fr auto',gap:'8px',alignItems:'end'}}>
+                    <div className="form-group" style={{marginBottom:0}}>
+                      <label className="form-label">Product *</label>
+                      <select className="form-control" value={item.product_id}
+                        onChange={e => updateItem(i, 'product_id', e.target.value)}>
+                        <option value="">Select product...</option>
+                        {products.map(p => (
+                          <option key={p.id} value={p.id}>
+                            {p.brand} {p.name} {p.storage ? `- ${p.storage}` : ''} {p.color ? `(${p.color})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="form-group" style={{marginBottom:0}}>
+                      <label className="form-label">Rec. Price</label>
+                      <input type="number" className="form-control" value={item.recommended_price || ''}
+                        readOnly style={{background:'var(--bg-tertiary,#f3f4f6)',color:'var(--text-muted)',cursor:'not-allowed'}} />
+                    </div>
+                    <div className="form-group" style={{marginBottom:0}}>
+                      <label className="form-label">Qty</label>
+                      <input type="number" min="1" className="form-control" value={item.qty}
+                        onChange={e => updateItem(i, 'qty', e.target.value)} />
+                    </div>
+                    <div className="form-group" style={{marginBottom:0}}>
+                      <label className="form-label">Selling Price</label>
+                      <input type="number" className="form-control" value={item.unit_price}
+                        onChange={e => updateItem(i, 'unit_price', e.target.value)} placeholder="0" />
+                    </div>
+                    <div className="form-group" style={{marginBottom:0}}>
+                      <label className="form-label">Discount</label>
+                      <input type="number" className="form-control" value={item.discount}
+                        onChange={e => updateItem(i, 'discount', e.target.value)} placeholder="0" />
+                    </div>
+                    {form.items.length > 1 && (
+                      <button onClick={() => removeItem(i)}
+                        style={{marginBottom:'2px',background:'none',border:'none',color:'var(--accent-red)',cursor:'pointer',fontSize:'1.2rem'}}>✕</button>
+                    )}
+                  </div>
+                  {item.unit_price && item.qty && (
+                    <div style={{textAlign:'right',fontSize:'.8rem',color:'var(--text-muted)',marginTop:'4px'}}>
+                      Subtotal: AED {Math.round((parseFloat(item.qty)||0)*(parseFloat(item.unit_price)||0)).toLocaleString()}
+                      {item.recommended_price && item.unit_price && (
+                        <span style={{marginLeft:'12px',color: parseFloat(item.unit_price) >= parseFloat(item.recommended_price) ? 'var(--accent-green)' : 'var(--accent-red)'}}>
+                          {parseFloat(item.unit_price) >= parseFloat(item.recommended_price) ? '✅ Above rec.' : '⚠️ Below rec.'}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
 
-              {/* Totals */}
               <div style={{background:'var(--bg-secondary)',borderRadius:'8px',padding:'1rem',marginTop:'0.5rem'}}>
                 <div className="form-grid">
                   <div className="form-group" style={{marginBottom:0}}>
@@ -296,7 +407,7 @@ export default function Sales() {
       {/* ── View Invoice Modal ── */}
       {viewSale && (
         <div className="modal-overlay" onClick={() => setViewSale(null)}>
-          <div className="modal" style={{maxWidth:'620px'}} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{maxWidth:'650px'}} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <strong>Invoice {viewSale.invoice_number}</strong>
               <button className="modal-close" onClick={() => setViewSale(null)}>✕</button>
@@ -316,24 +427,24 @@ export default function Sales() {
                 <table style={{width:'100%',fontSize:'0.9rem',borderCollapse:'collapse'}}>
                   <thead>
                     <tr style={{borderBottom:'2px solid var(--border)'}}>
-                      <th style={{textAlign:'left',padding:'0.5rem 0'}}>Item</th>
-                      <th style={{textAlign:'right',padding:'0.5rem 0'}}>Qty</th>
-                      <th style={{textAlign:'right',padding:'0.5rem 0'}}>Price</th>
-                      <th style={{textAlign:'right',padding:'0.5rem 0'}}>Total</th>
+                      <th style={{textAlign:'left',padding:'8px 0'}}>Item</th>
+                      <th style={{textAlign:'right',padding:'8px 0'}}>Qty</th>
+                      <th style={{textAlign:'right',padding:'8px 0'}}>Price</th>
+                      <th style={{textAlign:'right',padding:'8px 0'}}>Total</th>
                     </tr>
                   </thead>
                   <tbody>
                     {(viewSale.items || []).length === 0 ? (
-                      <tr><td colSpan={4} style={{textAlign:'center',padding:'1rem',color:'var(--text-muted)'}}>No items found</td></tr>
+                      <tr><td colSpan={4} style={{textAlign:'center',padding:'1rem',color:'var(--text-muted)'}}>No items</td></tr>
                     ) : (viewSale.items || []).map((item, i) => (
                       <tr key={i} style={{borderBottom:'1px solid var(--border)'}}>
-                        <td style={{padding:'0.5rem 0'}}>
+                        <td style={{padding:'8px 0'}}>
                           <strong>{item.brand || ''} {item.product_name || item.product_id}</strong>
                           {item.model && <span style={{color:'var(--text-muted)',fontSize:'.85rem'}}> — {item.model}</span>}
                         </td>
-                        <td style={{textAlign:'right',padding:'0.5rem 0'}}>{item.qty}</td>
-                        <td style={{textAlign:'right',padding:'0.5rem 0'}}>{fmt(item.unit_price)}</td>
-                        <td style={{textAlign:'right',padding:'0.5rem 0'}}>{fmt((item.qty||1) * item.unit_price)}</td>
+                        <td style={{textAlign:'right',padding:'8px 0'}}>{item.qty}</td>
+                        <td style={{textAlign:'right',padding:'8px 0'}}>{fmt(item.unit_price)}</td>
+                        <td style={{textAlign:'right',padding:'8px 0'}}>{fmt((item.qty||1)*item.unit_price)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -349,6 +460,42 @@ export default function Sales() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setViewSale(null)}>Close</button>
+              <button className="btn btn-ghost" style={{color:'var(--accent-red)'}}
+                onClick={() => { setShowReturn(viewSale); setReturnNote(''); }}>
+                🔄 Return
+              </button>
+              <button className="btn btn-primary" onClick={() => printInvoice(viewSale)}>
+                🖨️ Print
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Return Modal ── */}
+      {showReturn && (
+        <div className="modal-overlay" onClick={() => setShowReturn(null)}>
+          <div className="modal" style={{maxWidth:'420px'}} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <strong>🔄 Process Return</strong>
+              <button className="modal-close" onClick={() => setShowReturn(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div style={{padding:'12px',background:'#fef3c7',borderRadius:'8px',marginBottom:'16px',fontSize:'.9rem',color:'#92400e'}}>
+                ⚠️ This will reverse invoice <strong>{showReturn.invoice_number}</strong> — restoring inventory and reversing customer balance.
+              </div>
+              <div className="form-group">
+                <label className="form-label">Return Reason *</label>
+                <input className="form-control" value={returnNote}
+                  onChange={e => setReturnNote(e.target.value)}
+                  placeholder="e.g. Defective product, customer return..." />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setShowReturn(null)}>Cancel</button>
+              <button className="btn btn-primary" style={{background:'var(--accent-red)'}} onClick={handleReturn}>
+                Confirm Return
+              </button>
             </div>
           </div>
         </div>

@@ -1,3 +1,4 @@
+// src/controllers/salesController.js
 const { query, getClient } = require('../config/database');
 
 async function generateInvoiceNumber() {
@@ -24,9 +25,9 @@ exports.getAllSales = async (req, res) => {
     `;
     const params = [];
     let idx = 1;
-    if (from) { sql += ` AND si.sale_date >= $${idx++}`; params.push(from); }
-    if (to) { sql += ` AND si.sale_date <= $${idx++}`; params.push(to); }
-    if (payment_status) { sql += ` AND si.payment_status = $${idx++}`; params.push(payment_status); }
+    if (from)           { sql += ` AND si.sale_date >= $${idx++}`;        params.push(from); }
+    if (to)             { sql += ` AND si.sale_date <= $${idx++}`;        params.push(to); }
+    if (payment_status) { sql += ` AND si.payment_status = $${idx++}`;    params.push(payment_status); }
     sql += ` GROUP BY si.id, c.name ORDER BY si.sale_date DESC, si.created_at DESC`;
 
     const result = await query(sql, params);
@@ -77,13 +78,11 @@ exports.createSale = async (req, res) => {
     if (!items || !items.length)
       throw new Error('At least one sale item is required');
 
-    // ── Handle walk-in or named customer ──
     let finalCustomerId = customer_id || null;
     if (!customer_id && customer_name) {
       const existing = customer_phone
         ? await client.query('SELECT id FROM customers WHERE phone = $1', [customer_phone])
         : { rows: [] };
-
       if (existing.rows.length) {
         finalCustomerId = existing.rows[0].id;
       } else {
@@ -95,22 +94,18 @@ exports.createSale = async (req, res) => {
       }
     }
 
-    // ── Validate items ──
     const enrichedItems = [];
     for (const item of items) {
-      if (!item.product_id)
- 	 throw new Error('Each item needs a product');
-      enrichedItems.push({ ...item, stockRow: null });
+      if (!item.product_id) throw new Error('Each item needs a product');
+      enrichedItems.push({ ...item });
     }
 
-    // ── Calculate totals ──
-    const subtotal    = enrichedItems.reduce((sum, i) => sum + ((i.qty || 1) * i.unit_price), 0);
-    const totalAmount = subtotal - parseFloat(discount);
-    const paid        = parseFloat(amount_paid);
-    const amountDue   = totalAmount - paid;
+    const subtotal      = enrichedItems.reduce((sum, i) => sum + ((i.qty || 1) * i.unit_price), 0);
+    const totalAmount   = subtotal - parseFloat(discount);
+    const paid          = parseFloat(amount_paid);
+    const amountDue     = totalAmount - paid;
     const invoiceNumber = await generateInvoiceNumber();
 
-    // ── 1. Create invoice ──
     const invoice = await client.query(
       `INSERT INTO sales_invoices
         (invoice_number, customer_id, sale_date, subtotal, discount, total_amount,
@@ -127,27 +122,18 @@ exports.createSale = async (req, res) => {
     );
     const invoiceId = invoice.rows[0].id;
 
-    // ── 2. Insert items + update inventory ──
     for (const item of enrichedItems) {
-      const qty      = parseInt(item.qty) || 1;
-      const unitCost = 0;
-
+      const qty = parseInt(item.qty) || 1;
       await client.query(
-        `INSERT INTO sale_items
-          (invoice_id, product_id, qty, unit_cost, unit_price, discount)
+        `INSERT INTO sale_items (invoice_id, product_id, qty, unit_cost, unit_price, discount)
          VALUES ($1,$2,$3,$4,$5,$6)`,
-        [invoiceId, item.product_id, qty, unitCost,
-         item.unit_price, item.discount || 0]
+        [invoiceId, item.product_id, qty, 0, item.unit_price, item.discount || 0]
       );
-
-      // ✅ Decrease inventory
       await client.query(
         `UPDATE inventory SET quantity = quantity - $1, last_updated = NOW()
          WHERE product_id = $2 AND quantity >= $1`,
         [qty, item.product_id]
       );
-
-      // Log movement
       await client.query(
         `INSERT INTO stock_movements (product_id, type, quantity, note, created_by)
          VALUES ($1, 'out', $2, $3, $4)`,
@@ -155,7 +141,6 @@ exports.createSale = async (req, res) => {
       );
     }
 
-    // ── 3. Update customer balance if due ──
     if (finalCustomerId && amountDue > 0) {
       await client.query(
         `UPDATE customers SET balance = balance + $1 WHERE id = $2`,
@@ -169,7 +154,58 @@ exports.createSale = async (req, res) => {
       message: `Invoice ${invoiceNumber} created successfully`,
       data: invoice.rows[0],
     });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(400).json({ success: false, message: err.message });
+  } finally {
+    client.release();
+  }
+};
 
+// POST /api/v1/sales/:id/return
+exports.returnSale = async (req, res) => {
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+
+    const { note } = req.body;
+    const invoiceId = req.params.id;
+
+    const invoice = await client.query('SELECT * FROM sales_invoices WHERE id = $1', [invoiceId]);
+    if (!invoice.rows.length) throw new Error('Invoice not found');
+
+    const inv = invoice.rows[0];
+    if (inv.payment_status === 'returned') throw new Error('Invoice already returned');
+
+    const items = await client.query('SELECT * FROM sale_items WHERE invoice_id = $1', [invoiceId]);
+
+    for (const item of items.rows) {
+      await client.query(
+        `UPDATE inventory SET quantity = quantity + $1, last_updated = NOW() WHERE product_id = $2`,
+        [item.qty, item.product_id]
+      );
+      await client.query(
+        `INSERT INTO stock_movements (product_id, type, quantity, note, created_by)
+         VALUES ($1, 'in', $2, $3, $4)`,
+        [item.product_id, item.qty, `Return: ${inv.invoice_number} — ${note || 'Customer return'}`, req.user?.id]
+      );
+    }
+
+    if (inv.customer_id && inv.amount_due > 0) {
+      await client.query(
+        `UPDATE customers SET balance = balance - $1 WHERE id = $2`,
+        [inv.amount_due, inv.customer_id]
+      );
+    }
+
+    await client.query(
+      `UPDATE sales_invoices SET payment_status = 'returned',
+       notes = CONCAT(COALESCE(notes,''), ' | RETURNED: ', $1) WHERE id = $2`,
+      [note || 'Customer return', invoiceId]
+    );
+
+    await client.query('COMMIT');
+    res.json({ success: true, message: 'Return processed successfully' });
   } catch (err) {
     await client.query('ROLLBACK');
     res.status(400).json({ success: false, message: err.message });
