@@ -1,4 +1,5 @@
-const pool = require('../config/database');
+const { query, getClient } = require('../config/database');
+
 
 // GET all inventory with product details
 const getInventory = async (req, res) => {
@@ -49,7 +50,7 @@ const getInventoryByProduct = async (req, res) => {
 
 // POST adjust stock (add/remove/set)
 const adjustStock = async (req, res) => {
-  const client = await pool.connect();
+  const client = await getClient();
   try {
     await client.query('BEGIN');
     const { product_id, type, quantity, note } = req.body;
