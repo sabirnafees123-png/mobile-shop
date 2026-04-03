@@ -97,6 +97,17 @@ const piResult = await client.query(
         [purchaseId, item.product_id, item.imei, item.qty || 1, item.unit_cost, item.recommended_selling_price || 0]
       );
 
+
+
+// ✅ Update product selling price if recommended price provided
+if (item.recommended_selling_price && item.recommended_selling_price > 0) {
+  await client.query(
+    `UPDATE products SET selling_price = $1 WHERE id = $2`,
+    [item.recommended_selling_price, item.product_id]
+  );
+}
+
+
             // ✅ Update inventory quantity
       await client.query(
         `INSERT INTO inventory (product_id, quantity, min_stock)
