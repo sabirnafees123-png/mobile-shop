@@ -205,55 +205,58 @@ export default function Sales() {
               </div>
 
               {form.items.map((item, i) => (
-                <div key={i} style={{background:'var(--bg-secondary)',borderRadius:'8px',padding:'0.75rem',marginBottom:'0.5rem'}}>
-                  <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr auto',gap:'8px',alignItems:'end'}}>
-                    <div className="form-group" style={{marginBottom:0}}>
-                      <label className="form-label">Product *</label>
-                      <select className="form-control" value={item.product_id}
-                        onChange={e => updateItem(i, 'product_id', e.target.value)}>
-                        <option value="">Select product...</option>
-                        {products.map(p => (
-                          <option key={p.id} value={p.id}>
-                            {p.brand} {p.name} {p.storage ? `- ${p.storage}` : ''} {p.color ? `(${p.color})` : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                    <div className="form-group" style={{marginBottom:0}}>
-                      <label className="form-label">Qty</label>
-                      <input type="number" min="1" className="form-control" value={item.qty}
-                        onChange={e => updateItem(i, 'qty', e.target.value)} />
-                    </div>
-                    <div className="form-group" style={{marginBottom:0}}>
-                      <label className="form-label">
-                        Price (AED)
-                        {item.recommended_price && (
-                          <span style={{color:'var(--accent-green)',fontSize:'.75rem',marginLeft:'6px'}}>
-                            rec: {Math.round(item.recommended_price)}
-                          </span>
-                        )}
-                      </label>
-                      <input type="number" className="form-control" value={item.unit_price}
-                        onChange={e => updateItem(i, 'unit_price', e.target.value)} placeholder="0" />
-                    </div>
-                    <div className="form-group" style={{marginBottom:0}}>
-                      <label className="form-label">Discount</label>
-                      <input type="number" className="form-control" value={item.discount}
-                        onChange={e => updateItem(i, 'discount', e.target.value)} placeholder="0" />
-                    </div>
-                    {form.items.length > 1 && (
-                      <button onClick={() => removeItem(i)}
-                        style={{marginBottom:'2px',background:'none',border:'none',color:'var(--accent-red)',cursor:'pointer',fontSize:'1.2rem'}}>✕</button>
-                    )}
-                  </div>
-                  {/* Row subtotal */}
-                  {item.unit_price && item.qty && (
-                    <div style={{textAlign:'right',fontSize:'.8rem',color:'var(--text-muted)',marginTop:'4px'}}>
-                      Subtotal: AED {Math.round((parseFloat(item.qty)||0)*(parseFloat(item.unit_price)||0)).toLocaleString()}
-                    </div>
-                  )}
-                </div>
-              ))}
+  <div key={i} style={{background:'var(--bg-secondary)',borderRadius:'8px',padding:'0.75rem',marginBottom:'0.5rem'}}>
+    <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr 1fr auto',gap:'8px',alignItems:'end'}}>
+      <div className="form-group" style={{marginBottom:0}}>
+        <label className="form-label">Product *</label>
+        <select className="form-control" value={item.product_id}
+          onChange={e => updateItem(i, 'product_id', e.target.value)}>
+          <option value="">Select product...</option>
+          {products.map(p => (
+            <option key={p.id} value={p.id}>
+              {p.brand} {p.name} {p.storage ? `- ${p.storage}` : ''} {p.color ? `(${p.color})` : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="form-group" style={{marginBottom:0}}>
+        <label className="form-label">Rec. Price</label>
+        <input type="number" className="form-control" value={item.recommended_price || ''}
+          readOnly
+          style={{background:'var(--bg-tertiary,#f3f4f6)',color:'var(--text-muted)',cursor:'not-allowed'}} />
+      </div>
+      <div className="form-group" style={{marginBottom:0}}>
+        <label className="form-label">Qty</label>
+        <input type="number" min="1" className="form-control" value={item.qty}
+          onChange={e => updateItem(i, 'qty', e.target.value)} />
+      </div>
+      <div className="form-group" style={{marginBottom:0}}>
+        <label className="form-label">Selling Price</label>
+        <input type="number" className="form-control" value={item.unit_price}
+          onChange={e => updateItem(i, 'unit_price', e.target.value)} placeholder="0" />
+      </div>
+      <div className="form-group" style={{marginBottom:0}}>
+        <label className="form-label">Discount</label>
+        <input type="number" className="form-control" value={item.discount}
+          onChange={e => updateItem(i, 'discount', e.target.value)} placeholder="0" />
+      </div>
+      {form.items.length > 1 && (
+        <button onClick={() => removeItem(i)}
+          style={{marginBottom:'2px',background:'none',border:'none',color:'var(--accent-red)',cursor:'pointer',fontSize:'1.2rem'}}>✕</button>
+      )}
+    </div>
+    {item.unit_price && item.qty && (
+      <div style={{textAlign:'right',fontSize:'.8rem',color:'var(--text-muted)',marginTop:'4px'}}>
+        Subtotal: AED {Math.round((parseFloat(item.qty)||0)*(parseFloat(item.unit_price)||0)).toLocaleString()}
+        {item.recommended_price && item.unit_price && (
+          <span style={{marginLeft:'12px', color: parseFloat(item.unit_price) >= parseFloat(item.recommended_price) ? 'var(--accent-green)' : 'var(--accent-red)'}}>
+            {parseFloat(item.unit_price) >= parseFloat(item.recommended_price) ? '✅ Above rec.' : '⚠️ Below rec.'}
+          </span>
+        )}
+      </div>
+    )}
+  </div>
+))}
 
               {/* Totals */}
               <div style={{background:'var(--bg-secondary)',borderRadius:'8px',padding:'1rem',marginTop:'0.5rem'}}>
