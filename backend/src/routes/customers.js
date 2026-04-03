@@ -79,7 +79,7 @@ router.get("/:id/ledger", async (req, res) => {
         -- Sales Invoices: customer owes us (debit)
         SELECT
           'sale'              AS type,
-          si.id               AS ref_id,
+          CAST(si.id AS VARCHAR) AS ref_id,
           si.invoice_number   AS reference,
           si.sale_date        AS entry_date,
           si.total_amount     AS debit,
@@ -95,7 +95,7 @@ router.get("/:id/ledger", async (req, res) => {
         -- Receipts: customer paid us (credit)
         SELECT
           'receipt'           AS type,
-          cr.id               AS ref_id,
+          CAST(cr.id AS VARCHAR) AS ref_id,
           CAST(cr.id AS VARCHAR) AS reference,
           cr.receipt_date     AS entry_date,
           0                   AS debit,
