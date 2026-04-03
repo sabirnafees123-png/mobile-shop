@@ -92,9 +92,11 @@ exports.createPurchase = async (req, res) => {
       
       // Insert purchase item
       const piResult = await client.query(
-        `INSERT INTO purchase_items (purchase_id, product_id, imei, qty, unit_cost)
-         VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-        [purchaseId, item.product_id, item.imei, item.qty || 1, item.unit_cost]
+        `INSERT INTO purchase_items (purchase_id, product_id, imei, qty, unit_cost, recommended_selling_price)
+       VALUES ($1, $2, $3, $4, $5, $6) RETURNING id
+
+        [purchaseId, item.product_id, item.imei, item.qty || 1, item.unit_cost, item.recommended_selling_price || 0]
+
       );
 
             // ✅ Update inventory quantity

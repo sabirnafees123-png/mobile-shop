@@ -14,7 +14,7 @@ export default function Purchases() {
   const [form, setForm] = useState({
     supplier_id: '', purchase_date: new Date().toISOString().split('T')[0],
     amount_paid: '', notes: '',
-    items: [{ product_id: '', imei: '', qty: 1, unit_cost: '', selling_price: '' }]
+    items: [{ product_id: '', imei: '', qty: 1, unit_cost: '', recommended_selling_price: '' }]
   });
 
   const load = () => {
@@ -32,7 +32,7 @@ export default function Purchases() {
   };
   useEffect(() => { load(); }, []);
 
-  const addItem = () => setForm({ ...form, items: [...form.items, { product_id: '', imei: '', qty: 1, unit_cost: '', selling_price: '' }] });
+  const addItem = () => setForm({ ...form, items: [...form.items, { product_id: '', imei: '', qty: 1, unit_cost: '', recommended_selling_price: '' }] });
   const removeItem = (i) => setForm({ ...form, items: form.items.filter((_, idx) => idx !== i) });
   const updateItem = (i, key, val) => {
     const items = [...form.items];
@@ -49,7 +49,8 @@ export default function Purchases() {
       const res = await api.post('/purchases', { ...form, amount_paid: parseFloat(form.amount_paid) || 0 });
       toast.success(res.message || 'Purchase created!');
       setShowModal(false);
-      setForm({ supplier_id: '', purchase_date: new Date().toISOString().split('T')[0], amount_paid: '', notes: '', items: [{ product_id: '', imei: '', qty: 1, unit_cost: '', selling_price: '' }] });
+      setForm({ supplier_id: '', purchase_date: new Date().toISOString().split('T')[0], amount_paid: '', notes: '', items: [{ product_id: '', imei: '', qty: 1, unit_cost: '', recommended_selling_price: '' }
+] });
       load();
     } catch (err) { toast.error(err.message); }
   };
@@ -144,9 +145,9 @@ export default function Purchases() {
                       <input type="number" min="1" className="form-control" value={item.qty} onChange={e => updateItem(i,'qty',e.target.value)} />
                     </div>
                     <div className="form-group" style={{marginBottom:0}}>
-                      <label className="form-label">Unit Cost *</label>
-                      <input type="number" className="form-control" value={item.unit_cost} onChange={e => updateItem(i,'unit_cost',e.target.value)} placeholder="0.00" />
-                    </div>
+  <label className="form-label">Selling Price</label>
+  <input type="number" className="form-control" value={item.recommended_selling_price} onChange={e => updateItem(i,'recommended_selling_price',e.target.value)} placeholder="0.00" />
+</div>
                     {form.items.length > 1 && (
                       <button onClick={() => removeItem(i)} style={{marginTop:'1.5rem',background:'none',border:'none',color:'var(--accent-red)',cursor:'pointer',fontSize:'1.1rem'}}>✕</button>
                     )}
