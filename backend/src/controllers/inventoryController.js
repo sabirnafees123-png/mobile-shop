@@ -1,13 +1,15 @@
+// src/controllers/inventoryController.js
 const { query, getClient } = require('../config/database');
-
 
 // GET all inventory with product details
 const getInventory = async (req, res) => {
   try {
-    const { search, low_stock } = req.query;
-    let query = `
-      SELECT i.*, p.name, p.brand, p.model, p.category, p.is_active,
-             CASE WHEN i.quantity <= i.min_stock THEN true ELSE false END as is_low_stock
+    const { search, low_stock, status, from, to } = req.query;
+    let sql = `
+      SELECT i.*, p.name, p.brand, p.model, p.category, p.color, p.is_active,
+             CASE WHEN i.quantity = 0 THEN 'out_of_stock'
+                  WHEN i.quantity <= i.min_stock THEN 'low_stock'
+                  ELSE 'in_stock' END as stock_status
       FROM inventory i
       JOIN products p ON i.product_id = p.id
       WHERE p.is_active = true
@@ -16,25 +18,40 @@ const getInventory = async (req, res) => {
 
     if (search) {
       params.push(`%${search}%`);
-      query += ` AND (p.name ILIKE $${params.length} OR p.brand ILIKE $${params.length} OR p.model ILIKE $${params.length})`;
+      sql += ` AND (p.name ILIKE $${params.length} OR p.brand ILIKE $${params.length} OR p.model ILIKE $${params.length})`;
     }
     if (low_stock === 'true') {
-      query += ` AND i.quantity <= i.min_stock`;
+      sql += ` AND i.quantity <= i.min_stock`;
+    }
+    if (status === 'in_stock') {
+      sql += ` AND i.quantity > i.min_stock`;
+    } else if (status === 'low_stock') {
+      sql += ` AND i.quantity <= i.min_stock AND i.quantity > 0`;
+    } else if (status === 'out_of_stock') {
+      sql += ` AND i.quantity = 0`;
+    }
+    if (from) {
+      params.push(from);
+      sql += ` AND i.last_updated >= $${params.length}`;
+    }
+    if (to) {
+      params.push(to);
+      sql += ` AND i.last_updated <= $${params.length}`;
     }
 
-    query += ` ORDER BY i.quantity ASC`;
-    const result = await pool.query(query, params);
+    sql += ` ORDER BY i.quantity ASC`;
+    const result = await query(sql, params);
     res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error('getInventory error:', err);
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
 // GET single inventory item
 const getInventoryByProduct = async (req, res) => {
   try {
-    const result = await pool.query(
+    const result = await query(
       `SELECT i.*, p.name, p.brand, p.category
        FROM inventory i JOIN products p ON i.product_id = p.id
        WHERE i.product_id = $1`,
@@ -44,7 +61,7 @@ const getInventoryByProduct = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Not found' });
     res.json({ success: true, data: result.rows[0] });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -64,32 +81,25 @@ const adjustStock = async (req, res) => {
     if (quantity < 0)
       return res.status(400).json({ success: false, message: 'Quantity must be positive' });
 
-    // Get current stock
-    const current = await client.query(
-      'SELECT * FROM inventory WHERE product_id = $1', [product_id]
-    );
+    const current = await client.query('SELECT * FROM inventory WHERE product_id = $1', [product_id]);
     if (current.rows.length === 0)
       return res.status(404).json({ success: false, message: 'Product not in inventory' });
 
     let newQty;
-    if (type === 'in')         newQty = current.rows[0].quantity + quantity;
-    else if (type === 'out')   newQty = current.rows[0].quantity - quantity;
-    else                       newQty = quantity; // adjustment = set absolute value
+    if (type === 'in')       newQty = current.rows[0].quantity + quantity;
+    else if (type === 'out') newQty = current.rows[0].quantity - quantity;
+    else                     newQty = quantity;
 
     if (newQty < 0)
       return res.status(400).json({ success: false, message: 'Stock cannot go below 0' });
 
-    // Update inventory
     const updated = await client.query(
-      `UPDATE inventory SET quantity = $1, last_updated = NOW()
-       WHERE product_id = $2 RETURNING *`,
+      `UPDATE inventory SET quantity = $1, last_updated = NOW() WHERE product_id = $2 RETURNING *`,
       [newQty, product_id]
     );
 
-    // Log movement
     await client.query(
-      `INSERT INTO stock_movements (product_id, type, quantity, note, created_by)
-       VALUES ($1, $2, $3, $4, $5)`,
+      `INSERT INTO stock_movements (product_id, type, quantity, note, created_by) VALUES ($1, $2, $3, $4, $5)`,
       [product_id, type, quantity, note, req.user?.id]
     );
 
@@ -98,7 +108,7 @@ const adjustStock = async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('adjustStock error:', err);
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ success: false, message: err.message });
   } finally {
     client.release();
   }
@@ -108,7 +118,7 @@ const adjustStock = async (req, res) => {
 const updateMinStock = async (req, res) => {
   try {
     const { product_id, min_stock, location } = req.body;
-    const result = await pool.query(
+    const result = await query(
       `UPDATE inventory SET min_stock = COALESCE($1, min_stock),
         location = COALESCE($2, location), last_updated = NOW()
        WHERE product_id = $3 RETURNING *`,
@@ -116,7 +126,7 @@ const updateMinStock = async (req, res) => {
     );
     res.json({ success: true, data: result.rows[0], message: 'Updated' });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -124,7 +134,7 @@ const updateMinStock = async (req, res) => {
 const getMovements = async (req, res) => {
   try {
     const { product_id, limit = 50 } = req.query;
-    let query = `
+    let sql = `
       SELECT sm.*, p.name as product_name, p.brand
       FROM stock_movements sm
       JOIN products p ON sm.product_id = p.id
@@ -133,34 +143,35 @@ const getMovements = async (req, res) => {
     const params = [];
     if (product_id) {
       params.push(product_id);
-      query += ` AND sm.product_id = $${params.length}`;
+      sql += ` AND sm.product_id = $${params.length}`;
     }
     params.push(limit);
-    query += ` ORDER BY sm.created_at DESC LIMIT $${params.length}`;
-    const result = await pool.query(query, params);
+    sql += ` ORDER BY sm.created_at DESC LIMIT $${params.length}`;
+    const result = await query(sql, params);
     res.json({ success: true, data: result.rows });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
 // GET summary stats
 const getInventoryStats = async (req, res) => {
   try {
-    const result = await pool.query(`
+    const result = await query(`
       SELECT
-        COUNT(*)                                         as total_products,
-        SUM(i.quantity)                                  as total_units,
-        COUNT(*) FILTER (WHERE i.quantity = 0)           as out_of_stock,
-        COUNT(*) FILTER (WHERE i.quantity <= i.min_stock AND i.quantity > 0) as low_stock,
-        SUM(i.quantity * p.base_cost)                   as total_cost_value,
-        SUM(i.quantity * p.selling_price)               as total_sell_value
-      FROM inventory i JOIN products p ON i.product_id = p.id
+        COUNT(*)                                                              AS total_products,
+        COALESCE(SUM(i.quantity), 0)                                         AS total_units,
+        COUNT(*) FILTER (WHERE i.quantity = 0)                               AS out_of_stock,
+        COUNT(*) FILTER (WHERE i.quantity <= i.min_stock AND i.quantity > 0) AS low_stock,
+        COALESCE(SUM(i.quantity * COALESCE(p.base_cost, 0)), 0)             AS total_cost_value,
+        COALESCE(SUM(i.quantity * COALESCE(p.selling_price, 0)), 0)         AS total_sell_value
+      FROM inventory i
+      JOIN products p ON i.product_id = p.id
       WHERE p.is_active = true
     `);
     res.json({ success: true, data: result.rows[0] });
   } catch (err) {
-    res.status(500).json({ success: false, message: 'Server error' });
+    res.status(500).json({ success: false, message: err.message });
   }
 };
 
