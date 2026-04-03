@@ -183,7 +183,7 @@ export default function Inventory() {
 
       {/* Stats */}
       {stats && (
-        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:'12px',marginBottom:'20px'}}>
+        <div className="stat-grid" style={{marginBottom:'20px'}}>
           {[
             { label: 'Total Products', value: stats.total_products,  icon: '📦' },
             { label: 'Total Units',    value: stats.total_units || 0, icon: '🔢' },
