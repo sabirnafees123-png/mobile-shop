@@ -3,32 +3,27 @@ import React, { useEffect, useState } from 'react';
 import api from '../utils/api';
 
 export default function Dashboard() {
-  const [data, setData] = useState(null);
+  const [data, setData]     = useState(null);
   const [loading, setLoading] = useState(true);
-  const currency = process.env.REACT_APP_CURRENCY || 'AED';
 
   useEffect(() => {
     api.get('/dashboard/summary')
-      .then(res => {
-        // Handle both response structures
-        const responseData = res.data?.data || res.data;
-        setData(responseData);
-      })
+      .then(res => setData(res.data?.data || res.data))
       .catch(console.error)
       .finally(() => setLoading(false));
   }, []);
 
   if (loading) return <div className="loading">Loading dashboard...</div>;
-  if (!data) return <div className="empty-state">Failed to load dashboard</div>;
+  if (!data)   return <div className="empty-state">Failed to load dashboard</div>;
 
-  const fmt = (n) => `${currency} ${parseFloat(n || 0).toLocaleString('en-AE', { minimumFractionDigits: 2 })}`;
+  const fmt = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
 
-  // Safe accessors with fallbacks
-  const sales = data.sales || {};
-  const today = sales.today || { total: 0, count: 0 };
+  const sales      = data.sales      || {};
+  const today      = sales.today      || { total: 0, count: 0 };
   const this_month = sales.this_month || { total: 0, count: 0 };
-  const inventory = data.inventory || { total_units: 0, total_lines: 0, low_stock_alerts: 0 };
-  const financials = data.financials || { owed_to_suppliers: 0, owed_by_customers: 0 };
+  const inventory  = data.inventory  || {};
+  const financials = data.financials || {};
+  const cheques    = data.cheques    || {};
   const top_products = data.top_products || [];
 
   return (
@@ -38,11 +33,18 @@ export default function Dashboard() {
           <div className="page-title">Dashboard</div>
           <div className="page-subtitle">Welcome back — here's what's happening today</div>
         </div>
-        <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
-          {new Date().toLocaleDateString('en-AE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+        <span style={{fontSize:'0.8rem',color:'var(--text-muted)'}}>
+          {new Date().toLocaleDateString('en-AE', {weekday:'long',year:'numeric',month:'long',day:'numeric'})}
         </span>
       </div>
-      <div className="stat-grid">
+
+      {/* ── Sales Cards ── */}
+      <div style={{marginBottom:'8px',padding:'4px 0'}}>
+        <span style={{fontSize:'.8rem',fontWeight:600,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'.05em'}}>
+          Sales
+        </span>
+      </div>
+      <div className="stat-grid" style={{marginBottom:'24px'}}>
         <div className="stat-card green">
           <div className="label">Today's Sales</div>
           <div className="value">{fmt(today.total)}</div>
@@ -53,16 +55,44 @@ export default function Dashboard() {
           <div className="value">{fmt(this_month.total)}</div>
           <div className="sub">{this_month.count} invoice(s)</div>
         </div>
+      </div>
+
+      {/* ── Inventory Cards ── */}
+      <div style={{marginBottom:'8px',padding:'4px 0'}}>
+        <span style={{fontSize:'.8rem',fontWeight:600,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'.05em'}}>
+          Inventory
+        </span>
+      </div>
+      <div className="stat-grid" style={{marginBottom:'24px'}}>
         <div className="stat-card yellow">
           <div className="label">Stock Units</div>
-          <div className="value">{inventory.total_units}</div>
-          <div className="sub">{inventory.total_lines} stock lines</div>
+          <div className="value">{inventory.total_units || 0}</div>
+          <div className="sub">{inventory.total_lines || 0} product lines</div>
         </div>
         <div className="stat-card red">
           <div className="label">Low Stock Alerts</div>
-          <div className="value">{inventory.low_stock_alerts}</div>
-          <div className="sub">products ≤ 2 units</div>
+          <div className="value">{inventory.low_stock_alerts || 0}</div>
+          <div className="sub">products ≤ min stock</div>
         </div>
+        <div className="stat-card blue">
+          <div className="label">Inventory Cost Value</div>
+          <div className="value">{fmt(inventory.cost_value)}</div>
+          <div className="sub">at purchase price</div>
+        </div>
+        <div className="stat-card green">
+          <div className="label">Inventory Retail Value</div>
+          <div className="value">{fmt(inventory.retail_value)}</div>
+          <div className="sub">at selling price</div>
+        </div>
+      </div>
+
+      {/* ── Financial Cards ── */}
+      <div style={{marginBottom:'8px',padding:'4px 0'}}>
+        <span style={{fontSize:'.8rem',fontWeight:600,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'.05em'}}>
+          Financials
+        </span>
+      </div>
+      <div className="stat-grid" style={{marginBottom:'24px'}}>
         <div className="stat-card red">
           <div className="label">Owed to Suppliers</div>
           <div className="value">{fmt(financials.owed_to_suppliers)}</div>
@@ -73,7 +103,14 @@ export default function Dashboard() {
           <div className="value">{fmt(financials.owed_by_customers)}</div>
           <div className="sub">outstanding receivables</div>
         </div>
+        <div className="stat-card yellow">
+          <div className="label">Pending Cheques</div>
+          <div className="value">{fmt(cheques.pending_total)}</div>
+          <div className="sub">{cheques.pending_count || 0} cheque(s) pending</div>
+        </div>
       </div>
+
+      {/* ── Top Products ── */}
       <div className="card">
         <div className="card-header">
           <div className="card-title">🏆 Top Products This Month</div>
@@ -85,10 +122,7 @@ export default function Dashboard() {
             <table>
               <thead>
                 <tr>
-                  <th>#</th>
-                  <th>Product</th>
-                  <th>Units Sold</th>
-                  <th>Revenue</th>
+                  <th>#</th><th>Product</th><th>Units Sold</th><th>Revenue</th>
                 </tr>
               </thead>
               <tbody>
