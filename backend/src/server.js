@@ -29,33 +29,29 @@ const { protect } = require('./middleware/authMiddleware');
 app.use('/api/v1', protect);
 
 // ─── All protected routes ────────────────────────────────────────────────────
-const dashboardRoutes = require('./routes/dashboard');
-const productRoutes   = require('./routes/products');
-const inventoryRoutes = require('./routes/inventory');
-const purchaseRoutes  = require('./routes/purchases');
-const salesRoutes     = require('./routes/sales');
-const supplierRoutes  = require('./routes/suppliers');
-const customerRoutes  = require('./routes/customers');
-const expenseRoutes   = require('./routes/expenses');
-const chequeRoutes    = require('./routes/cheques');
+const dashboardRoutes    = require('./routes/dashboard');
+const productRoutes      = require('./routes/products');
+const inventoryRoutes    = require('./routes/inventory');
+const purchaseRoutes     = require('./routes/purchases');
+const salesRoutes        = require('./routes/sales');
+const supplierRoutes     = require('./routes/suppliers');
+const customerRoutes     = require('./routes/customers');
+const expenseRoutes      = require('./routes/expenses');
+const chequeRoutes       = require('./routes/cheques');
 const reportRoutes       = require('./routes/reports');
 const cashRegisterRoutes = require('./routes/cashRegister');
 
-
-
-app.use('/api/v1/dashboard',  dashboardRoutes);
-app.use('/api/v1/products',   productRoutes);
-app.use('/api/v1/inventory',  inventoryRoutes);
-app.use('/api/v1/purchases',  purchaseRoutes);
-app.use('/api/v1/sales',      salesRoutes);
-app.use('/api/v1/suppliers',  supplierRoutes);
-app.use('/api/v1/customers',  customerRoutes);
-app.use('/api/v1/expenses',   expenseRoutes);
-app.use('/api/v1/cheques',    chequeRoutes);
+app.use('/api/v1/dashboard',      dashboardRoutes);
+app.use('/api/v1/products',       productRoutes);
+app.use('/api/v1/inventory',      inventoryRoutes);
+app.use('/api/v1/purchases',      purchaseRoutes);
+app.use('/api/v1/sales',          salesRoutes);
+app.use('/api/v1/suppliers',      supplierRoutes);
+app.use('/api/v1/customers',      customerRoutes);
+app.use('/api/v1/expenses',       expenseRoutes);
+app.use('/api/v1/cheques',        chequeRoutes);
 app.use('/api/v1/reports',        reportRoutes);
 app.use('/api/v1/cash-register',  cashRegisterRoutes);
-
-
 
 // ─── Health check (public) ───────────────────────────────────────────────────
 app.get('/health', (req, res) => res.json({ status: 'OK', timestamp: new Date().toISOString() }));
