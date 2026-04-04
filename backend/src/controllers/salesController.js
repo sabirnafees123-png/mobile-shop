@@ -105,21 +105,24 @@ exports.createSale = async (req, res) => {
     const paid          = parseFloat(amount_paid);
     const amountDue     = totalAmount - paid;
     const invoiceNumber = await generateInvoiceNumber();
+    
 
-    const invoice = await client.query(
-      `INSERT INTO sales_invoices
-        (invoice_number, customer_id, sale_date, subtotal, discount, total_amount,
-         amount_paid, amount_due, payment_method, payment_status, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11) RETURNING *`,
-      [
-        invoiceNumber, finalCustomerId,
-        sale_date || new Date().toISOString().split('T')[0],
-        subtotal, discount, totalAmount, paid, amountDue,
-        payment_method,
-        paid >= totalAmount ? 'paid' : paid > 0 ? 'partial' : 'unpaid',
-        notes
-      ]
-    );
+    const userId = req.user?.id || null;
+
+const invoice = await client.query(
+  `INSERT INTO sales_invoices
+    (invoice_number, customer_id, sale_date, subtotal, discount, total_amount,
+     amount_paid, amount_due, payment_method, payment_status, notes, user_id)
+   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+  [
+    invoiceNumber, finalCustomerId,
+    sale_date || new Date().toISOString().split('T')[0],
+    subtotal, discount, totalAmount, paid, amountDue,
+    payment_method,
+    paid >= totalAmount ? 'paid' : paid > 0 ? 'partial' : 'unpaid',
+    notes, userId
+  ]
+);
     const invoiceId = invoice.rows[0].id;
 
     for (const item of enrichedItems) {
