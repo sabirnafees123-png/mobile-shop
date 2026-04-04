@@ -135,7 +135,15 @@ export default function App() {
 
 
                   {/* Expenses: admin and accountant only */}
-                                    <Route
+                  <Route
+                    path="/expenses"
+                    element={
+                      <ProtectedRoute allowedRoles={['admin', 'accountant']}>
+                        <Expenses />
+                      </ProtectedRoute>
+                    }
+                  />
+                  <Route
                     path="/users"
                     element={
                       <ProtectedRoute allowedRoles={['admin']}>

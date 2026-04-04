@@ -93,8 +93,8 @@ router.post('/import', async (req, res) => {
   }
 });
 
-router.get('/:productId',  getInventoryByProduct);
 router.post('/adjust',     adjustStock);
 router.put('/settings',    updateMinStock);
+router.get('/:productId',  getInventoryByProduct);
 
 module.exports = router;
