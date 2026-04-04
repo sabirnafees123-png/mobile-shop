@@ -6,7 +6,6 @@ require('dotenv').config();
 
 const app = express();
 
-// Middleware
 app.use(helmet());
 app.use(cors({
   origin: [
@@ -20,11 +19,11 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// ─── Auth routes (PUBLIC — no protect middleware here) ───────────────────────
+// ─── Auth routes (PUBLIC) ────────────────────────────────────────────────────
 const authRoutes = require('./routes/authRoutes');
 app.use('/api/v1/auth', authRoutes);
 
-// ─── Protected middleware (ALL routes below require valid JWT) ────────────────
+// ─── Protected middleware ────────────────────────────────────────────────────
 const { protect } = require('./middleware/authMiddleware');
 app.use('/api/v1', protect);
 
@@ -40,6 +39,8 @@ const expenseRoutes      = require('./routes/expenses');
 const chequeRoutes       = require('./routes/cheques');
 const reportRoutes       = require('./routes/reports');
 const cashRegisterRoutes = require('./routes/cashRegister');
+const shopRoutes         = require('./routes/shops');
+const obligationRoutes   = require('./routes/obligations');
 
 app.use('/api/v1/dashboard',      dashboardRoutes);
 app.use('/api/v1/products',       productRoutes);
@@ -52,8 +53,10 @@ app.use('/api/v1/expenses',       expenseRoutes);
 app.use('/api/v1/cheques',        chequeRoutes);
 app.use('/api/v1/reports',        reportRoutes);
 app.use('/api/v1/cash-register',  cashRegisterRoutes);
+app.use('/api/v1/shops',          shopRoutes);
+app.use('/api/v1/obligations',    obligationRoutes);
 
-// ─── Health check (public) ───────────────────────────────────────────────────
+// ─── Health check ────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => res.json({ status: 'OK', timestamp: new Date().toISOString() }));
 
 // ─── 404 handler ─────────────────────────────────────────────────────────────

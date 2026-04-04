@@ -16,8 +16,8 @@ import Cheques from './pages/Cheques';
 import Users from './pages/Users';
 import Reports      from './pages/Reports';
 import CashRegister from './pages/CashRegister';
-
-
+import Obligations from './pages/Obligations';
+import Transfers from './pages/Transfers';
 
 
 
@@ -132,7 +132,8 @@ export default function App() {
                   <Route path="/customers" element={<Customers />} />
 		  <Route path="/reports"       element={<Reports />} />
 		  <Route path="/cash-register" element={<CashRegister />} />
-
+		  <Route path="/obligations" element={<Obligations />} />
+		  <Route path="/transfers" element={<Transfers />} />
 
                   {/* Expenses: admin and accountant only */}
                   <Route

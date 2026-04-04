@@ -25,6 +25,8 @@ export default function Layout({ children, user, onLogout }) {
     { path: '/users',     label: 'Users',     icon: '👤', roles: ['admin'] },
     { path: '/reports',       label: 'Reports',       icon: '📊', roles: ['admin','accountant'] },
     { path: '/cash-register', label: 'Cash Register',  icon: '💵', roles: ['admin','accountant'] },
+    { path: '/transfers',   label: 'Transfers',    icon: '🔄', roles: ['admin','staff'] },
+    { path: '/obligations', label: 'Obligations',  icon: '📅', roles: ['admin','accountant'] },
 
 
   ];
