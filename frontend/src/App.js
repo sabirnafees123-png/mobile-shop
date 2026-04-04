@@ -14,6 +14,9 @@ import Customers from './pages/CustomersLedgerPage';
 import Expenses from './pages/Expenses';
 import Cheques from './pages/Cheques';
 import Users from './pages/Users';
+import Reports      from './pages/Reports';
+import CashRegister from './pages/CashRegister';
+
 
 
 
@@ -127,6 +130,9 @@ export default function App() {
                   <Route path="/sales" element={<Sales />} />
                   <Route path="/suppliers" element={<Suppliers />} />
                   <Route path="/customers" element={<Customers />} />
+		  <Route path="/reports"       element={<Reports />} />
+		  <Route path="/cash-register" element={<CashRegister />} />
+
 
                   {/* Expenses: admin and accountant only */}
                                     <Route

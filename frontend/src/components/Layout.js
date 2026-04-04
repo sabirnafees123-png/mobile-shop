@@ -23,6 +23,9 @@ export default function Layout({ children, user, onLogout }) {
     { path: '/expenses',  label: 'Expenses',  icon: '💸', roles: ['admin','accountant'] },
     { path: '/cheques',   label: 'Cheques',   icon: '🏦', roles: ['admin','accountant'] },
     { path: '/users',     label: 'Users',     icon: '👤', roles: ['admin'] },
+    { path: '/reports',       label: 'Reports',       icon: '📊', roles: ['admin','accountant'] },
+    { path: '/cash-register', label: 'Cash Register',  icon: '💵', roles: ['admin','accountant'] },
+
 
   ];
 

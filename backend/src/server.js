@@ -38,6 +38,9 @@ const supplierRoutes  = require('./routes/suppliers');
 const customerRoutes  = require('./routes/customers');
 const expenseRoutes   = require('./routes/expenses');
 const chequeRoutes    = require('./routes/cheques');
+const reportRoutes       = require('./routes/reports');
+const cashRegisterRoutes = require('./routes/cashRegister');
+
 
 
 app.use('/api/v1/dashboard',  dashboardRoutes);
@@ -49,6 +52,9 @@ app.use('/api/v1/suppliers',  supplierRoutes);
 app.use('/api/v1/customers',  customerRoutes);
 app.use('/api/v1/expenses',   expenseRoutes);
 app.use('/api/v1/cheques',    chequeRoutes);
+app.use('/api/v1/reports',        reportRoutes);
+app.use('/api/v1/cash-register',  cashRegisterRoutes);
+
 
 
 // ─── Health check (public) ───────────────────────────────────────────────────
