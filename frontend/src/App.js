@@ -13,6 +13,8 @@ import Suppliers from './pages/SuppliersLedgerPage';
 import Customers from './pages/CustomersLedgerPage';
 import Expenses from './pages/Expenses';
 import Cheques from './pages/Cheques';
+import Users from './pages/Users';
+
 
 
 
@@ -127,14 +129,15 @@ export default function App() {
                   <Route path="/customers" element={<Customers />} />
 
                   {/* Expenses: admin and accountant only */}
-                  <Route
-                    path="/expenses"
+                                    <Route
+                    path="/users"
                     element={
-                      <ProtectedRoute allowedRoles={['admin', 'accountant']}>
-                        <Expenses />
+                      <ProtectedRoute allowedRoles={['admin']}>
+                        <Users />
                       </ProtectedRoute>
                     }
                   />
+
                   <Route
                     path="/cheques"
                     element={

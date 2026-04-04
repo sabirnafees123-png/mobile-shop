@@ -200,7 +200,7 @@ exports.returnSale = async (req, res) => {
 
     await client.query(
       `UPDATE sales_invoices SET payment_status = 'returned',
-       notes = CONCAT(COALESCE(notes,''), ' | RETURNED: ', $1) WHERE id = $2`,
+       notes = CONCAT(COALESCE(notes,''), ' | RETURNED: ', $1::text) WHERE id = $2`,
       [note || 'Customer return', invoiceId]
     );
 
