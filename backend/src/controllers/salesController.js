@@ -191,12 +191,25 @@ exports.returnSale = async (req, res) => {
       );
     }
 
-    if (inv.customer_id && inv.amount_due > 0) {
-      await client.query(
-        `UPDATE customers SET balance = balance - $1 WHERE id = $2`,
-        [inv.amount_due, inv.customer_id]
-      );
-    }
+    if (inv.customer_id) {
+  // Reverse any outstanding balance
+  if (inv.amount_due > 0) {
+    await client.query(
+      `UPDATE customers SET balance = balance - $1 WHERE id = $2`,
+      [inv.amount_due, inv.customer_id]
+    );
+  }
+  // Refund any amount already paid
+  if (inv.amount_paid > 0) {
+    await client.query(
+      `INSERT INTO customer_receipts (customer_id, amount, receipt_date, payment_method, note)
+       VALUES ($1, $2, $3, 'refund', $4)`,
+      [inv.customer_id, Math.round(inv.amount_paid),
+       new Date().toISOString().split('T')[0],
+       `Refund for returned invoice ${inv.invoice_number}`]
+    );
+  }
+}
 
     await client.query(
       `UPDATE sales_invoices SET payment_status = 'returned',
