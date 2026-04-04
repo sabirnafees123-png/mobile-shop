@@ -160,21 +160,27 @@ export default function Inventory() {
 
   // ── Export CSV ──────────────────────────────────────────────────────────────
   const handleExport = async () => {
-    try {
-      const response = await fetch(
-        `${process.env.REACT_APP_API_URL || 'https://mobile-shop-snowy.vercel.app/api/v1'}/inventory/export`,
-        { headers: { Authorization: `Bearer ${localStorage.getItem('token')}` } }
-      );
-      const blob = await response.blob();
-      const url  = URL.createObjectURL(blob);
-      const a    = document.createElement('a');
-      a.href     = url;
-      a.download = `inventory_${new Date().toISOString().split('T')[0]}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success('Inventory exported!');
-    } catch { toast.error('Export failed'); }
-  };
+  try {
+    const token = localStorage.getItem('token');
+    const response = await fetch(
+      `https://mobile-shop-snowy.vercel.app/api/v1/inventory/export`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.message);
+    }
+    const blob = await response.blob();
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href     = url;
+    a.download = `inventory_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('Inventory exported!');
+  } catch (err) { toast.error('Export failed: ' + err.message); }
+};
+
 
   // ── Import CSV ──────────────────────────────────────────────────────────────
   const handleImport = async (e) => {
