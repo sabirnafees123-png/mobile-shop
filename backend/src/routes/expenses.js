@@ -1,5 +1,6 @@
 // src/routes/expenses.js
-const router = require('express').Router();
+const express = require('express');
+const router  = express.Router();
 const { query } = require('../config/database');
 
 router.get('/', async (req, res) => {
@@ -8,9 +9,9 @@ router.get('/', async (req, res) => {
     let sql = `SELECT * FROM expenses WHERE 1=1`;
     const params = [];
     let idx = 1;
-    if (from) { sql += ` AND expense_date >= $${idx++}`; params.push(from); }
-    if (to) { sql += ` AND expense_date <= $${idx++}`; params.push(to); }
-    if (category) { sql += ` AND category = $${idx++}`; params.push(category); }
+    if (from)     { sql += ` AND expense_date >= $${idx++}`; params.push(from); }
+    if (to)       { sql += ` AND expense_date <= $${idx++}`; params.push(to); }
+    if (category) { sql += ` AND category = $${idx++}`;      params.push(category); }
     sql += ` ORDER BY expense_date DESC`;
     const result = await query(sql, params);
     res.json({ success: true, data: result.rows });
@@ -24,9 +25,27 @@ router.post('/', async (req, res) => {
     const result = await query(
       `INSERT INTO expenses (category, description, amount, payment_method, expense_date, receipt_number, notes, payee, expense_type, status)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) RETURNING *`,
-      [category, description, amount, payment_method || 'cash', expense_date || new Date().toISOString().split('T')[0], receipt_number, notes, payee, expense_type || 'one-time', status || 'paid']
+      [category, description, amount, payment_method || 'cash',
+       expense_date || new Date().toISOString().split('T')[0],
+       receipt_number, notes, payee, expense_type || 'one-time', status || 'paid']
     );
     res.status(201).json({ success: true, data: result.rows[0] });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+router.put('/:id', async (req, res) => {
+  try {
+    const { category, description, amount, payment_method, expense_date, receipt_number, notes, payee, expense_type, status } = req.body;
+    const result = await query(
+      `UPDATE expenses SET category=$1, description=$2, amount=$3, payment_method=$4,
+       expense_date=$5, receipt_number=$6, notes=$7, payee=$8, expense_type=$9, status=$10
+       WHERE id=$11 RETURNING *`,
+      [category, description, amount, payment_method,
+       expense_date, receipt_number, notes, payee,
+       expense_type || 'one-time', status || 'paid', req.params.id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, message: 'Expense not found' });
+    res.json({ success: true, data: result.rows[0] });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
