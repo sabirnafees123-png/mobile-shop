@@ -14,21 +14,26 @@ async function generateInvoiceNumber() {
 // GET /api/v1/sales
 exports.getAllSales = async (req, res) => {
   try {
-    const { from, to, payment_status } = req.query;
+    const { from, to, payment_status, shop_id } = req.query;
     let sql = `
       SELECT si.*, c.name as customer_name,
+             sh.name as shop_name,
+             u.name as sold_by,
              COUNT(s.id) as item_count
       FROM sales_invoices si
-      LEFT JOIN customers c ON c.id = si.customer_id
+      LEFT JOIN customers c  ON c.id  = si.customer_id
+      LEFT JOIN shops sh     ON sh.id = si.shop_id
+      LEFT JOIN users u      ON u.id  = si.user_id
       LEFT JOIN sale_items s ON s.invoice_id = si.id
       WHERE 1=1
     `;
     const params = [];
     let idx = 1;
-    if (from)           { sql += ` AND si.sale_date >= $${idx++}`;        params.push(from); }
-    if (to)             { sql += ` AND si.sale_date <= $${idx++}`;        params.push(to); }
-    if (payment_status) { sql += ` AND si.payment_status = $${idx++}`;    params.push(payment_status); }
-    sql += ` GROUP BY si.id, c.name ORDER BY si.sale_date DESC, si.created_at DESC`;
+    if (from)           { sql += ` AND si.sale_date >= $${idx++}`;       params.push(from); }
+    if (to)             { sql += ` AND si.sale_date <= $${idx++}`;       params.push(to); }
+    if (payment_status) { sql += ` AND si.payment_status = $${idx++}`;   params.push(payment_status); }
+    if (shop_id)        { sql += ` AND si.shop_id = $${idx++}`;          params.push(shop_id); }
+    sql += ` GROUP BY si.id, c.name, sh.name, u.name ORDER BY si.sale_date DESC, si.created_at DESC`;
 
     const result = await query(sql, params);
     res.json({ success: true, count: result.rows.length, data: result.rows });
@@ -41,9 +46,12 @@ exports.getAllSales = async (req, res) => {
 exports.getSale = async (req, res) => {
   try {
     const invoice = await query(
-      `SELECT si.*, c.name as customer_name, c.phone as customer_phone
+      `SELECT si.*, c.name as customer_name, c.phone as customer_phone,
+              sh.name as shop_name, u.name as sold_by
        FROM sales_invoices si
        LEFT JOIN customers c ON c.id = si.customer_id
+       LEFT JOIN shops sh    ON sh.id = si.shop_id
+       LEFT JOIN users u     ON u.id  = si.user_id
        WHERE si.id = $1`,
       [req.params.id]
     );
@@ -72,11 +80,14 @@ exports.createSale = async (req, res) => {
     const {
       customer_id, customer_name, customer_phone,
       sale_date, discount = 0, payment_method = 'cash',
-      amount_paid = 0, notes, items
+      amount_paid = 0, notes, items,
+      shop_id,           // ← NEW
     } = req.body;
 
     if (!items || !items.length)
       throw new Error('At least one sale item is required');
+    if (!shop_id)
+      throw new Error('shop_id is required');
 
     let finalCustomerId = customer_id || null;
     if (!customer_id && customer_name) {
@@ -94,35 +105,32 @@ exports.createSale = async (req, res) => {
       }
     }
 
-    const enrichedItems = [];
-    for (const item of items) {
+    const enrichedItems = items.map(item => {
       if (!item.product_id) throw new Error('Each item needs a product');
-      enrichedItems.push({ ...item });
-    }
+      return { ...item };
+    });
 
     const subtotal      = enrichedItems.reduce((sum, i) => sum + ((i.qty || 1) * i.unit_price), 0);
     const totalAmount   = subtotal - parseFloat(discount);
     const paid          = parseFloat(amount_paid);
     const amountDue     = totalAmount - paid;
     const invoiceNumber = await generateInvoiceNumber();
-    
+    const userId        = req.user?.id || null;
 
-    const userId = req.user?.id || null;
-
-const invoice = await client.query(
-  `INSERT INTO sales_invoices
-    (invoice_number, customer_id, sale_date, subtotal, discount, total_amount,
-     amount_paid, amount_due, payment_method, payment_status, notes, user_id)
-   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
-  [
-    invoiceNumber, finalCustomerId,
-    sale_date || new Date().toISOString().split('T')[0],
-    subtotal, discount, totalAmount, paid, amountDue,
-    payment_method,
-    paid >= totalAmount ? 'paid' : paid > 0 ? 'partial' : 'unpaid',
-    notes, userId
-  ]
-);
+    const invoice = await client.query(
+      `INSERT INTO sales_invoices
+        (invoice_number, customer_id, sale_date, subtotal, discount, total_amount,
+         amount_paid, amount_due, payment_method, payment_status, notes, user_id, shop_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+      [
+        invoiceNumber, finalCustomerId,
+        sale_date || new Date().toISOString().split('T')[0],
+        subtotal, discount, totalAmount, paid, amountDue,
+        payment_method,
+        paid >= totalAmount ? 'paid' : paid > 0 ? 'partial' : 'unpaid',
+        notes, userId, shop_id,
+      ]
+    );
     const invoiceId = invoice.rows[0].id;
 
     for (const item of enrichedItems) {
@@ -132,10 +140,11 @@ const invoice = await client.query(
          VALUES ($1,$2,$3,$4,$5,$6)`,
         [invoiceId, item.product_id, qty, 0, item.unit_price, item.discount || 0]
       );
+      // Deduct from shop-specific inventory
       await client.query(
         `UPDATE inventory SET quantity = quantity - $1, last_updated = NOW()
-         WHERE product_id = $2 AND quantity >= $1`,
-        [qty, item.product_id]
+         WHERE product_id = $2 AND shop_id = $3 AND quantity >= $1`,
+        [qty, item.product_id, shop_id]
       );
       await client.query(
         `INSERT INTO stock_movements (product_id, type, quantity, note, created_by)
@@ -183,9 +192,11 @@ exports.returnSale = async (req, res) => {
     const items = await client.query('SELECT * FROM sale_items WHERE invoice_id = $1', [invoiceId]);
 
     for (const item of items.rows) {
+      // Restore to the shop that made the sale
       await client.query(
-        `UPDATE inventory SET quantity = quantity + $1, last_updated = NOW() WHERE product_id = $2`,
-        [item.qty, item.product_id]
+        `UPDATE inventory SET quantity = quantity + $1, last_updated = NOW()
+         WHERE product_id = $2 AND shop_id = $3`,
+        [item.qty, item.product_id, inv.shop_id]
       );
       await client.query(
         `INSERT INTO stock_movements (product_id, type, quantity, note, created_by)
@@ -195,24 +206,22 @@ exports.returnSale = async (req, res) => {
     }
 
     if (inv.customer_id) {
-  // Reverse any outstanding balance
-  if (inv.amount_due > 0) {
-    await client.query(
-      `UPDATE customers SET balance = balance - $1 WHERE id = $2`,
-      [inv.amount_due, inv.customer_id]
-    );
-  }
-  // Refund any amount already paid
-  if (inv.amount_paid > 0) {
-    await client.query(
-      `INSERT INTO customer_receipts (customer_id, amount, receipt_date, payment_method, note)
-       VALUES ($1, $2, $3, 'refund', $4)`,
-      [inv.customer_id, Math.round(inv.amount_paid),
-       new Date().toISOString().split('T')[0],
-       `Refund for returned invoice ${inv.invoice_number}`]
-    );
-  }
-}
+      if (inv.amount_due > 0) {
+        await client.query(
+          `UPDATE customers SET balance = balance - $1 WHERE id = $2`,
+          [inv.amount_due, inv.customer_id]
+        );
+      }
+      if (inv.amount_paid > 0) {
+        await client.query(
+          `INSERT INTO customer_receipts (customer_id, amount, receipt_date, payment_method, note)
+           VALUES ($1, $2, $3, 'refund', $4)`,
+          [inv.customer_id, Math.round(inv.amount_paid),
+           new Date().toISOString().split('T')[0],
+           `Refund for returned invoice ${inv.invoice_number}`]
+        );
+      }
+    }
 
     await client.query(
       `UPDATE sales_invoices SET payment_status = 'returned',

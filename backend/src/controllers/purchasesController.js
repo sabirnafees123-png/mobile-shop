@@ -1,9 +1,6 @@
 // src/controllers/purchasesController.js
-// Business Logic: Creates purchase → purchase_items → inventory_stock → supplier_ledger
-
 const { query, getClient } = require('../config/database');
 
-// Generate purchase number: PUR-2024-001
 async function generatePurchaseNumber() {
   const year = new Date().getFullYear();
   const result = await query(
@@ -17,15 +14,22 @@ async function generatePurchaseNumber() {
 // GET /api/v1/purchases
 exports.getAllPurchases = async (req, res) => {
   try {
-    const result = await query(`
+    const { shop_id } = req.query;
+    let sql = `
       SELECT p.*, s.name as supplier_name,
+             sh.name as shop_name,
              COUNT(pi.id) as item_count
       FROM purchases p
-      JOIN suppliers s ON s.id = p.supplier_id
+      JOIN suppliers s   ON s.id  = p.supplier_id
+      LEFT JOIN shops sh ON sh.id = p.shop_id
       LEFT JOIN purchase_items pi ON pi.purchase_id = p.id
-      GROUP BY p.id, s.name
-      ORDER BY p.purchase_date DESC, p.created_at DESC
-    `);
+      WHERE 1=1
+    `;
+    const params = [];
+    if (shop_id) { sql += ` AND p.shop_id = $1`; params.push(shop_id); }
+    sql += ` GROUP BY p.id, s.name, sh.name ORDER BY p.purchase_date DESC, p.created_at DESC`;
+
+    const result = await query(sql, params);
     res.json({ success: true, count: result.rows.length, data: result.rows });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -36,12 +40,16 @@ exports.getAllPurchases = async (req, res) => {
 exports.getPurchase = async (req, res) => {
   try {
     const purchase = await query(
-      `SELECT p.*, s.name as supplier_name, s.phone as supplier_phone
-       FROM purchases p JOIN suppliers s ON s.id = p.supplier_id
+      `SELECT p.*, s.name as supplier_name, s.phone as supplier_phone,
+              sh.name as shop_name
+       FROM purchases p
+       JOIN suppliers s   ON s.id  = p.supplier_id
+       LEFT JOIN shops sh ON sh.id = p.shop_id
        WHERE p.id = $1`,
       [req.params.id]
     );
-    if (!purchase.rows.length) return res.status(404).json({ success: false, message: 'Purchase not found' });
+    if (!purchase.rows.length)
+      return res.status(404).json({ success: false, message: 'Purchase not found' });
 
     const items = await query(
       `SELECT pi.*, pr.name as product_name, pr.brand, pr.model
@@ -57,74 +65,66 @@ exports.getPurchase = async (req, res) => {
 };
 
 // POST /api/v1/purchases
-// Body: { supplier_id, purchase_date, amount_paid, notes, items: [{product_id, imei, qty, unit_cost}] }
 exports.createPurchase = async (req, res) => {
   const client = await getClient();
   try {
     await client.query('BEGIN');
 
-    const { supplier_id, purchase_date, amount_paid = 0, notes, items } = req.body;
+    const { supplier_id, purchase_date, amount_paid = 0, notes, items, shop_id } = req.body;
 
-    // Validation
-    if (!supplier_id) throw new Error('supplier_id is required');
+    if (!supplier_id)          throw new Error('supplier_id is required');
+    if (!shop_id)              throw new Error('shop_id is required');
     if (!items || !items.length) throw new Error('At least one purchase item is required');
 
-    // Calculate total
-    const totalAmount = items.reduce((sum, item) => sum + (item.qty * item.unit_cost), 0);
+    const totalAmount    = items.reduce((sum, item) => sum + (item.qty * item.unit_cost), 0);
     const purchaseNumber = await generatePurchaseNumber();
 
-    // 1. Create purchase header
+    // 1. Create purchase header (now includes shop_id)
     const purchase = await client.query(
-      `INSERT INTO purchases (purchase_number, supplier_id, purchase_date, total_amount, amount_paid, payment_status, notes)
-       VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
+      `INSERT INTO purchases (purchase_number, supplier_id, purchase_date, total_amount, amount_paid, payment_status, notes, shop_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
       [
-        purchaseNumber, supplier_id, purchase_date || new Date().toISOString().split('T')[0],
+        purchaseNumber, supplier_id,
+        purchase_date || new Date().toISOString().split('T')[0],
         totalAmount, amount_paid,
         amount_paid >= totalAmount ? 'paid' : amount_paid > 0 ? 'partial' : 'unpaid',
-        notes
+        notes, shop_id,
       ]
     );
     const purchaseId = purchase.rows[0].id;
 
-    // 2. Create purchase items + inventory stock lines
+    // 2. Create purchase items + shop-specific inventory
     for (const item of items) {
-      if (!item.product_id || !item.unit_cost) throw new Error('Each item needs product_id and unit_cost');
-      
-      // Insert purchase item
-const piResult = await client.query(
+      if (!item.product_id || !item.unit_cost)
+        throw new Error('Each item needs product_id and unit_cost');
+
+      await client.query(
         `INSERT INTO purchase_items (purchase_id, product_id, imei, qty, unit_cost, recommended_selling_price)
          VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-        [purchaseId, item.product_id, item.imei, item.qty || 1, item.unit_cost, item.recommended_selling_price || 0]
+        [purchaseId, item.product_id, item.imei, item.qty || 1,
+         item.unit_cost, item.recommended_selling_price || 0]
       );
 
+      if (item.recommended_selling_price && item.recommended_selling_price > 0) {
+        await client.query(
+          `UPDATE products SET selling_price = $1 WHERE id = $2`,
+          [item.recommended_selling_price, item.product_id]
+        );
+      }
 
-
-// ✅ Update product selling price if recommended price provided
-if (item.recommended_selling_price && item.recommended_selling_price > 0) {
-  await client.query(
-    `UPDATE products SET selling_price = $1 WHERE id = $2`,
-    [item.recommended_selling_price, item.product_id]
-  );
-}
-
-
-            // ✅ Update inventory quantity
+      // Upsert inventory for THIS SHOP specifically
       await client.query(
-        `INSERT INTO inventory (product_id, quantity, min_stock)
-         VALUES ($1, $2, 5)
-         ON CONFLICT (product_id)
-         DO UPDATE SET
-           quantity     = inventory.quantity + $2,
-           last_updated = NOW()`,
-        [item.product_id, item.qty || 1]
+        `INSERT INTO inventory (product_id, shop_id, quantity, min_stock)
+         VALUES ($1, $2, $3, 5)
+         ON CONFLICT (product_id, shop_id)
+         DO UPDATE SET quantity = inventory.quantity + $3, last_updated = NOW()`,
+        [item.product_id, shop_id, item.qty || 1]
       );
     }
 
-    // 3. Update supplier balance (we owe them the amount_due)
+    // 3. Update supplier balance
     const amountDue = totalAmount - amount_paid;
-    
-    // Get current supplier balance
-    const supplier = await client.query('SELECT balance FROM suppliers WHERE id = $1', [supplier_id]);
+    const supplier  = await client.query('SELECT balance FROM suppliers WHERE id = $1', [supplier_id]);
     const newBalance = parseFloat(supplier.rows[0].balance) + amountDue;
 
     await client.query('UPDATE suppliers SET balance = $1 WHERE id = $2', [newBalance, supplier_id]);
@@ -133,32 +133,30 @@ if (item.recommended_selling_price && item.recommended_selling_price > 0) {
     await client.query(
       `INSERT INTO supplier_ledger (supplier_id, transaction_type, reference_id, reference_type, amount, balance_after, description, transaction_date)
        VALUES ($1, 'purchase', $2, 'purchase', $3, $4, $5, $6)`,
-      [
-        supplier_id, purchaseId, amountDue, newBalance,
-        `Purchase ${purchaseNumber} - ${items.length} item(s)`,
-        purchase_date || new Date().toISOString().split('T')[0]
-      ]
+      [supplier_id, purchaseId, amountDue, newBalance,
+       `Purchase ${purchaseNumber} - ${items.length} item(s)`,
+       purchase_date || new Date().toISOString().split('T')[0]]
     );
 
-    // If amount_paid > 0, also log payment
     if (amount_paid > 0) {
       const balanceAfterPayment = newBalance - amount_paid;
       await client.query(
         `INSERT INTO supplier_ledger (supplier_id, transaction_type, reference_id, reference_type, amount, balance_after, description, transaction_date)
          VALUES ($1, 'payment', $2, 'purchase', $3, $4, $5, $6)`,
-        [
-          supplier_id, purchaseId, -amount_paid, balanceAfterPayment,
-          `Payment with purchase ${purchaseNumber}`,
-          purchase_date || new Date().toISOString().split('T')[0]
-        ]
+        [supplier_id, purchaseId, -amount_paid, balanceAfterPayment,
+         `Payment with purchase ${purchaseNumber}`,
+         purchase_date || new Date().toISOString().split('T')[0]]
       );
     }
 
     await client.query('COMMIT');
 
-    // Return full purchase
     const created = await query(
-      `SELECT p.*, s.name as supplier_name FROM purchases p JOIN suppliers s ON s.id = p.supplier_id WHERE p.id = $1`,
+      `SELECT p.*, s.name as supplier_name, sh.name as shop_name
+       FROM purchases p
+       JOIN suppliers s   ON s.id  = p.supplier_id
+       LEFT JOIN shops sh ON sh.id = p.shop_id
+       WHERE p.id = $1`,
       [purchaseId]
     );
 
@@ -167,7 +165,6 @@ if (item.recommended_selling_price && item.recommended_selling_price > 0) {
       message: `Purchase ${purchaseNumber} created successfully`,
       data: created.rows[0],
     });
-
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('Purchase creation failed:', err.message);
@@ -177,7 +174,7 @@ if (item.recommended_selling_price && item.recommended_selling_price > 0) {
   }
 };
 
-// POST /api/v1/purchases/:id/pay - record a payment to supplier
+// POST /api/v1/purchases/:id/pay
 exports.recordPayment = async (req, res) => {
   const client = await getClient();
   try {
@@ -195,22 +192,21 @@ exports.recordPayment = async (req, res) => {
 
     const paymentStatus = newAmountPaid >= p.total_amount ? 'paid' : 'partial';
 
-    // Update purchase
     await client.query(
       `UPDATE purchases SET amount_paid = $1, payment_status = $2 WHERE id = $3`,
       [newAmountPaid, paymentStatus, req.params.id]
     );
 
-    // Update supplier balance
     const supplier = await client.query('SELECT balance FROM suppliers WHERE id = $1', [p.supplier_id]);
     const newSupplierBalance = parseFloat(supplier.rows[0].balance) - parseFloat(amount);
     await client.query('UPDATE suppliers SET balance = $1 WHERE id = $2', [newSupplierBalance, p.supplier_id]);
 
-    // Log in ledger
     await client.query(
       `INSERT INTO supplier_ledger (supplier_id, transaction_type, reference_id, reference_type, amount, balance_after, description, transaction_date)
        VALUES ($1, 'payment', $2, 'purchase', $3, $4, $5, $6)`,
-      [p.supplier_id, p.id, -amount, newSupplierBalance, notes || `Payment for ${p.purchase_number}`, payment_date || new Date().toISOString().split('T')[0]]
+      [p.supplier_id, p.id, -amount, newSupplierBalance,
+       notes || `Payment for ${p.purchase_number}`,
+       payment_date || new Date().toISOString().split('T')[0]]
     );
 
     await client.query('COMMIT');
