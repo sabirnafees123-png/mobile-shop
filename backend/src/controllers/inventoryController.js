@@ -4,18 +4,24 @@ const { query, getClient } = require('../config/database');
 // GET all inventory with product details
 const getInventory = async (req, res) => {
   try {
-    const { search, low_stock, status, from, to } = req.query;
+    const { search, low_stock, status, from, to, shop_id } = req.query;
     let sql = `
       SELECT i.*, p.name, p.brand, p.model, p.category, p.color, p.is_active,
+             s.name as shop_name,
              CASE WHEN i.quantity = 0 THEN 'out_of_stock'
                   WHEN i.quantity <= i.min_stock THEN 'low_stock'
                   ELSE 'in_stock' END as stock_status
       FROM inventory i
       JOIN products p ON i.product_id = p.id
+      LEFT JOIN shops s ON s.id = i.shop_id
       WHERE p.is_active = true
     `;
     const params = [];
 
+    if (shop_id) {
+      params.push(shop_id);
+      sql += ` AND i.shop_id = $${params.length}`;
+    }
     if (search) {
       params.push(`%${search}%`);
       sql += ` AND (p.name ILIKE $${params.length} OR p.brand ILIKE $${params.length} OR p.model ILIKE $${params.length})`;
@@ -39,7 +45,7 @@ const getInventory = async (req, res) => {
       sql += ` AND i.last_updated <= $${params.length}`;
     }
 
-    sql += ` ORDER BY i.quantity ASC`;
+    sql += ` ORDER BY s.name, i.quantity ASC`;
     const result = await query(sql, params);
     res.json({ success: true, data: result.rows });
   } catch (err) {
@@ -65,15 +71,15 @@ const getInventoryByProduct = async (req, res) => {
   }
 };
 
-// POST adjust stock (add/remove/set)
+// POST adjust stock (add/remove/set) — now requires shop_id
 const adjustStock = async (req, res) => {
   const client = await getClient();
   try {
     await client.query('BEGIN');
-    const { product_id, type, quantity, note } = req.body;
+    const { product_id, shop_id, type, quantity, note } = req.body;
 
-    if (!product_id || !type || quantity === undefined)
-      return res.status(400).json({ success: false, message: 'product_id, type and quantity are required' });
+    if (!product_id || !shop_id || !type || quantity === undefined)
+      return res.status(400).json({ success: false, message: 'product_id, shop_id, type and quantity are required' });
 
     if (!['in', 'out', 'adjustment'].includes(type))
       return res.status(400).json({ success: false, message: 'type must be in, out, or adjustment' });
@@ -81,9 +87,12 @@ const adjustStock = async (req, res) => {
     if (quantity < 0)
       return res.status(400).json({ success: false, message: 'Quantity must be positive' });
 
-    const current = await client.query('SELECT * FROM inventory WHERE product_id = $1', [product_id]);
+    const current = await client.query(
+      'SELECT * FROM inventory WHERE product_id = $1 AND shop_id = $2',
+      [product_id, shop_id]
+    );
     if (current.rows.length === 0)
-      return res.status(404).json({ success: false, message: 'Product not in inventory' });
+      return res.status(404).json({ success: false, message: 'Product not in inventory for this shop' });
 
     let newQty;
     if (type === 'in')       newQty = current.rows[0].quantity + quantity;
@@ -94,8 +103,9 @@ const adjustStock = async (req, res) => {
       return res.status(400).json({ success: false, message: 'Stock cannot go below 0' });
 
     const updated = await client.query(
-      `UPDATE inventory SET quantity = $1, last_updated = NOW() WHERE product_id = $2 RETURNING *`,
-      [newQty, product_id]
+      `UPDATE inventory SET quantity = $1, last_updated = NOW()
+       WHERE product_id = $2 AND shop_id = $3 RETURNING *`,
+      [newQty, product_id, shop_id]
     );
 
     await client.query(
@@ -107,7 +117,6 @@ const adjustStock = async (req, res) => {
     res.json({ success: true, data: updated.rows[0], message: 'Stock updated' });
   } catch (err) {
     await client.query('ROLLBACK');
-    console.error('adjustStock error:', err);
     res.status(500).json({ success: false, message: err.message });
   } finally {
     client.release();
@@ -117,12 +126,12 @@ const adjustStock = async (req, res) => {
 // PUT update min stock level
 const updateMinStock = async (req, res) => {
   try {
-    const { product_id, min_stock, location } = req.body;
+    const { product_id, shop_id, min_stock, location } = req.body;
     const result = await query(
       `UPDATE inventory SET min_stock = COALESCE($1, min_stock),
         location = COALESCE($2, location), last_updated = NOW()
-       WHERE product_id = $3 RETURNING *`,
-      [min_stock, location, product_id]
+       WHERE product_id = $3 AND shop_id = $4 RETURNING *`,
+      [min_stock, location, product_id, shop_id]
     );
     res.json({ success: true, data: result.rows[0], message: 'Updated' });
   } catch (err) {
@@ -154,10 +163,11 @@ const getMovements = async (req, res) => {
   }
 };
 
-// GET summary stats
+// GET summary stats — shop-wise
 const getInventoryStats = async (req, res) => {
   try {
-    const result = await query(`
+    const { shop_id } = req.query;
+    let sql = `
       SELECT
         COUNT(*)                                                              AS total_products,
         COALESCE(SUM(i.quantity), 0)                                         AS total_units,
@@ -168,7 +178,10 @@ const getInventoryStats = async (req, res) => {
       FROM inventory i
       JOIN products p ON i.product_id = p.id
       WHERE p.is_active = true
-    `);
+    `;
+    const params = [];
+    if (shop_id) { sql += ` AND i.shop_id = $1`; params.push(shop_id); }
+    const result = await query(sql, params);
     res.json({ success: true, data: result.rows[0] });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });

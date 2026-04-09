@@ -17,7 +17,13 @@ function AdjustModal({ item, onClose, onDone }) {
     if (!qty || isNaN(qty) || Number(qty) <= 0) return toast.error('Enter a valid quantity');
     setSaving(true);
     try {
-      await api.post('/inventory/adjust', { product_id: item.product_id, type, quantity: Number(qty), note });
+      await api.post('/inventory/adjust', {
+        product_id: item.product_id,
+        shop_id:    item.shop_id,       // ← pass shop_id
+        type,
+        quantity: Number(qty),
+        note,
+      });
       toast.success('Stock updated!');
       onDone();
       onClose();
@@ -41,7 +47,7 @@ function AdjustModal({ item, onClose, onDone }) {
         <div className="modal-body">
           <div style={{textAlign:'center',padding:'12px',background:'var(--bg-secondary)',borderRadius:'8px',marginBottom:'16px'}}>
             <div style={{fontSize:'2rem',fontWeight:700}}>{item.quantity}</div>
-            <div style={{fontSize:'.8rem',color:'var(--text-muted)'}}>Current Stock</div>
+            <div style={{fontSize:'.8rem',color:'var(--text-muted)'}}>Current Stock — {item.shop_name}</div>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px',marginBottom:'12px'}}>
             {Object.entries(typeConfig).map(([k, v]) => (
@@ -60,7 +66,8 @@ function AdjustModal({ item, onClose, onDone }) {
           </div>
           <div className="form-group">
             <label className="form-label">Note (optional)</label>
-            <input className="form-control" value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Received from supplier" />
+            <input className="form-control" value={note} onChange={e => setNote(e.target.value)}
+              placeholder="e.g. Received from supplier" />
           </div>
         </div>
         <div className="modal-footer">
@@ -128,6 +135,8 @@ function MovementsModal({ productId, productName, onClose }) {
 export default function Inventory() {
   const [inventory, setInventory]       = useState([]);
   const [stats, setStats]               = useState(null);
+  const [shops, setShops]               = useState([]);
+  const [shopId, setShopId]             = useState('');
   const [loading, setLoading]           = useState(true);
   const [importing, setImporting]       = useState(false);
   const [search, setSearch]             = useState('');
@@ -138,49 +147,53 @@ export default function Inventory() {
   const [movementItem, setMovementItem] = useState(null);
   const fileInputRef = useRef();
 
+  // Load shops on mount
+  useEffect(() => {
+    api.get('/shops').then(r => setShops(r.data?.data || []));
+  }, []);
+
   const fetchInventory = useCallback(async () => {
     setLoading(true);
     try {
       const params = {};
-      if (search) params.search = search;
+      if (search)               params.search = search;
       if (filterStatus !== 'all') params.status = filterStatus;
-      if (dateFrom) params.from = dateFrom;
-      if (dateTo)   params.to   = dateTo;
+      if (dateFrom)             params.from    = dateFrom;
+      if (dateTo)               params.to      = dateTo;
+      if (shopId)               params.shop_id = shopId;
+
       const [invRes, statsRes] = await Promise.all([
         api.get('/inventory', { params }),
-        api.get('/inventory/stats'),
+        api.get('/inventory/stats', { params: shopId ? { shop_id: shopId } : {} }),
       ]);
       setInventory(invRes.data.data || []);
       setStats(statsRes.data.data);
     } catch { toast.error('Failed to load inventory'); }
     finally { setLoading(false); }
-  }, [search, filterStatus, dateFrom, dateTo]);
+  }, [search, filterStatus, dateFrom, dateTo, shopId]);
 
   useEffect(() => { fetchInventory(); }, [fetchInventory]);
 
   // ── Export CSV ──────────────────────────────────────────────────────────────
   const handleExport = async () => {
-  try {
-    const token = localStorage.getItem('token');
-    const response = await fetch(
-      `https://mobile-shop-snowy.vercel.app/api/v1/inventory/export`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.message);
-    }
-    const blob = await response.blob();
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `inventory_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success('Inventory exported!');
-  } catch (err) { toast.error('Export failed: ' + err.message); }
-};
-
+    try {
+      const token = localStorage.getItem('token');
+      const qs    = shopId ? `?shop_id=${shopId}` : '';
+      const response = await fetch(
+        `https://mobile-shop-snowy.vercel.app/api/v1/inventory/export${qs}`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      if (!response.ok) { const err = await response.json(); throw new Error(err.message); }
+      const blob = await response.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `inventory_${new Date().toISOString().split('T')[0]}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success('Inventory exported!');
+    } catch (err) { toast.error('Export failed: ' + err.message); }
+  };
 
   // ── Import CSV ──────────────────────────────────────────────────────────────
   const handleImport = async (e) => {
@@ -188,28 +201,21 @@ export default function Inventory() {
     if (!file) return;
     setImporting(true);
     try {
-      const text = await file.text();
-      const lines = text.split('\n').filter(l => l.trim());
+      const text    = await file.text();
+      const lines   = text.split('\n').filter(l => l.trim());
       const headers = lines[0].split(',').map(h => h.replace(/"/g,'').trim().toLowerCase().replace(/ /g,'_'));
-
-      const rows = lines.slice(1).map(line => {
-        const values = line.match(/(".*?"|[^,]+)(?=,|$)/g) || [];
+      const rows    = lines.slice(1).map(line => {
+        const values = line.match(/(\".*?\"|[^,]+)(?=,|$)/g) || [];
         const obj = {};
-        headers.forEach((h, i) => {
-          obj[h] = (values[i] || '').replace(/^"|"$/g,'').trim();
-        });
+        headers.forEach((h, i) => { obj[h] = (values[i] || '').replace(/^\"|\"$/g,'').trim(); });
         return obj;
       }).filter(r => r.name);
-
       const res = await api.post('/inventory/import', { rows });
       toast.success(res.data?.message || 'Import complete!');
       fetchInventory();
     } catch (err) {
       toast.error('Import failed: ' + (err.response?.data?.message || err.message));
-    } finally {
-      setImporting(false);
-      e.target.value = '';
-    }
+    } finally { setImporting(false); e.target.value = ''; }
   };
 
   const stockStatus = (qty, min) => {
@@ -224,22 +230,25 @@ export default function Inventory() {
     <div style={{padding:'24px',background:'#f8f9fc',minHeight:'100vh'}}>
       {adjustItem   && <AdjustModal item={adjustItem} onClose={() => setAdjustItem(null)} onDone={fetchInventory} />}
       {movementItem && <MovementsModal productId={movementItem.product_id} productName={movementItem.name} onClose={() => setMovementItem(null)} />}
-
-      {/* Hidden file input for import */}
       <input ref={fileInputRef} type="file" accept=".csv" style={{display:'none'}} onChange={handleImport} />
 
       {/* Header */}
       <div className="page-header" style={{background:'transparent',padding:'0 0 20px 0',border:'none'}}>
         <div>
           <div className="page-title">🏪 Inventory</div>
-          <div className="page-subtitle">Track stock levels across all products</div>
+          <div className="page-subtitle">
+            {shopId ? `${shops.find(s=>s.id.toString()===shopId.toString())?.name} stock` : 'All shops combined'}
+          </div>
         </div>
-        <div style={{display:'flex',gap:'8px',marginLeft:'auto'}}>
-          <button className="btn btn-ghost btn-sm" onClick={handleExport}>
-            📥 Export CSV
-          </button>
+        <div style={{display:'flex',gap:'8px',alignItems:'center',marginLeft:'auto'}}>
+          {/* Shop Filter */}
+          <select className="form-control" style={{width:'auto'}} value={shopId} onChange={e => setShopId(e.target.value)}>
+            <option value="">All Shops</option>
+            {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+          </select>
+          <button className="btn btn-ghost btn-sm" onClick={handleExport}>📥 Export</button>
           <button className="btn btn-ghost btn-sm" onClick={() => fileInputRef.current?.click()} disabled={importing}>
-            {importing ? '⏳ Importing...' : '📤 Import CSV'}
+            {importing ? '⏳ Importing...' : '📤 Import'}
           </button>
         </div>
       </div>
@@ -248,12 +257,12 @@ export default function Inventory() {
       {stats && (
         <div className="stat-grid" style={{marginBottom:'20px'}}>
           {[
-            { label: 'Total Products', value: stats.total_products,  icon: '📦' },
-            { label: 'Total Units',    value: stats.total_units || 0, icon: '🔢' },
-            { label: 'Out of Stock',   value: stats.out_of_stock,    icon: '❌' },
-            { label: 'Low Stock',      value: stats.low_stock,       icon: '⚠️' },
-            { label: 'Stock Value',    value: fmt(stats.total_cost_value),  icon: '💵' },
-            { label: 'Retail Value',   value: fmt(stats.total_sell_value),  icon: '💰' },
+            { label: 'Total Products', value: stats.total_products,        icon: '📦' },
+            { label: 'Total Units',    value: stats.total_units || 0,      icon: '🔢' },
+            { label: 'Out of Stock',   value: stats.out_of_stock,          icon: '❌' },
+            { label: 'Low Stock',      value: stats.low_stock,             icon: '⚠️' },
+            { label: 'Stock Value',    value: fmt(stats.total_cost_value), icon: '💵' },
+            { label: 'Retail Value',   value: fmt(stats.total_sell_value), icon: '💰' },
           ].map(s => (
             <div key={s.label} style={{background:'#fff',borderRadius:'10px',padding:'16px',border:'1px solid #e8eaf0'}}>
               <div style={{fontSize:'1.5rem',marginBottom:'4px'}}>{s.icon}</div>
@@ -305,7 +314,7 @@ export default function Inventory() {
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:'.88rem'}}>
               <thead>
                 <tr style={{background:'#f8f9fc',borderBottom:'2px solid #e8eaf0'}}>
-                  {['Product','Brand','Color','IMEI / Serial','Category','In Stock','Min Stock','Status','Last Updated','Actions'].map(h => (
+                  {['Product','Brand','Color','Category','Shop','In Stock','Min Stock','Status','Last Updated','Actions'].map(h => (
                     <th key={h} style={{padding:'10px 12px',textAlign:'left',fontSize:'.75rem',
                       color:'#6b7280',fontWeight:600,textTransform:'uppercase',letterSpacing:'.03em',whiteSpace:'nowrap'}}>
                       {h}
@@ -334,10 +343,13 @@ export default function Inventory() {
                           </div>
                         ) : <span style={{color:'#9ca3af'}}>—</span>}
                       </td>
-                      <td style={{padding:'10px 12px',fontFamily:'monospace',fontSize:'.8rem',color:'#4b5563'}}>
-                        {item.imei || '—'}
-                      </td>
                       <td style={{padding:'10px 12px',color:'#6b7280'}}>{item.category || '—'}</td>
+                      <td style={{padding:'10px 12px'}}>
+                        <span style={{padding:'2px 8px',borderRadius:'6px',fontSize:'.78rem',fontWeight:600,
+                          background:'#f3f4f6',color:'#374151'}}>
+                          {item.shop_name || '—'}
+                        </span>
+                      </td>
                       <td style={{padding:'10px 12px'}}>
                         <span style={{fontSize:'1.3rem',fontWeight:700,
                           color: item.quantity===0?'#dc2626': item.quantity<=item.min_stock?'#d97706':'#059669'}}>
@@ -374,13 +386,13 @@ export default function Inventory() {
               </tbody>
             </table>
             <div style={{padding:'10px 16px',borderTop:'1px solid #f1f2f6',fontSize:'.8rem',color:'#9ca3af'}}>
-              {inventory.length} product{inventory.length !== 1 ? 's' : ''}
+              {inventory.length} record{inventory.length !== 1 ? 's' : ''}
+              {shopId && ` · ${shops.find(s=>s.id.toString()===shopId.toString())?.name}`}
             </div>
           </div>
         )}
       </div>
 
-      {/* Import Instructions */}
       <div style={{marginTop:'16px',padding:'12px 16px',background:'#f8f9fc',borderRadius:'8px',fontSize:'.82rem',color:'#6b7280',border:'1px solid #e8eaf0'}}>
         📤 <strong>Import CSV format:</strong> Name, Brand, Model, Category, Color, Storage, Condition, Selling Price, Cost Price, Quantity, Min Stock
         <span style={{marginLeft:'12px'}}>·</span>
