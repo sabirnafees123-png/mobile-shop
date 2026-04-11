@@ -1,16 +1,13 @@
-const express = require('express');
-const router = express.Router();
-const {
-  getProducts, getProductById, createProduct,
-  updateProduct, deleteProduct, getCategories
-} = require('../controllers/productsController');
+// src/routes/products.js  — add serial search endpoint
+const router = require('express').Router();
+const ctrl   = require('../controllers/productsController');
 
-// No role middleware — just use protect from server.js (already applied)
-router.get('/',           getProducts);
-router.get('/categories', getCategories);
-router.get('/:id',        getProductById);
-router.post('/',          createProduct);
-router.put('/:id',        updateProduct);
-router.delete('/:id',     deleteProduct);
+router.get('/',                    ctrl.getProducts);
+router.get('/categories',          ctrl.getCategories);
+router.get('/serial/:serial',      ctrl.getProductBySerial);
+router.get('/:id',                 ctrl.getProductById);
+router.post('/',                   ctrl.createProduct);
+router.put('/:id',                 ctrl.updateProduct);
+router.delete('/:id',              ctrl.deleteProduct);
 
 module.exports = router;

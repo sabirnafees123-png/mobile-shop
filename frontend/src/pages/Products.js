@@ -1,33 +1,44 @@
+// src/pages/Products.js
 import React, { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 
-const EMPTY = { name: '', brand: '', model: '', category: 'Mobile Phone', storage: '', color: '', condition: 'Used', base_cost: '', selling_price: '', description: '' };
+const TYPES = ['New (Box Pack)', 'Used', 'Refurbished', 'Parts', 'Accessories', 'Wholesale'];
+
+const EMPTY = {
+  serial_number: '', name: '', brand: '', color: '',
+  type: 'Used', description: '',
+  base_cost: '', selling_price: '', is_active: true,
+};
 
 export default function Products() {
   const [products, setProducts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]   = useState(true);
   const [showModal, setShowModal] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState(EMPTY);
-  const [search, setSearch] = useState('');
-  const currency = process.env.REACT_APP_CURRENCY || 'AED';
+  const [editing, setEditing]   = useState(null);
+  const [form, setForm]         = useState(EMPTY);
+  const [search, setSearch]     = useState('');
+  const [filterType, setFilterType] = useState('');
 
   const load = () => {
     setLoading(true);
-    api.get('/products', { params: search ? { search } : {} })
+    const params = {};
+    if (search)     params.search = search;
+    if (filterType) params.type   = filterType;
+    api.get('/products', { params })
       .then(r => setProducts(r.data?.data || []))
-      .catch(() => toast.error('Failed to load products'))
+      .catch(() => toast.error('Failed to load'))
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [search]);
+  useEffect(() => { load(); }, [search, filterType]);
 
-  const openAdd = () => { setEditing(null); setForm(EMPTY); setShowModal(true); };
+  const openAdd  = () => { setEditing(null); setForm(EMPTY); setShowModal(true); };
   const openEdit = (p) => { setEditing(p); setForm({ ...EMPTY, ...p }); setShowModal(true); };
 
   const handleSubmit = async () => {
-    if (!form.name) return toast.error('Product name is required');
+    if (!form.name)  return toast.error('Product name is required');
+    if (!form.brand) return toast.error('Brand is required');
     try {
       if (editing) {
         await api.put(`/products/${editing.id}`, form);
@@ -47,50 +58,65 @@ export default function Products() {
     if (!window.confirm('Delete this product?')) return;
     try {
       await api.delete(`/products/${id}`);
-      toast.success('Product deleted');
+      toast.success('Deleted');
       load();
-    } catch {
-      toast.error('Failed to delete');
-    }
+    } catch { toast.error('Failed to delete'); }
   };
 
-  const fmt = n => `${currency} ${parseFloat(n || 0).toFixed(2)}`;
+  const fmt = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
+
+  const typeBadgeColor = (t) => ({
+    'New (Box Pack)': { bg: '#d1fae5', color: '#065f46' },
+    'Used':           { bg: '#fef3c7', color: '#92400e' },
+    'Refurbished':    { bg: '#dbeafe', color: '#1e40af' },
+    'Parts':          { bg: '#f3e8ff', color: '#6b21a8' },
+    'Accessories':    { bg: '#fce7f3', color: '#9d174d' },
+    'Wholesale':      { bg: '#e0f2fe', color: '#0369a1' },
+  }[t] || { bg: '#f3f4f6', color: '#374151' });
 
   return (
     <div>
       <div className="page-header">
         <div>
           <div className="page-title">📦 Products</div>
-          <div className="page-subtitle">Manage your product catalog</div>
+          <div className="page-subtitle">{products.length} product(s) in catalog</div>
         </div>
         <button className="btn btn-primary" onClick={openAdd}>+ Add Product</button>
       </div>
 
-      {/* Search */}
+      {/* Search + Filter */}
       <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
-        <input
-          className="form-control"
-          placeholder="🔍 Search by name, brand, model..."
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={{ maxWidth: '400px' }}
-        />
+        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <input
+            className="form-control"
+            placeholder="🔍 Search name, brand, serial number..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            style={{ flex: 1, minWidth: '200px' }}
+          />
+          <select
+            className="form-control" style={{ width: 'auto' }}
+            value={filterType} onChange={e => setFilterType(e.target.value)}
+          >
+            <option value="">All Types</option>
+            {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>
+        </div>
       </div>
 
       {/* Table */}
       <div className="card">
-        {loading ? (
-          <div className="loading">Loading...</div>
-        ) : (
+        {loading ? <div className="loading">Loading...</div> : (
           <div className="table-wrapper">
             <table>
               <thead>
                 <tr>
                   <th>#</th>
+                  <th>Serial No.</th>
                   <th>Product Name</th>
-                  <th>Brand / Model</th>
-                  <th>Category</th>
-                  <th>Condition</th>
+                  <th>Brand</th>
+                  <th>Color</th>
+                  <th>Type</th>
                   <th>Cost</th>
                   <th>Sell Price</th>
                   <th>Status</th>
@@ -99,27 +125,46 @@ export default function Products() {
               </thead>
               <tbody>
                 {products.length === 0 ? (
-                  <tr><td colSpan={9}><div className="empty-state"><p>No products found. Click + Add Product to start.</p></div></td></tr>
-                ) : products.map((p, i) => (
-                  <tr key={p.id}>
-                    <td>{i + 1}</td>
-                    <td><strong>{p.name}</strong></td>
-                    <td>{[p.brand, p.model].filter(Boolean).join(' · ') || '—'}</td>
-                    <td>{p.category || '—'}</td>
-                    <td>{p.condition || '—'}</td>
-                    <td>{p.base_cost > 0 ? fmt(p.base_cost) : '—'}</td>
-                    <td><strong>{fmt(p.selling_price)}</strong></td>
-                    <td>
-                      <span className={`badge ${p.is_active ? 'badge-green' : 'badge-gray'}`}>
-                        {p.is_active ? 'Active' : 'Inactive'}
-                      </span>
-                    </td>
-                    <td>
-                      <button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)}>✏️</button>
-                      <button className="btn btn-ghost btn-sm" style={{ color: 'var(--accent-red)' }} onClick={() => handleDelete(p.id)}>🗑️</button>
-                    </td>
-                  </tr>
-                ))}
+                  <tr><td colSpan={10}>
+                    <div className="empty-state"><p>No products found. Click + Add Product to start.</p></div>
+                  </td></tr>
+                ) : products.map((p, i) => {
+                  const tc = typeBadgeColor(p.type);
+                  return (
+                    <tr key={p.id}>
+                      <td>{i + 1}</td>
+                      <td style={{ fontFamily: 'monospace', fontSize: '.85rem', color: 'var(--text-muted)' }}>
+                        {p.serial_number || '—'}
+                      </td>
+                      <td><strong>{p.name}</strong></td>
+                      <td>{p.brand || '—'}</td>
+                      <td>
+                        {p.color ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: p.color.toLowerCase(), border: '1px solid #ddd' }} />
+                            {p.color}
+                          </div>
+                        ) : '—'}
+                      </td>
+                      <td>
+                        <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '.78rem', fontWeight: 600, background: tc.bg, color: tc.color }}>
+                          {p.type || '—'}
+                        </span>
+                      </td>
+                      <td>{p.base_cost > 0 ? fmt(p.base_cost) : '—'}</td>
+                      <td><strong>{fmt(p.selling_price)}</strong></td>
+                      <td>
+                        <span className={`badge ${p.is_active ? 'badge-green' : 'badge-gray'}`}>
+                          {p.is_active ? 'Active' : 'Inactive'}
+                        </span>
+                      </td>
+                      <td>
+                        <button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)}>✏️</button>
+                        <button className="btn btn-ghost btn-sm" style={{ color: 'var(--accent-red)' }} onClick={() => handleDelete(p.id)}>🗑️</button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -129,69 +174,107 @@ export default function Products() {
       {/* Modal */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" style={{ maxWidth: '600px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: '560px' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <strong>{editing ? 'Edit Product' : 'Add Product'}</strong>
               <button className="modal-close" onClick={() => setShowModal(false)}>✕</button>
             </div>
             <div className="modal-body">
+
+              {/* Type selector — most prominent */}
+              <div className="form-group" style={{ marginBottom: '16px' }}>
+                <label className="form-label">Type *</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
+                  {TYPES.map(t => {
+                    const tc = typeBadgeColor(t);
+                    return (
+                      <button key={t}
+                        onClick={() => setForm({ ...form, type: t })}
+                        style={{
+                          padding: '8px 4px', borderRadius: '8px', fontSize: '.82rem', fontWeight: 600,
+                          border: `2px solid ${form.type === t ? tc.color : 'var(--border)'}`,
+                          background: form.type === t ? tc.bg : 'transparent',
+                          color: form.type === t ? tc.color : 'var(--text-muted)',
+                          cursor: 'pointer',
+                        }}>
+                        {t}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="form-grid">
+                {/* Serial Number — barcode scanner ready (autofocus) */}
+                <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                  <label className="form-label">Serial / IMEI Number
+                    <span style={{ fontSize: '.75rem', color: 'var(--text-muted)', marginLeft: '8px' }}>
+                      (scan barcode or type manually)
+                    </span>
+                  </label>
+                  <input
+                    className="form-control"
+                    placeholder="Scan or type serial number..."
+                    value={form.serial_number}
+                    onChange={e => setForm({ ...form, serial_number: e.target.value })}
+                    autoComplete="off"
+                  />
+                </div>
+
                 <div className="form-group" style={{ gridColumn: 'span 2' }}>
                   <label className="form-label">Product Name *</label>
-                  <input className="form-control" value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="e.g. iPhone 14 Pro 256GB Black" />
+                  <input className="form-control"
+                    placeholder="e.g. iPhone 14 Pro Max 256GB"
+                    value={form.name}
+                    onChange={e => setForm({ ...form, name: e.target.value })} />
                 </div>
+
                 <div className="form-group">
-                  <label className="form-label">Brand</label>
-                  <input className="form-control" value={form.brand} onChange={e => setForm({ ...form, brand: e.target.value })} placeholder="Apple, Samsung..." />
+                  <label className="form-label">Brand *</label>
+                  <input className="form-control"
+                    placeholder="Apple, Samsung..."
+                    value={form.brand}
+                    onChange={e => setForm({ ...form, brand: e.target.value })} />
                 </div>
-                <div className="form-group">
-                  <label className="form-label">Model</label>
-                  <input className="form-control" value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} placeholder="Model number" />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Category</label>
-                  <select className="form-control" value={form.category} onChange={e => setForm({ ...form, category: e.target.value })}>
-                    <option>Mobile Phone</option>
-                    <option>Tablet</option>
-                    <option>Laptop</option>
-                    <option>Accessory</option>
-                    <option>Repair Part</option>
-                    <option>Other</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Condition</label>
-                  <select className="form-control" value={form.condition} onChange={e => setForm({ ...form, condition: e.target.value })}>
-                    <option>Used</option>
-                    <option>New</option>
-                    <option>Refurbished</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Storage</label>
-                  <input className="form-control" value={form.storage} onChange={e => setForm({ ...form, storage: e.target.value })} placeholder="64GB, 128GB..." />
-                </div>
+
                 <div className="form-group">
                   <label className="form-label">Color</label>
-                  <input className="form-control" value={form.color} onChange={e => setForm({ ...form, color: e.target.value })} placeholder="Black, White..." />
+                  <input className="form-control"
+                    placeholder="Black, White, Gold..."
+                    value={form.color}
+                    onChange={e => setForm({ ...form, color: e.target.value })} />
                 </div>
+
                 <div className="form-group">
-                  <label className="form-label">Base Cost ({currency})</label>
-                  <input type="number" className="form-control" value={form.base_cost} onChange={e => setForm({ ...form, base_cost: e.target.value })} placeholder="0.00" />
+                  <label className="form-label">Base Cost (AED)</label>
+                  <input type="number" className="form-control"
+                    value={form.base_cost}
+                    onChange={e => setForm({ ...form, base_cost: e.target.value })}
+                    placeholder="0" />
                 </div>
+
                 <div className="form-group">
-                  <label className="form-label">Selling Price ({currency})</label>
-                  <input type="number" className="form-control" value={form.selling_price} onChange={e => setForm({ ...form, selling_price: e.target.value })} placeholder="0.00" />
+                  <label className="form-label">Selling Price (AED)</label>
+                  <input type="number" className="form-control"
+                    value={form.selling_price}
+                    onChange={e => setForm({ ...form, selling_price: e.target.value })}
+                    placeholder="0" />
                 </div>
+
                 <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                  <label className="form-label">Description</label>
-                  <input className="form-control" value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} placeholder="Optional notes" />
+                  <label className="form-label">Description / Notes</label>
+                  <input className="form-control"
+                    value={form.description}
+                    onChange={e => setForm({ ...form, description: e.target.value })}
+                    placeholder="Optional — deal details, specs, etc." />
                 </div>
               </div>
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleSubmit}>{editing ? 'Update' : 'Add Product'}</button>
+              <button className="btn btn-primary" onClick={handleSubmit}>
+                {editing ? 'Update' : 'Add Product'}
+              </button>
             </div>
           </div>
         </div>

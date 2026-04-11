@@ -4,8 +4,7 @@ const { query, getClient } = require('../config/database');
 async function generateInvoiceNumber() {
   const year = new Date().getFullYear();
   const result = await query(
-    `SELECT COUNT(*) as count FROM sales_invoices WHERE EXTRACT(YEAR FROM sale_date) = $1`,
-    [year]
+    `SELECT COUNT(*) as count FROM sales_invoices WHERE EXTRACT(YEAR FROM sale_date) = $1`, [year]
   );
   const count = parseInt(result.rows[0].count) + 1;
   return `INV-${year}-${String(count).padStart(4, '0')}`;
@@ -16,9 +15,8 @@ exports.getAllSales = async (req, res) => {
   try {
     const { from, to, payment_status, shop_id } = req.query;
     let sql = `
-      SELECT si.*, c.name as customer_name,
-             sh.name as shop_name,
-             u.name as sold_by,
+      SELECT si.*, c.name as customer_name, c.phone as customer_phone,
+             sh.name as shop_name, u.name as sold_by,
              COUNT(s.id) as item_count
       FROM sales_invoices si
       LEFT JOIN customers c  ON c.id  = si.customer_id
@@ -29,14 +27,36 @@ exports.getAllSales = async (req, res) => {
     `;
     const params = [];
     let idx = 1;
-    if (from)           { sql += ` AND si.sale_date >= $${idx++}`;       params.push(from); }
-    if (to)             { sql += ` AND si.sale_date <= $${idx++}`;       params.push(to); }
-    if (payment_status) { sql += ` AND si.payment_status = $${idx++}`;   params.push(payment_status); }
-    if (shop_id)        { sql += ` AND si.shop_id = $${idx++}`;          params.push(shop_id); }
-    sql += ` GROUP BY si.id, c.name, sh.name, u.name ORDER BY si.sale_date DESC, si.created_at DESC`;
-
+    if (from)           { sql += ` AND si.sale_date >= $${idx++}`;     params.push(from); }
+    if (to)             { sql += ` AND si.sale_date <= $${idx++}`;     params.push(to); }
+    if (payment_status) { sql += ` AND si.payment_status = $${idx++}`; params.push(payment_status); }
+    if (shop_id)        { sql += ` AND si.shop_id = $${idx++}`;        params.push(parseInt(shop_id)); }
+    sql += ` GROUP BY si.id, c.name, c.phone, sh.name, u.name ORDER BY si.sale_date DESC, si.created_at DESC`;
     const result = await query(sql, params);
     res.json({ success: true, count: result.rows.length, data: result.rows });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+// GET /api/v1/sales/search-serial?q=
+exports.searchBySerial = async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q) return res.json({ success: true, data: [] });
+    const result = await query(`
+      SELECT si.id, si.invoice_number, si.sale_date, si.total_amount, si.payment_status,
+             si.payment_method, c.name as customer_name,
+             string_agg(s.serial_number, ', ') as serials
+      FROM sales_invoices si
+      LEFT JOIN customers c ON c.id = si.customer_id
+      LEFT JOIN sale_items s ON s.invoice_id = si.id
+      WHERE s.serial_number ILIKE $1
+         OR si.invoice_number ILIKE $1
+      GROUP BY si.id, c.name
+      ORDER BY si.sale_date DESC LIMIT 20
+    `, [`%${q}%`]);
+    res.json({ success: true, data: result.rows });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -52,19 +72,16 @@ exports.getSale = async (req, res) => {
        LEFT JOIN customers c ON c.id = si.customer_id
        LEFT JOIN shops sh    ON sh.id = si.shop_id
        LEFT JOIN users u     ON u.id  = si.user_id
-       WHERE si.id = $1`,
-      [req.params.id]
+       WHERE si.id = $1`, [req.params.id]
     );
     if (!invoice.rows.length)
       return res.status(404).json({ success: false, message: 'Invoice not found' });
 
     const items = await query(
-      `SELECT s.*, p.name as product_name, p.brand, p.model
+      `SELECT s.*, p.name as product_name, p.brand, p.model, p.color, p.serial_number as product_serial
        FROM sale_items s JOIN products p ON p.id = s.product_id
-       WHERE s.invoice_id = $1`,
-      [req.params.id]
+       WHERE s.invoice_id = $1`, [req.params.id]
     );
-
     res.json({ success: true, data: { ...invoice.rows[0], items: items.rows } });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -80,83 +97,125 @@ exports.createSale = async (req, res) => {
     const {
       customer_id, customer_name, customer_phone,
       sale_date, discount = 0, payment_method = 'cash',
-      amount_paid = 0, notes, items,
-      shop_id,           // ← NEW
+      amount_paid = 0, notes, items, shop_id,
+      pending_amount = 0,
+      // Exchange fields
+      is_exchange = false,
+      exchange_product_name, exchange_serial_number, exchange_trade_in_value = 0,
     } = req.body;
 
-    if (!items || !items.length)
-      throw new Error('At least one sale item is required');
-    if (!shop_id)
-      throw new Error('shop_id is required');
+    if (!items || !items.length) throw new Error('At least one sale item is required');
+    if (!shop_id) throw new Error('shop_id is required');
 
+    // Customer lookup by phone (phone as identifier)
     let finalCustomerId = customer_id || null;
-    if (!customer_id && customer_name) {
-      const existing = customer_phone
-        ? await client.query('SELECT id FROM customers WHERE phone = $1', [customer_phone])
-        : { rows: [] };
+    if (customer_phone) {
+      const phone = customer_phone.startsWith('+971') ? customer_phone : `+971${customer_phone}`;
+      const existing = await client.query('SELECT id FROM customers WHERE phone = $1', [phone]);
       if (existing.rows.length) {
         finalCustomerId = existing.rows[0].id;
-      } else {
+      } else if (customer_name) {
         const newCust = await client.query(
           `INSERT INTO customers (name, phone) VALUES ($1, $2) RETURNING id`,
-          [customer_name, customer_phone || null]
+          [customer_name, phone]
         );
         finalCustomerId = newCust.rows[0].id;
       }
+    } else if (!customer_id && customer_name) {
+      const newCust = await client.query(
+        `INSERT INTO customers (name) VALUES ($1) RETURNING id`, [customer_name]
+      );
+      finalCustomerId = newCust.rows[0].id;
     }
 
-    const enrichedItems = items.map(item => {
-      if (!item.product_id) throw new Error('Each item needs a product');
-      return { ...item };
-    });
+    const subtotal    = items.reduce((sum, i) => sum + ((i.qty || 1) * i.unit_price), 0);
+    const tradeIn     = is_exchange ? parseFloat(exchange_trade_in_value) : 0;
+    const totalAmount = subtotal - parseFloat(discount) - tradeIn;
+    const paid        = parseFloat(amount_paid);
+    const amountDue   = totalAmount - paid;
 
-    const subtotal      = enrichedItems.reduce((sum, i) => sum + ((i.qty || 1) * i.unit_price), 0);
-    const totalAmount   = subtotal - parseFloat(discount);
-    const paid          = parseFloat(amount_paid);
-    const amountDue     = totalAmount - paid;
+    // Determine payment status
+    let paymentStatus;
+    if (payment_method === 'pending') {
+      paymentStatus = 'unpaid';
+    } else if (['tabby', 'tamara', 'card', 'bank_transfer'].includes(payment_method)) {
+      paymentStatus = 'payment_pending'; // money not yet in hand
+    } else {
+      paymentStatus = paid >= totalAmount ? 'paid' : paid > 0 ? 'partial' : 'unpaid';
+    }
+
     const invoiceNumber = await generateInvoiceNumber();
-    const userId        = req.user?.id || null;
+    const userId = req.user?.id || null;
 
     const invoice = await client.query(
       `INSERT INTO sales_invoices
         (invoice_number, customer_id, sale_date, subtotal, discount, total_amount,
-         amount_paid, amount_due, payment_method, payment_status, notes, user_id, shop_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
+         amount_paid, amount_due, payment_method, payment_status, notes, user_id, shop_id,
+         pending_amount, is_exchange, exchange_product_name, exchange_serial_number, exchange_trade_in_value)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) RETURNING *`,
       [
         invoiceNumber, finalCustomerId,
         sale_date || new Date().toISOString().split('T')[0],
         subtotal, discount, totalAmount, paid, amountDue,
-        payment_method,
-        paid >= totalAmount ? 'paid' : paid > 0 ? 'partial' : 'unpaid',
-        notes, userId, shop_id,
+        payment_method, paymentStatus, notes, userId, parseInt(shop_id),
+        parseFloat(pending_amount),
+        is_exchange, exchange_product_name || null,
+        exchange_serial_number || null, tradeIn,
       ]
     );
     const invoiceId = invoice.rows[0].id;
 
-    for (const item of enrichedItems) {
+    for (const item of items) {
+      if (!item.product_id) throw new Error('Each item needs a product');
       const qty = parseInt(item.qty) || 1;
       await client.query(
-        `INSERT INTO sale_items (invoice_id, product_id, qty, unit_cost, unit_price, discount)
-         VALUES ($1,$2,$3,$4,$5,$6)`,
-        [invoiceId, item.product_id, qty, 0, item.unit_price, item.discount || 0]
+        `INSERT INTO sale_items (invoice_id, product_id, qty, unit_cost, unit_price, discount, serial_number)
+         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
+        [invoiceId, item.product_id, qty, item.unit_cost || 0, item.unit_price, item.discount || 0, item.serial_number || null]
       );
-      // Deduct from shop-specific inventory
+      // Deduct from shop inventory
       await client.query(
         `UPDATE inventory SET quantity = quantity - $1, last_updated = NOW()
          WHERE product_id = $2 AND shop_id = $3 AND quantity >= $1`,
-        [qty, item.product_id, shop_id]
+        [qty, item.product_id, parseInt(shop_id)]
       );
       await client.query(
         `INSERT INTO stock_movements (product_id, type, quantity, note, created_by)
          VALUES ($1, 'out', $2, $3, $4)`,
-        [item.product_id, qty, `Sale ${invoiceNumber}`, req.user?.id]
+        [item.product_id, qty, `Sale ${invoiceNumber}`, userId]
       );
     }
 
-    if (finalCustomerId && amountDue > 0) {
+    // Exchange: add incoming phone to inventory
+    if (is_exchange && exchange_serial_number) {
+      // Check if product exists by serial
+      const exProd = await client.query(
+        `SELECT id FROM products WHERE serial_number = $1 LIMIT 1`, [exchange_serial_number]
+      );
+      if (exProd.rows.length) {
+        await client.query(
+          `INSERT INTO inventory (product_id, shop_id, quantity, min_stock)
+           VALUES ($1, $2, 1, 0)
+           ON CONFLICT (product_id, shop_id)
+           DO UPDATE SET quantity = inventory.quantity + 1, last_updated = NOW()`,
+          [exProd.rows[0].id, parseInt(shop_id)]
+        );
+      }
+    }
+
+    // Update customer balance for pending/partial
+    if (finalCustomerId && amountDue > 0 && payment_method !== 'tabby' && payment_method !== 'tamara') {
       await client.query(
-        `UPDATE customers SET balance = balance + $1 WHERE id = $2`,
-        [amountDue, finalCustomerId]
+        `UPDATE customers SET balance = balance + $1 WHERE id = $2`, [amountDue, finalCustomerId]
+      );
+    }
+
+    // Cash register: only update if cash payment
+    if (payment_method === 'cash' && paid > 0) {
+      await client.query(
+        `UPDATE cash_register SET total_sales_cash = total_sales_cash + $1
+         WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
+        [paid, sale_date || new Date().toISOString().split('T')[0], parseInt(shop_id)]
       );
     }
 
@@ -174,59 +233,110 @@ exports.createSale = async (req, res) => {
   }
 };
 
-// POST /api/v1/sales/:id/return
+// POST /api/v1/sales/:id/mark-received — accountant marks non-cash payment as received
+exports.markPaymentReceived = async (req, res) => {
+  const client = await getClient();
+  try {
+    await client.query('BEGIN');
+    const invoiceId = req.params.id;
+    const { received_date } = req.body;
+
+    const inv = await client.query('SELECT * FROM sales_invoices WHERE id = $1', [invoiceId]);
+    if (!inv.rows.length) throw new Error('Invoice not found');
+    const invoice = inv.rows[0];
+
+    if (invoice.payment_status === 'returned') throw new Error('Invoice is returned');
+    if (invoice.payment_status === 'paid') throw new Error('Already marked as paid');
+
+    const recDate = received_date || new Date().toISOString().split('T')[0];
+
+    await client.query(
+      `UPDATE sales_invoices SET
+         payment_status = 'paid',
+         payment_received_date = $1,
+         payment_received_by = $2
+       WHERE id = $3`,
+      [recDate, req.user?.id || null, invoiceId]
+    );
+
+    // Now update cash register on the received date
+    await client.query(
+      `UPDATE cash_register SET total_sales_cash = total_sales_cash + $1
+       WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
+      [parseFloat(invoice.total_amount), recDate, invoice.shop_id]
+    );
+
+    await client.query('COMMIT');
+    res.json({ success: true, message: 'Payment marked as received' });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(400).json({ success: false, message: err.message });
+  } finally {
+    client.release();
+  }
+};
+
+// POST /api/v1/sales/:id/return — with partial return price
 exports.returnSale = async (req, res) => {
   const client = await getClient();
   try {
     await client.query('BEGIN');
 
-    const { note } = req.body;
+    const { note, return_amount } = req.body;
     const invoiceId = req.params.id;
 
-    const invoice = await client.query('SELECT * FROM sales_invoices WHERE id = $1', [invoiceId]);
-    if (!invoice.rows.length) throw new Error('Invoice not found');
-
-    const inv = invoice.rows[0];
-    if (inv.payment_status === 'returned') throw new Error('Invoice already returned');
+    const inv = await client.query('SELECT * FROM sales_invoices WHERE id = $1', [invoiceId]);
+    if (!inv.rows.length) throw new Error('Invoice not found');
+    const invoice = inv.rows[0];
+    if (invoice.payment_status === 'returned') throw new Error('Invoice already returned');
 
     const items = await client.query('SELECT * FROM sale_items WHERE invoice_id = $1', [invoiceId]);
 
+    // Restore inventory
     for (const item of items.rows) {
-      // Restore to the shop that made the sale
       await client.query(
         `UPDATE inventory SET quantity = quantity + $1, last_updated = NOW()
          WHERE product_id = $2 AND shop_id = $3`,
-        [item.qty, item.product_id, inv.shop_id]
+        [item.qty, item.product_id, invoice.shop_id]
       );
       await client.query(
         `INSERT INTO stock_movements (product_id, type, quantity, note, created_by)
          VALUES ($1, 'in', $2, $3, $4)`,
-        [item.product_id, item.qty, `Return: ${inv.invoice_number} — ${note || 'Customer return'}`, req.user?.id]
+        [item.product_id, item.qty, `Return: ${invoice.invoice_number} — ${note || 'Customer return'}`, req.user?.id]
       );
     }
 
-    if (inv.customer_id) {
-      if (inv.amount_due > 0) {
+    // return_amount is what we paid back to customer
+    // difference = original - return = what we keep
+    const returnAmt = parseFloat(return_amount || invoice.amount_paid || 0);
+    const deduction = parseFloat(invoice.amount_paid || 0) - returnAmt;
+
+    // Update customer balance
+    if (invoice.customer_id) {
+      if (invoice.amount_due > 0) {
         await client.query(
           `UPDATE customers SET balance = balance - $1 WHERE id = $2`,
-          [inv.amount_due, inv.customer_id]
+          [invoice.amount_due, invoice.customer_id]
         );
       }
-      if (inv.amount_paid > 0) {
+      if (returnAmt > 0) {
         await client.query(
           `INSERT INTO customer_receipts (customer_id, amount, receipt_date, payment_method, note)
            VALUES ($1, $2, $3, 'refund', $4)`,
-          [inv.customer_id, Math.round(inv.amount_paid),
+          [invoice.customer_id, returnAmt,
            new Date().toISOString().split('T')[0],
-           `Refund for returned invoice ${inv.invoice_number}`]
+           `Refund for ${invoice.invoice_number}${deduction > 0 ? ` (deducted AED ${deduction})` : ''}`]
         );
       }
     }
 
     await client.query(
-      `UPDATE sales_invoices SET payment_status = 'returned',
-       notes = CONCAT(COALESCE(notes,''), ' | RETURNED: ', $1::text) WHERE id = $2`,
-      [note || 'Customer return', invoiceId]
+      `UPDATE sales_invoices SET
+         payment_status = 'returned',
+         notes = CONCAT(COALESCE(notes,''), ' | RETURNED: ', $1::text,
+                        ' | Return paid: AED ', $2::text)
+       WHERE id = $3`,
+      [note || 'Customer return', returnAmt, invoiceId]
     );
 
     await client.query('COMMIT');
