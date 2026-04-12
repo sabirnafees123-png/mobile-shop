@@ -5,7 +5,6 @@ import api from '../utils/api';
 
 const fmt = n => `AED ${Math.round(Number(n || 0)).toLocaleString()}`;
 
-// ── Adjust Stock Modal ───────────────────────────────────────────────────────
 function AdjustModal({ item, onClose, onDone }) {
   const [type, setType]     = useState('in');
   const [qty, setQty]       = useState('');
@@ -18,23 +17,19 @@ function AdjustModal({ item, onClose, onDone }) {
     setSaving(true);
     try {
       await api.post('/inventory/adjust', {
-        product_id: item.product_id,
-        shop_id:    item.shop_id,       // ← pass shop_id
-        type,
-        quantity: Number(qty),
-        note,
+        product_id: item.product_id, shop_id: item.shop_id,
+        type, quantity: Number(qty), note,
       });
       toast.success('Stock updated!');
-      onDone();
-      onClose();
+      onDone(); onClose();
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
     finally { setSaving(false); }
   };
 
   const typeConfig = {
-    in:         { label: 'Stock In',  icon: '📥', desc: 'Add stock' },
-    out:        { label: 'Stock Out', icon: '📤', desc: 'Remove stock' },
-    adjustment: { label: 'Set Exact', icon: '🔧', desc: 'Set absolute count' },
+    in:         { label: 'Stock In',  icon: '📥' },
+    out:        { label: 'Stock Out', icon: '📤' },
+    adjustment: { label: 'Set Exact', icon: '🔧' },
   };
 
   return (
@@ -52,8 +47,10 @@ function AdjustModal({ item, onClose, onDone }) {
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px',marginBottom:'12px'}}>
             {Object.entries(typeConfig).map(([k, v]) => (
               <button key={k} onClick={() => setType(k)}
-                style={{padding:'10px',borderRadius:'8px',border:`2px solid ${type===k?'var(--accent)':'var(--border)'}`,
-                  background: type===k ? 'var(--bg-secondary)' : 'transparent',cursor:'pointer',textAlign:'center'}}>
+                style={{padding:'10px',borderRadius:'8px',
+                  border:`2px solid ${type===k?'var(--accent)':'var(--border)'}`,
+                  background: type===k ? 'var(--bg-secondary)' : 'transparent',
+                  cursor:'pointer',textAlign:'center'}}>
                 <div style={{fontSize:'1.2rem'}}>{v.icon}</div>
                 <div style={{fontSize:'.75rem',fontWeight:600}}>{v.label}</div>
               </button>
@@ -66,8 +63,7 @@ function AdjustModal({ item, onClose, onDone }) {
           </div>
           <div className="form-group">
             <label className="form-label">Note (optional)</label>
-            <input className="form-control" value={note} onChange={e => setNote(e.target.value)}
-              placeholder="e.g. Received from supplier" />
+            <input className="form-control" value={note} onChange={e => setNote(e.target.value)} />
           </div>
         </div>
         <div className="modal-footer">
@@ -81,7 +77,6 @@ function AdjustModal({ item, onClose, onDone }) {
   );
 }
 
-// ── Movements Modal ──────────────────────────────────────────────────────────
 function MovementsModal({ productId, productName, onClose }) {
   const [movements, setMovements] = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -131,7 +126,6 @@ function MovementsModal({ productId, productName, onClose }) {
   );
 }
 
-// ── Main Page ────────────────────────────────────────────────────────────────
 export default function Inventory() {
   const [inventory, setInventory]       = useState([]);
   const [stats, setStats]               = useState(null);
@@ -141,13 +135,10 @@ export default function Inventory() {
   const [importing, setImporting]       = useState(false);
   const [search, setSearch]             = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
-  const [dateFrom, setDateFrom]         = useState('');
-  const [dateTo, setDateTo]             = useState('');
   const [adjustItem, setAdjustItem]     = useState(null);
   const [movementItem, setMovementItem] = useState(null);
   const fileInputRef = useRef();
 
-  // Load shops on mount
   useEffect(() => {
     api.get('/shops').then(r => setShops(r.data?.data || []));
   }, []);
@@ -156,12 +147,9 @@ export default function Inventory() {
     setLoading(true);
     try {
       const params = {};
-      if (search)               params.search = search;
+      if (search)               params.search  = search;
       if (filterStatus !== 'all') params.status = filterStatus;
-      if (dateFrom)             params.from    = dateFrom;
-      if (dateTo)               params.to      = dateTo;
-      if (shopId)               params.shop_id = shopId;
-
+      if (shopId)               params.shop_id  = shopId;
       const [invRes, statsRes] = await Promise.all([
         api.get('/inventory', { params }),
         api.get('/inventory/stats', { params: shopId ? { shop_id: shopId } : {} }),
@@ -170,11 +158,10 @@ export default function Inventory() {
       setStats(statsRes.data.data);
     } catch { toast.error('Failed to load inventory'); }
     finally { setLoading(false); }
-  }, [search, filterStatus, dateFrom, dateTo, shopId]);
+  }, [search, filterStatus, shopId]);
 
   useEffect(() => { fetchInventory(); }, [fetchInventory]);
 
-  // ── Export CSV ──────────────────────────────────────────────────────────────
   const handleExport = async () => {
     try {
       const token = localStorage.getItem('token');
@@ -187,18 +174,14 @@ export default function Inventory() {
       const blob = await response.blob();
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
-      a.href     = url;
-      a.download = `inventory_${new Date().toISOString().split('T')[0]}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success('Inventory exported!');
+      a.href = url; a.download = `inventory_${new Date().toISOString().split('T')[0]}.csv`;
+      a.click(); URL.revokeObjectURL(url);
+      toast.success('Exported!');
     } catch (err) { toast.error('Export failed: ' + err.message); }
   };
 
-  // ── Import CSV ──────────────────────────────────────────────────────────────
   const handleImport = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const file = e.target.files[0]; if (!file) return;
     setImporting(true);
     try {
       const text    = await file.text();
@@ -207,15 +190,14 @@ export default function Inventory() {
       const rows    = lines.slice(1).map(line => {
         const values = line.match(/(\".*?\"|[^,]+)(?=,|$)/g) || [];
         const obj = {};
-        headers.forEach((h, i) => { obj[h] = (values[i] || '').replace(/^\"|\"$/g,'').trim(); });
+        headers.forEach((h, i) => { obj[h] = (values[i]||'').replace(/^\"|\"$/g,'').trim(); });
         return obj;
       }).filter(r => r.name);
       const res = await api.post('/inventory/import', { rows });
       toast.success(res.data?.message || 'Import complete!');
       fetchInventory();
-    } catch (err) {
-      toast.error('Import failed: ' + (err.response?.data?.message || err.message));
-    } finally { setImporting(false); e.target.value = ''; }
+    } catch (err) { toast.error('Import failed: ' + (err.response?.data?.message || err.message)); }
+    finally { setImporting(false); e.target.value = ''; }
   };
 
   const stockStatus = (qty, min) => {
@@ -223,8 +205,6 @@ export default function Inventory() {
     if (qty <= min) return { label: 'Low Stock',    color: '#d97706', bg: '#fef3c7' };
     return            { label: 'In Stock',          color: '#059669', bg: '#d1fae5' };
   };
-
-  const clearFilters = () => { setSearch(''); setFilterStatus('all'); setDateFrom(''); setDateTo(''); };
 
   return (
     <div style={{padding:'24px',background:'#f8f9fc',minHeight:'100vh'}}>
@@ -241,7 +221,6 @@ export default function Inventory() {
           </div>
         </div>
         <div style={{display:'flex',gap:'8px',alignItems:'center',marginLeft:'auto'}}>
-          {/* Shop Filter */}
           <select className="form-control" style={{width:'auto'}} value={shopId} onChange={e => setShopId(e.target.value)}>
             <option value="">All Shops</option>
             {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -278,7 +257,7 @@ export default function Inventory() {
         <div style={{display:'flex',flexWrap:'wrap',gap:'12px',alignItems:'flex-end'}}>
           <div style={{flex:'1',minWidth:'200px'}}>
             <input value={search} onChange={e => setSearch(e.target.value)}
-              placeholder="🔍 Search products..." className="form-control" />
+              placeholder="🔍 Search name, serial number, brand..." className="form-control" />
           </div>
           <div>
             <label className="form-label">Status</label>
@@ -289,17 +268,6 @@ export default function Inventory() {
               <option value="out_of_stock">Out of Stock</option>
             </select>
           </div>
-          <div>
-            <label className="form-label">From</label>
-            <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} className="form-control" style={{width:'140px'}} />
-          </div>
-          <div>
-            <label className="form-label">To</label>
-            <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} className="form-control" style={{width:'140px'}} />
-          </div>
-          {(search || filterStatus !== 'all' || dateFrom || dateTo) && (
-            <button onClick={clearFilters} className="btn btn-ghost btn-sm" style={{marginBottom:'2px'}}>Clear</button>
-          )}
         </div>
       </div>
 
@@ -314,7 +282,7 @@ export default function Inventory() {
             <table style={{width:'100%',borderCollapse:'collapse',fontSize:'.88rem'}}>
               <thead>
                 <tr style={{background:'#f8f9fc',borderBottom:'2px solid #e8eaf0'}}>
-                  {['Product','Brand','Color','Category','Shop','In Stock','Min Stock','Status','Last Updated','Actions'].map(h => (
+                  {['Serial / IMEI','Product','Color','Category','Shop','In Stock','Status','Last Updated','Actions'].map(h => (
                     <th key={h} style={{padding:'10px 12px',textAlign:'left',fontSize:'.75rem',
                       color:'#6b7280',fontWeight:600,textTransform:'uppercase',letterSpacing:'.03em',whiteSpace:'nowrap'}}>
                       {h}
@@ -329,11 +297,14 @@ export default function Inventory() {
                     <tr key={item.id} style={{borderBottom:'1px solid #f1f2f6'}}
                       onMouseEnter={e => e.currentTarget.style.background='#fafbff'}
                       onMouseLeave={e => e.currentTarget.style.background='transparent'}>
+                      {/* Serial Number — first column */}
+                      <td style={{padding:'10px 12px',fontFamily:'monospace',fontSize:'.82rem',color:'#374151',fontWeight:600}}>
+                        {item.serial_number || <span style={{color:'#9ca3af'}}>—</span>}
+                      </td>
                       <td style={{padding:'10px 12px'}}>
                         <div style={{fontWeight:600,color:'#1a1a2e'}}>{item.name}</div>
                         {item.model && <div style={{fontSize:'.75rem',color:'#6b7280'}}>{item.model}</div>}
                       </td>
-                      <td style={{padding:'10px 12px',color:'#4b5563'}}>{item.brand || '—'}</td>
                       <td style={{padding:'10px 12px'}}>
                         {item.color ? (
                           <div style={{display:'flex',alignItems:'center',gap:'6px'}}>
@@ -356,7 +327,6 @@ export default function Inventory() {
                           {item.quantity}
                         </span>
                       </td>
-                      <td style={{padding:'10px 12px',color:'#6b7280'}}>{item.min_stock}</td>
                       <td style={{padding:'10px 12px'}}>
                         <span style={{padding:'3px 10px',borderRadius:'12px',fontSize:'.75rem',
                           fontWeight:600,background:status.bg,color:status.color}}>
@@ -387,16 +357,9 @@ export default function Inventory() {
             </table>
             <div style={{padding:'10px 16px',borderTop:'1px solid #f1f2f6',fontSize:'.8rem',color:'#9ca3af'}}>
               {inventory.length} record{inventory.length !== 1 ? 's' : ''}
-              {shopId && ` · ${shops.find(s=>s.id.toString()===shopId.toString())?.name}`}
             </div>
           </div>
         )}
-      </div>
-
-      <div style={{marginTop:'16px',padding:'12px 16px',background:'#f8f9fc',borderRadius:'8px',fontSize:'.82rem',color:'#6b7280',border:'1px solid #e8eaf0'}}>
-        📤 <strong>Import CSV format:</strong> Name, Brand, Model, Category, Color, Storage, Condition, Selling Price, Cost Price, Quantity, Min Stock
-        <span style={{marginLeft:'12px'}}>·</span>
-        <span style={{marginLeft:'8px'}}>📥 Use Export to download the template first</span>
       </div>
     </div>
   );
