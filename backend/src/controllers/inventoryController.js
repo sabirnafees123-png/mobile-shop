@@ -6,7 +6,7 @@ const getInventory = async (req, res) => {
   try {
     const { search, low_stock, status, from, to, shop_id } = req.query;
     let sql = `
-      SELECT i.*, p.name, p.brand, p.model, p.category, p.color, p.is_active,
+      SELECT i.*, p.name, p.brand, p.model, p.category, p.color, p.serial_number, p.type, p.is_active,
              s.name as shop_name,
              CASE WHEN i.quantity = 0 THEN 'out_of_stock'
                   WHEN i.quantity <= i.min_stock THEN 'low_stock'
@@ -24,7 +24,7 @@ const getInventory = async (req, res) => {
     }
     if (search) {
       params.push(`%${search}%`);
-      sql += ` AND (p.name ILIKE $${params.length} OR p.brand ILIKE $${params.length} OR p.model ILIKE $${params.length})`;
+      sql += ` AND (p.name ILIKE $${params.length} OR p.brand ILIKE $${params.length} OR p.model ILIKE $${params.length} OR p.serial_number ILIKE $${params.length})`;
     }
     if (low_stock === 'true') {
       sql += ` AND i.quantity <= i.min_stock`;
