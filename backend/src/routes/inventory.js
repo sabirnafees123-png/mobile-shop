@@ -10,12 +10,11 @@ router.get('/',           getInventory);
 router.get('/stats',      getInventoryStats);
 router.get('/movements',  getMovements);
 
-// ── EXPORT inventory as CSV ──────────────────────────────────────────────────
+// ── EXPORT ──────────────────────────────────────────────────────────────────
 router.get('/export', async (req, res) => {
   try {
     const { query } = require('../config/database');
     const { shop_id } = req.query;
-
     let sql = `
       SELECT p.serial_number, p.name, p.brand, p.color, p.type,
              p.category, p.selling_price, p.base_cost,
@@ -28,28 +27,17 @@ router.get('/export', async (req, res) => {
     const params = [];
     if (shop_id) { sql += ` AND i.shop_id = $1`; params.push(parseInt(shop_id)); }
     sql += ` ORDER BY s.name, p.name`;
-
     const result = await query(sql, params);
-
     const headers = ['Serial Number','Product Name','Brand','Color','Type','Category','Selling Price','Cost Price','Quantity','Shop','Last Updated'];
     const rows = result.rows.map(r => [
-      r.serial_number || '',
-      r.name,
-      r.brand || '',
-      r.color || '',
-      r.type || '',
-      r.category || '',
-      Math.round(r.selling_price || 0),
-      Math.round(r.base_cost || 0),
-      r.quantity,
-      r.shop_name || '',
+      r.serial_number || '', r.name, r.brand || '', r.color || '', r.type || '',
+      r.category || '', Math.round(r.selling_price || 0), Math.round(r.base_cost || 0),
+      r.quantity, r.shop_name || '',
       r.last_updated ? new Date(r.last_updated).toLocaleDateString('en-AE') : ''
     ]);
-
     const csv = [headers, ...rows]
       .map(row => row.map(cell => `"${(cell||'').toString().replace(/"/g,'""')}"`).join(','))
       .join('\n');
-
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="inventory_${new Date().toISOString().split('T')[0]}.csv"`);
     res.send(csv);
@@ -58,7 +46,7 @@ router.get('/export', async (req, res) => {
   }
 });
 
-// ── IMPORT inventory from CSV ────────────────────────────────────────────────
+// ── IMPORT ──────────────────────────────────────────────────────────────────
 router.post('/import', async (req, res) => {
   try {
     const { query } = require('../config/database');
@@ -67,11 +55,21 @@ router.post('/import', async (req, res) => {
     if (!rows || !Array.isArray(rows) || rows.length === 0)
       return res.status(400).json({ success: false, message: 'No data provided' });
 
-    // Load all shops
+    // Load shops and existing products in ONE query each — avoid N+1
     const shopsResult = await query(`SELECT id, name FROM shops WHERE is_active = true`);
     const shops = shopsResult.rows;
 
-    // Aggressive shop matching — strips spaces, case insensitive
+    // Load ALL existing products at once
+    const existingProducts = await query(
+      `SELECT id, name, serial_number FROM products WHERE is_active = true`
+    );
+    const bySerial = {};
+    const byName   = {};
+    for (const p of existingProducts.rows) {
+      if (p.serial_number) bySerial[p.serial_number.toLowerCase()] = p.id;
+      byName[p.name.toLowerCase()] = p.id;
+    }
+
     const resolveShopId = (shopName) => {
       if (!shopName || !shopName.trim()) return shop_id ? parseInt(shop_id) : null;
       const clean = shopName.trim().toLowerCase().replace(/\s+/g, '');
@@ -79,9 +77,7 @@ router.post('/import', async (req, res) => {
       return found ? found.id : (shop_id ? parseInt(shop_id) : null);
     };
 
-    let created = 0;
-    let updated = 0;
-    let skipped = 0;
+    let created = 0, updated = 0, skipped = 0;
     const errors = [];
 
     for (const row of rows) {
@@ -89,39 +85,25 @@ router.post('/import', async (req, res) => {
         const productName = row.product_name || row.name || row.serial_number;
         if (!productName) { skipped++; continue; }
 
-        // Resolve shop — from CSV first, fallback to selected shop_id
         const finalShopId = resolveShopId(row.shop || row.shop_name);
-if (!finalShopId) {
-  errors.push(`"${productName}": shop_raw=${JSON.stringify(row.shop)} shops_available=${JSON.stringify(shops.map(s=>s.name))}`);
+        if (!finalShopId) {
+          errors.push(`"${productName}": shop "${row.shop}" not found`);
           skipped++;
           continue;
         }
 
-        let productId = null;
+        // Find existing product from in-memory maps — no DB query needed
+        let productId =
+          (row.serial_number && row.serial_number.trim()
+            ? bySerial[row.serial_number.trim().toLowerCase()]
+            : null) ||
+          byName[productName.trim().toLowerCase()] ||
+          null;
 
-        // 1. Find by serial number
-        if (row.serial_number && row.serial_number.trim()) {
-          const bySerial = await query(
-            `SELECT id FROM products WHERE serial_number = $1 LIMIT 1`,
-            [row.serial_number.trim()]
-          );
-          if (bySerial.rows.length) productId = bySerial.rows[0].id;
-        }
-
-        // 2. Find by name
         if (!productId) {
-          const byName = await query(
-            `SELECT id FROM products WHERE name ILIKE $1 AND is_active = true LIMIT 1`,
-            [productName.trim()]
-          );
-          if (byName.rows.length) productId = byName.rows[0].id;
-        }
-
-        // 3. Create new product
-        if (!productId) {
+          // Create new product
           const newProduct = await query(
-            `INSERT INTO products
-              (name, brand, color, serial_number, category, selling_price, base_cost, is_active)
+            `INSERT INTO products (name, brand, color, serial_number, category, selling_price, base_cost, is_active)
              VALUES ($1,$2,$3,$4,$5,$6,$7,true) RETURNING id`,
             [
               productName,
@@ -134,24 +116,25 @@ if (!finalShopId) {
             ]
           );
           productId = newProduct.rows[0].id;
-          try {
-            await query(`UPDATE products SET type = $1 WHERE id = $2`, [row.type || 'Used', productId]);
-          } catch(e) {}
+          // Update type
+          try { await query(`UPDATE products SET type=$1 WHERE id=$2`, [row.type||'Used', productId]); } catch(e) {}
+          // Add to in-memory map for subsequent rows
+          if (row.serial_number) bySerial[row.serial_number.toLowerCase()] = productId;
+          byName[productName.toLowerCase()] = productId;
           created++;
         } else {
+          // Update prices only
           await query(
             `UPDATE products SET
               selling_price = CASE WHEN $1 > 0 THEN $1 ELSE selling_price END,
               base_cost     = CASE WHEN $2 > 0 THEN $2 ELSE base_cost END,
               color         = COALESCE(NULLIF($3,''), color),
-              brand         = COALESCE(NULLIF($4,''), brand),
               updated_at    = NOW()
-             WHERE id = $5`,
+             WHERE id = $4`,
             [
               parseFloat(row.selling_price) || 0,
               parseFloat(row.cost_price) || parseFloat(row.base_cost) || 0,
               row.color || '',
-              row.brand || '',
               productId,
             ]
           );
@@ -169,7 +152,6 @@ if (!finalShopId) {
         );
 
       } catch (rowErr) {
-        console.error('Import row error:', rowErr.message, row);
         errors.push(`"${row.product_name||row.name}": ${rowErr.message}`);
         skipped++;
       }
@@ -183,7 +165,6 @@ if (!finalShopId) {
     });
 
   } catch (err) {
-    console.error('Import fatal error:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 });
