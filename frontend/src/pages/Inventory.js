@@ -193,7 +193,13 @@ export default function Inventory() {
         headers.forEach((h, i) => { obj[h] = (values[i]||'').replace(/^\"|\"$/g,'').trim(); });
         return obj;
       }).filter(r => r.name);
-      const res = await api.post('/inventory/import', { rows });
+      if (!shopId) {
+  toast.error('Please select a shop before importing');
+  setImporting(false);
+  e.target.value = '';
+  return;
+}
+const res = await api.post('/inventory/import', { rows, shop_id: shopId });
       toast.success(res.data?.message || 'Import complete!');
       fetchInventory();
     } catch (err) { toast.error('Import failed: ' + (err.response?.data?.message || err.message)); }

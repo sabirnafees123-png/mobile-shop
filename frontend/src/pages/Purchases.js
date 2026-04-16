@@ -6,10 +6,11 @@ import api from '../utils/api';
 const fmt     = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
 const fmtDate = d => new Date(d).toLocaleDateString('en-AE');
 
+const PRODUCT_TYPES = ['New (Box Pack)', 'Used', 'Refurbished', 'Parts', 'Accessories', 'Wholesale'];
+
 export default function Purchases() {
   const [purchases, setPurchases]     = useState([]);
   const [suppliers, setSuppliers]     = useState([]);
-  const [products, setProducts]       = useState([]);
   const [shops, setShops]             = useState([]);
   const [loading, setLoading]         = useState(true);
   const [showModal, setShowModal]     = useState(false);
@@ -18,7 +19,21 @@ export default function Purchases() {
   const [viewLoading, setViewLoading]         = useState(false);
   const [filterShop, setFilterShop]           = useState('');
 
-  const emptyItem = () => ({ product_id: '', serial_number: '', imei: '', qty: 1, unit_cost: '', recommended_selling_price: '', shop_id: '' });
+  // Serial search state per item
+  const [serialSearches, setSerialSearches] = useState({});
+  const [serialResults, setSerialResults]   = useState({});
+
+  const emptyItem = () => ({
+    // Product fields — entered manually or found by serial
+    serial_number: '',
+    product_name:  '',
+    brand:         '',
+    color:         '',
+    product_type:  'Used',
+    product_id:    null,   // set if serial matches existing product
+    // Purchase fields
+    qty: 1, unit_cost: '', recommended_selling_price: '', shop_id: '',
+  });
 
   const [form, setForm] = useState({
     supplier_id: '',
@@ -37,13 +52,11 @@ export default function Purchases() {
     Promise.all([
       api.get(`/purchases${qs}`),
       api.get('/suppliers'),
-      api.get('/products'),
       api.get('/shops'),
     ])
-      .then(([p, s, pr, sh]) => {
+      .then(([p, s, sh]) => {
         setPurchases(p.data?.data || []);
         setSuppliers(Array.isArray(s.data) ? s.data : s.data?.data || []);
-        setProducts(pr.data?.data || []);
         setShops(sh.data?.data || []);
       })
       .catch(console.error)
@@ -58,6 +71,8 @@ export default function Purchases() {
       payment_type: 'credit', amount_paid: '', notes: '',
       items: [emptyItem()],
     });
+    setSerialSearches({});
+    setSerialResults({});
     setShowModal(true);
   };
 
@@ -74,9 +89,39 @@ export default function Purchases() {
   const addItem    = () => setForm({ ...form, items: [...form.items, emptyItem()] });
   const removeItem = (i) => setForm({ ...form, items: form.items.filter((_, idx) => idx !== i) });
 
-  const handlePaymentType = (type) => {
-    const total = form.items.reduce((s, i) => s + ((parseFloat(i.qty)||0) * (parseFloat(i.unit_cost)||0)), 0);
-    setForm({ ...form, payment_type: type, amount_paid: type === 'cash' ? total.toString() : '' });
+  // Serial number search — finds existing product in system
+  const searchSerial = async (idx, val) => {
+    const items = [...form.items];
+    items[idx] = { ...items[idx], serial_number: val, product_id: null };
+    setForm({ ...form, items });
+
+    if (val.length < 2) {
+      setSerialResults(prev => ({ ...prev, [idx]: [] }));
+      return;
+    }
+    try {
+      const res = await api.get(`/products/serial/${val}`);
+      setSerialResults(prev => ({ ...prev, [idx]: res.data?.data || [] }));
+    } catch {
+      setSerialResults(prev => ({ ...prev, [idx]: [] }));
+    }
+  };
+
+  // User picks an existing product from serial search results
+  const selectExistingProduct = (idx, product) => {
+    const items = [...form.items];
+    items[idx] = {
+      ...items[idx],
+      product_id:    product.id,
+      serial_number: product.serial_number || items[idx].serial_number,
+      product_name:  product.name,
+      brand:         product.brand || '',
+      color:         product.color || '',
+      product_type:  product.type || 'Used',
+      recommended_selling_price: product.selling_price ? Math.round(product.selling_price).toString() : items[idx].recommended_selling_price,
+    };
+    setForm({ ...form, items });
+    setSerialResults(prev => ({ ...prev, [idx]: [] }));
   };
 
   const handleItemChange = (i, key, val) => {
@@ -86,12 +131,19 @@ export default function Purchases() {
     setForm({ ...form, items, amount_paid: form.payment_type === 'cash' ? newTotal.toString() : form.amount_paid });
   };
 
+  const handlePaymentType = (type) => {
+    const t = form.items.reduce((s, i) => s + ((parseFloat(i.qty)||0) * (parseFloat(i.unit_cost)||0)), 0);
+    setForm({ ...form, payment_type: type, amount_paid: type === 'cash' ? t.toString() : '' });
+  };
+
   const total = form.items.reduce((s, i) => s + ((parseFloat(i.qty)||0) * (parseFloat(i.unit_cost)||0)), 0);
 
   const handleSubmit = async () => {
     if (!form.supplier_id) return toast.error('Select a supplier');
-    if (form.items.some(i => !i.product_id || !i.unit_cost)) return toast.error('Each item needs a product and cost');
+    if (form.items.some(i => !i.serial_number && !i.product_name)) return toast.error('Each item needs a serial number or product name');
+    if (form.items.some(i => !i.unit_cost)) return toast.error('Each item needs a cost price');
     if (form.items.some(i => !i.shop_id)) return toast.error('Each item needs a shop selected');
+
     try {
       const payload = {
         supplier_id:   form.supplier_id,
@@ -99,9 +151,13 @@ export default function Purchases() {
         amount_paid:   form.payment_type === 'cash' ? total : parseFloat(form.amount_paid) || 0,
         notes:         form.notes,
         items: form.items.map(i => ({
-          product_id:                i.product_id,
+          // If product_id found by serial — use it. Otherwise backend will create product.
+          product_id:                i.product_id || null,
+          product_name:              i.product_name || i.serial_number,
+          brand:                     i.brand || '',
+          color:                     i.color || '',
+          product_type:              i.product_type || 'Used',
           serial_number:             i.serial_number || null,
-          imei:                      i.imei || null,
           qty:                       parseInt(i.qty) || 1,
           unit_cost:                 parseFloat(i.unit_cost),
           recommended_selling_price: parseFloat(i.recommended_selling_price || 0),
@@ -111,6 +167,8 @@ export default function Purchases() {
       const res = await api.post('/purchases', payload);
       toast.success(res.data?.message || 'Purchase created!');
       setShowModal(false);
+      setSerialSearches({});
+      setSerialResults({});
       load(filterShop);
     } catch (err) { toast.error(err.response?.data?.message || err.message); }
   };
@@ -130,10 +188,22 @@ export default function Purchases() {
 
   const payStatus = (s) => ({ paid: 'badge-green', partial: 'badge-yellow', unpaid: 'badge-red' }[s] || 'badge-gray');
 
+  const typeBadgeColor = (t) => ({
+    'New (Box Pack)': { bg: '#d1fae5', color: '#065f46' },
+    'Used':           { bg: '#fef3c7', color: '#92400e' },
+    'Refurbished':    { bg: '#dbeafe', color: '#1e40af' },
+    'Parts':          { bg: '#f3e8ff', color: '#6b21a8' },
+    'Accessories':    { bg: '#fce7f3', color: '#9d174d' },
+    'Wholesale':      { bg: '#e0f2fe', color: '#0369a1' },
+  }[t] || { bg: '#f3f4f6', color: '#374151' });
+
   return (
     <div>
       <div className="page-header">
-        <div><div className="page-title">📦 Purchases</div><div className="page-subtitle">Stock purchases from suppliers</div></div>
+        <div>
+          <div className="page-title">📦 Purchases</div>
+          <div className="page-subtitle">{purchases.length} purchase(s)</div>
+        </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <select className="form-control" style={{ width: 'auto' }} value={filterShop} onChange={e => setFilterShop(e.target.value)}>
             <option value="">All Shops</option>
@@ -143,6 +213,7 @@ export default function Purchases() {
         </div>
       </div>
 
+      {/* Purchase List */}
       <div className="card">
         {loading ? <div className="loading">Loading...</div> : (
           <div className="table-wrapper">
@@ -175,7 +246,7 @@ export default function Purchases() {
         )}
       </div>
 
-      {/* ── View Purchase Modal ── */}
+      {/* View Purchase Modal */}
       {viewPurchase && (
         <div className="modal-overlay" onClick={() => setViewPurchase(null)}>
           <div className="modal" style={{ maxWidth: '720px' }} onClick={e => e.stopPropagation()}>
@@ -193,14 +264,13 @@ export default function Purchases() {
                 <div><strong>Status:</strong> <span className={`badge ${payStatus(viewPurchase.payment_status)}`}>{viewPurchase.payment_status}</span></div>
                 {viewPurchase.notes && <div style={{ gridColumn: '1/-1' }}><strong>Notes:</strong> {viewPurchase.notes}</div>}
               </div>
-              {viewLoading ? (
-                <div style={{ textAlign: 'center', padding: '2rem', color: 'var(--text-muted)' }}>Loading items...</div>
-              ) : (
+              {viewLoading ? <div style={{ textAlign: 'center', padding: '2rem' }}>Loading...</div> : (
                 <table style={{ width: '100%', fontSize: '.88rem', borderCollapse: 'collapse' }}>
                   <thead>
                     <tr style={{ borderBottom: '2px solid var(--border)' }}>
-                      <th style={{ textAlign: 'left', padding: '8px 0' }}>Product</th>
                       <th style={{ textAlign: 'left', padding: '8px 0' }}>Serial / IMEI</th>
+                      <th style={{ textAlign: 'left', padding: '8px 0' }}>Product</th>
+                      <th style={{ textAlign: 'left', padding: '8px 0' }}>Type</th>
                       <th style={{ textAlign: 'left', padding: '8px 0' }}>Shop</th>
                       <th style={{ textAlign: 'right', padding: '8px 0' }}>Qty</th>
                       <th style={{ textAlign: 'right', padding: '8px 0' }}>Cost</th>
@@ -209,25 +279,29 @@ export default function Purchases() {
                     </tr>
                   </thead>
                   <tbody>
-                    {(viewPurchase.items || []).map((item, i) => (
-                      <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
-                        <td style={{ padding: '8px 0' }}><strong>{item.brand} {item.product_name}</strong></td>
-                        <td style={{ padding: '8px 0', fontFamily: 'monospace', fontSize: '.8rem', color: 'var(--text-muted)' }}>
-                          {item.serial_number || item.imei || '—'}
-                        </td>
-                        <td style={{ padding: '8px 0' }}>
-                          <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: '6px', fontSize: '.78rem' }}>{item.shop_name || '—'}</span>
-                        </td>
-                        <td style={{ textAlign: 'right', padding: '8px 0' }}>{item.qty}</td>
-                        <td style={{ textAlign: 'right', padding: '8px 0' }}>{fmt(item.unit_cost)}</td>
-                        <td style={{ textAlign: 'right', padding: '8px 0', color: 'var(--accent-green)' }}>{fmt(item.recommended_selling_price)}</td>
-                        <td style={{ textAlign: 'right', padding: '8px 0', fontWeight: 600 }}>{fmt(item.qty * item.unit_cost)}</td>
-                      </tr>
-                    ))}
+                    {(viewPurchase.items || []).length === 0 ? (
+                      <tr><td colSpan={8} style={{ textAlign: 'center', padding: '1rem', color: 'var(--text-muted)' }}>No items</td></tr>
+                    ) : (viewPurchase.items || []).map((item, i) => {
+                      const tc = typeBadgeColor(item.type);
+                      return (
+                        <tr key={i} style={{ borderBottom: '1px solid var(--border)' }}>
+                          <td style={{ padding: '8px 0', fontFamily: 'monospace', fontSize: '.82rem', fontWeight: 600 }}>{item.serial_number || item.imei || '—'}</td>
+                          <td style={{ padding: '8px 0' }}><strong>{item.brand} {item.product_name}</strong>{item.color && <span style={{ color: 'var(--text-muted)', fontSize: '.8rem' }}> · {item.color}</span>}</td>
+                          <td style={{ padding: '8px 0' }}>
+                            {item.type && <span style={{ padding: '2px 6px', borderRadius: '6px', fontSize: '.75rem', fontWeight: 600, background: tc.bg, color: tc.color }}>{item.type}</span>}
+                          </td>
+                          <td style={{ padding: '8px 0' }}><span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: '6px', fontSize: '.78rem' }}>{item.shop_name || '—'}</span></td>
+                          <td style={{ textAlign: 'right', padding: '8px 0' }}>{item.qty}</td>
+                          <td style={{ textAlign: 'right', padding: '8px 0' }}>{fmt(item.unit_cost)}</td>
+                          <td style={{ textAlign: 'right', padding: '8px 0', color: 'var(--accent-green)' }}>{fmt(item.recommended_selling_price)}</td>
+                          <td style={{ textAlign: 'right', padding: '8px 0', fontWeight: 600 }}>{fmt(item.qty * item.unit_cost)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                   <tfoot>
                     <tr style={{ borderTop: '2px solid var(--border)' }}>
-                      <td colSpan={6} style={{ textAlign: 'right', padding: '8px 0', fontWeight: 700 }}>Total:</td>
+                      <td colSpan={7} style={{ textAlign: 'right', padding: '8px 0', fontWeight: 700 }}>Total:</td>
                       <td style={{ textAlign: 'right', padding: '8px 0', fontWeight: 700, color: 'var(--accent)' }}>{fmt(viewPurchase.total_amount)}</td>
                     </tr>
                   </tfoot>
@@ -244,9 +318,9 @@ export default function Purchases() {
       {/* ── New Purchase Modal ── */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" style={{ maxWidth: '860px', maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: '900px', maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <strong>New Purchase</strong>
+              <strong>📦 New Purchase</strong>
               <button className="modal-close" onClick={() => setShowModal(false)}>✕</button>
             </div>
             <div className="modal-body">
@@ -295,32 +369,65 @@ export default function Purchases() {
                 {form.payment_type === 'cash' ? '✅ Cash — full amount paid now' : '⏳ Credit — added to supplier balance'}
               </div>
 
-              {/* Items — each item has its own shop */}
+              {/* Items */}
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0.5rem 0 0.75rem' }}>
-                <strong>Items <span style={{ fontSize: '.8rem', color: 'var(--text-muted)', fontWeight: 400 }}>— each item can go to a different shop</span></strong>
+                <div>
+                  <strong>Items</strong>
+                  <span style={{ fontSize: '.82rem', color: 'var(--text-muted)', marginLeft: '8px' }}>
+                    — scan serial number first. System finds existing product or you enter details manually.
+                  </span>
+                </div>
                 <button className="btn btn-ghost btn-sm" onClick={addItem}>+ Add Item</button>
               </div>
 
               {form.items.map((item, i) => (
                 <div key={i} style={{ background: 'var(--bg-secondary)', borderRadius: '8px', padding: '0.75rem', marginBottom: '0.75rem', border: '1px solid var(--border)' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Product *</label>
-                      <select className="form-control" value={item.product_id}
-                        onChange={e => handleItemChange(i, 'product_id', e.target.value)}>
-                        <option value="">Select product...</option>
-                        {products.map(p => <option key={p.id} value={p.id}>{p.brand} {p.name}</option>)}
-                      </select>
+
+                  {/* Row 1: Serial + Shop (the two most important fields) */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
+                    {/* Serial Number — PRIMARY KEY */}
+                    <div className="form-group" style={{ marginBottom: 0, position: 'relative' }}>
+                      <label className="form-label">
+                        🔍 Serial / IMEI <span style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>(scan or type — key field)</span>
+                      </label>
+                      <input
+                        className="form-control"
+                        placeholder="Scan barcode or type serial number..."
+                        value={item.serial_number}
+                        onChange={e => searchSerial(i, e.target.value)}
+                        autoComplete="off"
+                        style={{ fontFamily: 'monospace', fontWeight: 600 }}
+                      />
+                      {/* Dropdown if existing product found */}
+                      {(serialResults[i] || []).length > 0 && (
+                        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
+                          background: 'white', border: '1px solid var(--border)', borderRadius: '8px',
+                          boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: '180px', overflowY: 'auto' }}>
+                          <div style={{ padding: '6px 12px', fontSize: '.75rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', background: '#f8f9fc' }}>
+                            Found in system — click to use:
+                          </div>
+                          {serialResults[i].map(p => (
+                            <div key={p.id} onClick={() => selectExistingProduct(i, p)}
+                              style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)', fontSize: '.88rem' }}
+                              onMouseEnter={e => e.currentTarget.style.background = '#f0fdf4'}
+                              onMouseLeave={e => e.currentTarget.style.background = 'white'}>
+                              ✅ <strong>{p.brand} {p.name}</strong>
+                              <span style={{ color: 'var(--text-muted)', marginLeft: '8px', fontFamily: 'monospace', fontSize: '.8rem' }}>S/N: {p.serial_number}</span>
+                              {p.selling_price > 0 && <span style={{ marginLeft: '8px', color: '#059669' }}>AED {Math.round(p.selling_price).toLocaleString()}</span>}
+                            </div>
+                          ))}
+                          <div onClick={() => setSerialResults(prev => ({ ...prev, [i]: [] }))}
+                            style={{ padding: '8px 14px', cursor: 'pointer', fontSize: '.82rem', color: 'var(--text-muted)', background: '#f8f9fc' }}>
+                            ✏️ Enter as new product instead
+                          </div>
+                        </div>
+                      )}
                     </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Qty</label>
-                      <input type="number" min="1" className="form-control" value={item.qty}
-                        onChange={e => handleItemChange(i, 'qty', e.target.value)} />
-                    </div>
+
+                    {/* Shop — per item */}
                     <div className="form-group" style={{ marginBottom: 0 }}>
                       <label className="form-label">Shop → <span style={{ color: '#dc2626' }}>*</span></label>
-                      <select className="form-control"
-                        value={item.shop_id}
+                      <select className="form-control" value={item.shop_id}
                         onChange={e => handleItemChange(i, 'shop_id', e.target.value)}
                         style={{ border: !item.shop_id ? '2px solid #dc2626' : '' }}>
                         <option value="">— Select Shop —</option>
@@ -329,15 +436,49 @@ export default function Purchases() {
                     </div>
                   </div>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr auto', gap: '8px', alignItems: 'end' }}>
+                  {/* Row 2: Product details — manual entry */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
                     <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Serial / IMEI</label>
-                      <input className="form-control" value={item.serial_number}
-                        onChange={e => handleItemChange(i, 'serial_number', e.target.value)}
-                        placeholder="Scan or type..." />
+                      <label className="form-label">
+                        Product Name
+                        {item.product_id && <span style={{ marginLeft: '6px', color: '#059669', fontSize: '.75rem' }}>✅ Found in system</span>}
+                        {!item.product_id && item.serial_number && <span style={{ marginLeft: '6px', color: '#d97706', fontSize: '.75rem' }}>⚠️ Will create new product</span>}
+                      </label>
+                      <input className="form-control" value={item.product_name}
+                        onChange={e => handleItemChange(i, 'product_name', e.target.value)}
+                        placeholder="e.g. iPhone 14 Pro Max or leave empty for serial-only"
+                        readOnly={!!item.product_id}
+                        style={{ background: item.product_id ? 'var(--bg-tertiary,#f3f4f6)' : '' }} />
                     </div>
                     <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Unit Cost *</label>
+                      <label className="form-label">Brand</label>
+                      <input className="form-control" value={item.brand}
+                        onChange={e => handleItemChange(i, 'brand', e.target.value)}
+                        placeholder="Apple, Samsung..."
+                        readOnly={!!item.product_id}
+                        style={{ background: item.product_id ? 'var(--bg-tertiary,#f3f4f6)' : '' }} />
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label">Color</label>
+                      <input className="form-control" value={item.color}
+                        onChange={e => handleItemChange(i, 'color', e.target.value)}
+                        placeholder="Black, White..."
+                        readOnly={!!item.product_id}
+                        style={{ background: item.product_id ? 'var(--bg-tertiary,#f3f4f6)' : '' }} />
+                    </div>
+                  </div>
+
+                  {/* Row 3: Type + Cost + Sell Price + Qty */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 0.7fr auto', gap: '8px', alignItems: 'end' }}>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label">Type</label>
+                      <select className="form-control" value={item.product_type}
+                        onChange={e => handleItemChange(i, 'product_type', e.target.value)}>
+                        {PRODUCT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </div>
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label">Cost (AED) *</label>
                       <input type="number" className="form-control" value={item.unit_cost}
                         onChange={e => handleItemChange(i, 'unit_cost', e.target.value)} placeholder="0" />
                     </div>
@@ -346,16 +487,28 @@ export default function Purchases() {
                       <input type="number" className="form-control" value={item.recommended_selling_price}
                         onChange={e => handleItemChange(i, 'recommended_selling_price', e.target.value)} placeholder="0" />
                     </div>
-                    <div style={{ fontSize: '.82rem', color: 'var(--text-muted)', alignSelf: 'center', paddingBottom: '4px' }}>
-                      {item.unit_cost && item.qty && (
-                        <>Subtotal: <strong>AED {Math.round((parseFloat(item.qty)||0)*(parseFloat(item.unit_cost)||0)).toLocaleString()}</strong></>
-                      )}
+                    <div className="form-group" style={{ marginBottom: 0 }}>
+                      <label className="form-label">Qty</label>
+                      <input type="number" min="1" className="form-control" value={item.qty}
+                        onChange={e => handleItemChange(i, 'qty', e.target.value)} />
                     </div>
                     {form.items.length > 1 && (
                       <button onClick={() => removeItem(i)}
                         style={{ marginBottom: '2px', background: 'none', border: 'none', color: 'var(--accent-red)', cursor: 'pointer', fontSize: '1.1rem' }}>✕</button>
                     )}
                   </div>
+
+                  {/* Subtotal row */}
+                  {item.unit_cost && item.qty && (
+                    <div style={{ textAlign: 'right', fontSize: '.8rem', color: 'var(--text-muted)', marginTop: '6px' }}>
+                      Subtotal: <strong>AED {Math.round((parseFloat(item.qty)||0) * (parseFloat(item.unit_cost)||0)).toLocaleString()}</strong>
+                      {item.recommended_selling_price && item.unit_cost && (
+                        <span style={{ marginLeft: '12px' }}>
+                          Margin: AED {Math.round(((parseFloat(item.recommended_selling_price)||0) - (parseFloat(item.unit_cost)||0)) * (parseFloat(item.qty)||0)).toLocaleString()}
+                        </span>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
 
@@ -373,7 +526,7 @@ export default function Purchases() {
         </div>
       )}
 
-      {/* ── Add Supplier Modal ── */}
+      {/* Add Supplier Modal */}
       {showAddSupplier && (
         <div className="modal-overlay" onClick={() => setShowAddSupplier(false)}>
           <div className="modal" style={{ maxWidth: '480px', zIndex: 1100 }} onClick={e => e.stopPropagation()}>

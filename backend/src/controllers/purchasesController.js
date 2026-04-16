@@ -15,8 +15,7 @@ exports.getAllPurchases = async (req, res) => {
   try {
     const { shop_id } = req.query;
     let sql = `
-      SELECT p.*, s.name as supplier_name,
-             COUNT(pi.id) as item_count
+      SELECT p.*, s.name as supplier_name, COUNT(pi.id) as item_count
       FROM purchases p
       JOIN suppliers s ON s.id = p.supplier_id
       LEFT JOIN purchase_items pi ON pi.purchase_id = p.id
@@ -24,7 +23,6 @@ exports.getAllPurchases = async (req, res) => {
     `;
     const params = [];
     if (shop_id) {
-      // Filter purchases that have at least one item going to this shop
       sql += ` AND p.id IN (SELECT purchase_id FROM purchase_items WHERE shop_id = $1)`;
       params.push(parseInt(shop_id));
     }
@@ -48,7 +46,7 @@ exports.getPurchase = async (req, res) => {
       return res.status(404).json({ success: false, message: 'Purchase not found' });
 
     const items = await query(
-      `SELECT pi.*, pr.name as product_name, pr.brand, pr.model, pr.color,
+      `SELECT pi.*, pr.name as product_name, pr.brand, pr.model, pr.color, pr.type,
               sh.name as shop_name
        FROM purchase_items pi
        JOIN products pr ON pr.id = pi.product_id
@@ -62,7 +60,8 @@ exports.getPurchase = async (req, res) => {
 };
 
 // POST /api/v1/purchases
-// Each line item now has its own shop_id
+// Key change: each item can have serial_number as primary key.
+// If product_id not provided, system finds by serial or creates new product.
 exports.createPurchase = async (req, res) => {
   const client = await getClient();
   try {
@@ -71,13 +70,13 @@ exports.createPurchase = async (req, res) => {
     const { supplier_id, purchase_date, amount_paid = 0, notes, items } = req.body;
 
     if (!supplier_id) throw new Error('supplier_id is required');
-    if (!items || !items.length) throw new Error('At least one purchase item is required');
+    if (!items || !items.length) throw new Error('At least one item is required');
     if (items.some(i => !i.shop_id)) throw new Error('Each item must have a shop selected');
 
-    const totalAmount    = items.reduce((sum, item) => sum + (item.qty * item.unit_cost), 0);
+    const totalAmount    = items.reduce((sum, item) => sum + ((item.qty || 1) * item.unit_cost), 0);
     const purchaseNumber = await generatePurchaseNumber();
 
-    // Create purchase header (no shop_id at header level anymore)
+    // Create purchase header
     const purchase = await client.query(
       `INSERT INTO purchases (purchase_number, supplier_id, purchase_date, total_amount, amount_paid, payment_status, notes)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
@@ -89,45 +88,70 @@ exports.createPurchase = async (req, res) => {
     );
     const purchaseId = purchase.rows[0].id;
 
-    // Create purchase items — each with its own shop
     for (const item of items) {
-      if (!item.product_id || !item.unit_cost)
-        throw new Error('Each item needs product_id and unit_cost');
+      if (!item.unit_cost) throw new Error('Each item needs a cost price');
+
+      let finalProductId = item.product_id || null;
+
+      // ── Auto product resolution ──────────────────────────────────────
+      if (!finalProductId && item.serial_number) {
+        // 1. Try to find existing product by serial number
+        const existing = await client.query(
+          `SELECT id FROM products WHERE serial_number = $1 LIMIT 1`,
+          [item.serial_number]
+        );
+        if (existing.rows.length) {
+          finalProductId = existing.rows[0].id;
+        }
+      }
+
+      if (!finalProductId) {
+        // 2. Create new product with provided details
+        const productName = item.product_name || item.serial_number || 'Unknown Product';
+        const newProduct  = await client.query(
+          `INSERT INTO products (name, brand, color, serial_number, type, category, selling_price, base_cost, is_active)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true) RETURNING id`,
+          [productName,
+           item.brand || null,
+           item.color || null,
+           item.serial_number || null,
+           item.product_type || 'Used',
+           'Mobile Phone',
+           item.recommended_selling_price || 0,
+           item.unit_cost || 0]
+        );
+        finalProductId = newProduct.rows[0].id;
+      } else {
+        // 3. Update existing product's selling price if provided
+        if (item.recommended_selling_price && parseFloat(item.recommended_selling_price) > 0) {
+          await client.query(
+            `UPDATE products SET selling_price = $1, serial_number = COALESCE($2, serial_number) WHERE id = $3`,
+            [item.recommended_selling_price, item.serial_number || null, finalProductId]
+          );
+        }
+      }
+      // ─────────────────────────────────────────────────────────────────
 
       await client.query(
         `INSERT INTO purchase_items
           (purchase_id, product_id, serial_number, imei, qty, unit_cost, recommended_selling_price, shop_id)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [purchaseId, item.product_id,
+        [purchaseId, finalProductId,
          item.serial_number || null,
          item.imei || null,
-         item.qty || 1, item.unit_cost,
+         item.qty || 1,
+         item.unit_cost,
          item.recommended_selling_price || 0,
          parseInt(item.shop_id)]
       );
 
-      if (item.recommended_selling_price && item.recommended_selling_price > 0) {
-        await client.query(
-          `UPDATE products SET selling_price = $1 WHERE id = $2`,
-          [item.recommended_selling_price, item.product_id]
-        );
-      }
-
-      // Also update serial number on product if provided
-      if (item.serial_number) {
-        await client.query(
-          `UPDATE products SET serial_number = $1 WHERE id = $2`,
-          [item.serial_number, item.product_id]
-        );
-      }
-
-      // Upsert inventory for THIS ITEM'S SHOP
+      // Upsert inventory for this item's shop
       await client.query(
         `INSERT INTO inventory (product_id, shop_id, quantity, min_stock)
-         VALUES ($1, $2, $3, 5)
+         VALUES ($1,$2,$3,5)
          ON CONFLICT (product_id, shop_id)
          DO UPDATE SET quantity = inventory.quantity + $3, last_updated = NOW()`,
-        [item.product_id, parseInt(item.shop_id), item.qty || 1]
+        [finalProductId, parseInt(item.shop_id), item.qty || 1]
       );
     }
 
@@ -190,13 +214,13 @@ exports.recordPayment = async (req, res) => {
     if (newAmountPaid > parseFloat(p.total_amount)) throw new Error('Payment exceeds total amount');
 
     await client.query(
-      `UPDATE purchases SET amount_paid = $1, payment_status = $2 WHERE id = $3`,
+      `UPDATE purchases SET amount_paid=$1, payment_status=$2 WHERE id=$3`,
       [newAmountPaid, newAmountPaid >= p.total_amount ? 'paid' : 'partial', req.params.id]
     );
 
-    const supplier = await client.query('SELECT balance FROM suppliers WHERE id = $1', [p.supplier_id]);
+    const supplier = await client.query('SELECT balance FROM suppliers WHERE id=$1', [p.supplier_id]);
     const newSupplierBalance = parseFloat(supplier.rows[0].balance) - parseFloat(amount);
-    await client.query('UPDATE suppliers SET balance = $1 WHERE id = $2', [newSupplierBalance, p.supplier_id]);
+    await client.query('UPDATE suppliers SET balance=$1 WHERE id=$2', [newSupplierBalance, p.supplier_id]);
 
     await client.query(
       `INSERT INTO supplier_ledger (supplier_id, transaction_type, reference_id, reference_type, amount, balance_after, description, transaction_date)
