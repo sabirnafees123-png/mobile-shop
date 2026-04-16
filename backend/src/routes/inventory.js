@@ -71,9 +71,11 @@ router.post('/import', async (req, res) => {
     const shopsResult = await query(`SELECT id, name FROM shops WHERE is_active = true`);
     const shops = shopsResult.rows;
 
+    // Aggressive shop matching — strips spaces, case insensitive
     const resolveShopId = (shopName) => {
-      if (!shopName) return shop_id ? parseInt(shop_id) : null;
-      const found = shops.find(s => s.name.toLowerCase().trim() === shopName.toLowerCase().trim());
+      if (!shopName || !shopName.trim()) return shop_id ? parseInt(shop_id) : null;
+      const clean = shopName.trim().toLowerCase().replace(/\s+/g, '');
+      const found = shops.find(s => s.name.trim().toLowerCase().replace(/\s+/g, '') === clean);
       return found ? found.id : (shop_id ? parseInt(shop_id) : null);
     };
 
@@ -87,10 +89,10 @@ router.post('/import', async (req, res) => {
         const productName = row.product_name || row.name || row.serial_number;
         if (!productName) { skipped++; continue; }
 
-        // Resolve shop
-        const rowShopId = resolveShopId(row.shop || row.shop_name);
-        if (!rowShopId) {
-          errors.push(`"${productName}": shop "${row.shop}" not found`);
+        // Resolve shop — from CSV first, fallback to selected shop_id
+        const finalShopId = resolveShopId(row.shop || row.shop_name);
+        if (!finalShopId) {
+          errors.push(`"${productName}": shop "${row.shop}" not found — select a shop in the filter before importing`);
           skipped++;
           continue;
         }
@@ -115,7 +117,7 @@ router.post('/import', async (req, res) => {
           if (byName.rows.length) productId = byName.rows[0].id;
         }
 
-        // 3. Create new product — NO type/condition constraint issues
+        // 3. Create new product
         if (!productId) {
           const newProduct = await query(
             `INSERT INTO products
@@ -132,16 +134,11 @@ router.post('/import', async (req, res) => {
             ]
           );
           productId = newProduct.rows[0].id;
-
-          // Update type separately — safe even if column doesn't exist
           try {
-            await query(`UPDATE products SET type = $1 WHERE id = $2`,
-              [row.type || 'Used', productId]);
-          } catch(e) { /* type column may not exist — ignore */ }
-
+            await query(`UPDATE products SET type = $1 WHERE id = $2`, [row.type || 'Used', productId]);
+          } catch(e) {}
           created++;
         } else {
-          // Update existing
           await query(
             `UPDATE products SET
               selling_price = CASE WHEN $1 > 0 THEN $1 ELSE selling_price END,
@@ -168,7 +165,7 @@ router.post('/import', async (req, res) => {
            VALUES ($1,$2,$3,5)
            ON CONFLICT (product_id, shop_id)
            DO UPDATE SET quantity = $3, last_updated = NOW()`,
-          [productId, rowShopId, qty]
+          [productId, finalShopId, qty]
         );
 
       } catch (rowErr) {
@@ -187,7 +184,7 @@ router.post('/import', async (req, res) => {
 
   } catch (err) {
     console.error('Import fatal error:', err);
-    res.status(500).json({ success: false, message: err.message, stack: err.stack });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
 
