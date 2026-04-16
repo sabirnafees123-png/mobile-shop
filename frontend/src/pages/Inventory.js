@@ -188,15 +188,28 @@ export default function Inventory() {
   if (!file) return;
   setImporting(true);
   try {
-    const text    = await file.text();
-    const lines   = text.split('\n').filter(l => l.trim());
-    const headers = lines[0].split(',').map(h => h.replace(/"/g,'').trim().toLowerCase().replace(/ /g,'_'));
-    const rows    = lines.slice(1).map(line => {
-      const values = line.match(/(\".*?\"|[^,]+)(?=,|$)/g) || [];
+    const text  = await file.text();
+    const lines = text.split('\n').filter(l => l.trim());
+
+    // Auto-detect delimiter — tab or comma
+    const firstLine = lines[0];
+    const delimiter = firstLine.includes('\t') ? '\t' : ',';
+
+    const headers = firstLine.split(delimiter).map(h => h.replace(/"/g,'').trim().toLowerCase().replace(/ /g,'_'));
+
+    const rows = lines.slice(1).map(line => {
+      const values = delimiter === '\t'
+        ? line.split('\t')
+        : (line.match(/(\".*?\"|[^,]+)(?=,|$)/g) || []);
       const obj = {};
       headers.forEach((h, i) => { obj[h] = (values[i]||'').replace(/^\"|\"$/g,'').trim(); });
       return obj;
     }).filter(r => r.product_name || r.name || r.serial_number);
+
+    if (rows.length === 0) {
+      toast.error('No valid rows found in file');
+      return;
+    }
 
     const res = await api.post('/inventory/import', { rows, shop_id: shopId || null });
     toast.success(res.data?.message || 'Import complete!');
