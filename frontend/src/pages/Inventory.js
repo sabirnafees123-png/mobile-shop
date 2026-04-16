@@ -180,31 +180,37 @@ export default function Inventory() {
     } catch (err) { toast.error('Export failed: ' + err.message); }
   };
 
+    // ── Replace the handleImport function in frontend/src/pages/Inventory.js ──
+  // Find the existing handleImport function and replace with this:
+
   const handleImport = async (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    setImporting(true);
-    try {
-      const text    = await file.text();
-      const lines   = text.split('\n').filter(l => l.trim());
-      const headers = lines[0].split(',').map(h => h.replace(/"/g,'').trim().toLowerCase().replace(/ /g,'_'));
-      const rows    = lines.slice(1).map(line => {
-        const values = line.match(/(\".*?\"|[^,]+)(?=,|$)/g) || [];
-        const obj = {};
-        headers.forEach((h, i) => { obj[h] = (values[i]||'').replace(/^\"|\"$/g,'').trim(); });
-        return obj;
-      }).filter(r => r.name);
-      if (!shopId) {
-  toast.error('Please select a shop before importing');
-  setImporting(false);
-  e.target.value = '';
-  return;
-}
-const res = await api.post('/inventory/import', { rows, shop_id: shopId });
-      toast.success(res.data?.message || 'Import complete!');
-      fetchInventory();
-    } catch (err) { toast.error('Import failed: ' + (err.response?.data?.message || err.message)); }
-    finally { setImporting(false); e.target.value = ''; }
-  };
+  const file = e.target.files[0];
+  if (!file) return;
+  setImporting(true);
+  try {
+    const text    = await file.text();
+    const lines   = text.split('\n').filter(l => l.trim());
+    const headers = lines[0].split(',').map(h => h.replace(/"/g,'').trim().toLowerCase().replace(/ /g,'_'));
+    const rows    = lines.slice(1).map(line => {
+      const values = line.match(/(\".*?\"|[^,]+)(?=,|$)/g) || [];
+      const obj = {};
+      headers.forEach((h, i) => { obj[h] = (values[i]||'').replace(/^\"|\"$/g,'').trim(); });
+      return obj;
+    }).filter(r => r.product_name || r.name || r.serial_number);
+
+    const res = await api.post('/inventory/import', { rows, shop_id: shopId || null });
+    toast.success(res.data?.message || 'Import complete!');
+    if (res.data?.errors?.length) {
+      toast.error(`${res.data.errors.length} row(s) had issues`);
+    }
+    fetchInventory();
+  } catch (err) {
+    toast.error('Import failed: ' + (err.response?.data?.message || err.message));
+  } finally {
+    setImporting(false);
+    e.target.value = '';
+  }
+};
 
   const stockStatus = (qty, min) => {
     if (qty === 0)  return { label: 'Out of Stock', color: '#dc2626', bg: '#fee2e2' };
