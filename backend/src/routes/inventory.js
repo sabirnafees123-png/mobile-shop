@@ -59,6 +59,8 @@ router.get('/export', async (req, res) => {
 });
 
 // ── IMPORT inventory from CSV ────────────────────────────────────────────────
+// Shop is read from the CSV "Shop" column — matches by shop name
+// If shop not found in CSV row, falls back to shop_id in request body
 router.post('/import', async (req, res) => {
   try {
     const { query } = require('../config/database');
@@ -67,94 +69,123 @@ router.post('/import', async (req, res) => {
     if (!rows || !Array.isArray(rows) || rows.length === 0)
       return res.status(400).json({ success: false, message: 'No data provided' });
 
-    if (!shop_id)
-      return res.status(400).json({ success: false, message: 'shop_id is required for import' });
+    // Load all shops once for name matching
+    const shopsResult = await query(`SELECT id, name FROM shops WHERE is_active = true`);
+    const shops = shopsResult.rows;
+
+    const resolveShopId = (shopName) => {
+      if (!shopName) return shop_id ? parseInt(shop_id) : null;
+      const found = shops.find(s => s.name.toLowerCase().trim() === shopName.toLowerCase().trim());
+      return found ? found.id : (shop_id ? parseInt(shop_id) : null);
+    };
 
     let created = 0;
     let updated = 0;
     let skipped = 0;
+    const errors = [];
 
     for (const row of rows) {
-      if (!row.name && !row.serial_number) { skipped++; continue; }
+      try {
+        // Need at least a name or serial number
+        if (!row.name && !row.serial_number && !row.product_name) { skipped++; continue; }
 
-      let productId = null;
+        const productName = row.product_name || row.name || row.serial_number;
 
-      // 1. Find by serial number first
-      if (row.serial_number) {
-        const bySerial = await query(
-          `SELECT id FROM products WHERE serial_number = $1 LIMIT 1`,
-          [row.serial_number]
-        );
-        if (bySerial.rows.length) productId = bySerial.rows[0].id;
-      }
+        // Resolve shop — from CSV column first, fallback to request shop_id
+        const rowShopId = resolveShopId(row.shop || row.shop_name);
+        if (!rowShopId) {
+          errors.push(`Row "${productName}": no shop found`);
+          skipped++;
+          continue;
+        }
 
-      // 2. Find by name + brand
-      if (!productId && row.name) {
-        const byName = await query(
-          `SELECT id FROM products WHERE name ILIKE $1 AND (brand ILIKE $2 OR $2 IS NULL) AND is_active = true LIMIT 1`,
-          [row.name, row.brand || null]
-        );
-        if (byName.rows.length) productId = byName.rows[0].id;
-      }
+        let productId = null;
 
-      // 3. Create new product if not found
-      if (!productId) {
-        const newProduct = await query(
-          `INSERT INTO products (name, brand, color, serial_number, type, category, selling_price, base_cost, is_active)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true) RETURNING id`,
-          [
-            row.name || row.serial_number,
-            row.brand || null,
-            row.color || null,
-            row.serial_number || null,
-            row.type || row.condition || 'Used',
-            row.category || 'Mobile Phone',
-            parseFloat(row.selling_price) || 0,
-            parseFloat(row.cost_price) || parseFloat(row.base_cost) || 0,
-          ]
-        );
-        productId = newProduct.rows[0].id;
-        created++;
-      } else {
-        // Update existing product details
+        // 1. Find by serial number
+        if (row.serial_number) {
+          const bySerial = await query(
+            `SELECT id FROM products WHERE serial_number = $1 LIMIT 1`,
+            [row.serial_number.trim()]
+          );
+          if (bySerial.rows.length) productId = bySerial.rows[0].id;
+        }
+
+        // 2. Find by name + brand
+        if (!productId && productName) {
+          const byName = await query(
+            `SELECT id FROM products
+             WHERE name ILIKE $1 AND (brand ILIKE $2 OR $2 IS NULL OR $2 = '')
+             AND is_active = true LIMIT 1`,
+            [productName.trim(), row.brand || null]
+          );
+          if (byName.rows.length) productId = byName.rows[0].id;
+        }
+
+        // 3. Create new product
+        if (!productId) {
+          const newProduct = await query(
+            `INSERT INTO products
+              (name, brand, color, serial_number, type, category, selling_price, base_cost, is_active)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true) RETURNING id`,
+            [
+              productName,
+              row.brand || null,
+              row.color || null,
+              row.serial_number || null,
+              row.type || row.condition || 'Used',
+              row.category || 'Mobile Phone',
+              parseFloat(row.selling_price) || 0,
+              parseFloat(row.cost_price) || parseFloat(row.base_cost) || 0,
+            ]
+          );
+          productId = newProduct.rows[0].id;
+          created++;
+        } else {
+          // Update existing product
+          await query(
+            `UPDATE products SET
+              name          = COALESCE(NULLIF($1,''), name),
+              brand         = COALESCE(NULLIF($2,''), brand),
+              color         = COALESCE(NULLIF($3,''), color),
+              serial_number = COALESCE(NULLIF($4,''), serial_number),
+              selling_price = CASE WHEN $5 > 0 THEN $5 ELSE selling_price END,
+              base_cost     = CASE WHEN $6 > 0 THEN $6 ELSE base_cost END,
+              updated_at    = NOW()
+             WHERE id = $7`,
+            [
+              productName || '',
+              row.brand || '',
+              row.color || '',
+              row.serial_number || '',
+              parseFloat(row.selling_price) || 0,
+              parseFloat(row.cost_price) || parseFloat(row.base_cost) || 0,
+              productId,
+            ]
+          );
+          updated++;
+        }
+
+        // Upsert inventory for the resolved shop
+        const qty = parseInt(row.quantity) || 0;
         await query(
-          `UPDATE products SET
-            name          = COALESCE(NULLIF($1,''), name),
-            brand         = COALESCE(NULLIF($2,''), brand),
-            color         = COALESCE(NULLIF($3,''), color),
-            serial_number = COALESCE(NULLIF($4,''), serial_number),
-            selling_price = CASE WHEN $5 > 0 THEN $5 ELSE selling_price END,
-            base_cost     = CASE WHEN $6 > 0 THEN $6 ELSE base_cost END,
-            updated_at    = NOW()
-           WHERE id = $7`,
-          [
-            row.name || '',
-            row.brand || '',
-            row.color || '',
-            row.serial_number || '',
-            parseFloat(row.selling_price) || 0,
-            parseFloat(row.cost_price) || parseFloat(row.base_cost) || 0,
-            productId,
-          ]
+          `INSERT INTO inventory (product_id, shop_id, quantity, min_stock)
+           VALUES ($1,$2,$3,5)
+           ON CONFLICT (product_id, shop_id)
+           DO UPDATE SET quantity = $3, last_updated = NOW()`,
+          [productId, rowShopId, qty]
         );
-        updated++;
-      }
 
-      // Upsert inventory for the specified shop
-      const qty = parseInt(row.quantity) || 0;
-      await query(
-        `INSERT INTO inventory (product_id, shop_id, quantity, min_stock)
-         VALUES ($1,$2,$3,5)
-         ON CONFLICT (product_id, shop_id)
-         DO UPDATE SET quantity = $3, last_updated = NOW()`,
-        [productId, parseInt(shop_id), qty]
-      );
+      } catch (rowErr) {
+        errors.push(`Row "${row.product_name || row.name}": ${rowErr.message}`);
+        skipped++;
+      }
     }
 
     res.json({
       success: true,
       message: `Import complete — ${created} created, ${updated} updated, ${skipped} skipped`,
       created, updated, skipped,
+      errors: errors.length ? errors : undefined,
     });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
