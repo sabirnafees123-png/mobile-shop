@@ -91,8 +91,8 @@ router.post('/import', async (req, res) => {
 
         // Resolve shop — from CSV first, fallback to selected shop_id
         const finalShopId = resolveShopId(row.shop || row.shop_name);
-        if (!finalShopId) {
-          errors.push(`"${productName}": shop "${row.shop}" not found — select a shop in the filter before importing`);
+if (!finalShopId) {
+  errors.push(`"${productName}": shop_raw=${JSON.stringify(row.shop)} shops_available=${JSON.stringify(shops.map(s=>s.name))}`);
           skipped++;
           continue;
         }
