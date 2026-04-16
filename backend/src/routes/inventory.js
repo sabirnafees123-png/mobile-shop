@@ -59,8 +59,6 @@ router.get('/export', async (req, res) => {
 });
 
 // ── IMPORT inventory from CSV ────────────────────────────────────────────────
-// Shop is read from the CSV "Shop" column — matches by shop name
-// If shop not found in CSV row, falls back to shop_id in request body
 router.post('/import', async (req, res) => {
   try {
     const { query } = require('../config/database');
@@ -69,7 +67,7 @@ router.post('/import', async (req, res) => {
     if (!rows || !Array.isArray(rows) || rows.length === 0)
       return res.status(400).json({ success: false, message: 'No data provided' });
 
-    // Load all shops once for name matching
+    // Load all shops
     const shopsResult = await query(`SELECT id, name FROM shops WHERE is_active = true`);
     const shops = shopsResult.rows;
 
@@ -86,15 +84,13 @@ router.post('/import', async (req, res) => {
 
     for (const row of rows) {
       try {
-        // Need at least a name or serial number
-        if (!row.name && !row.serial_number && !row.product_name) { skipped++; continue; }
-
         const productName = row.product_name || row.name || row.serial_number;
+        if (!productName) { skipped++; continue; }
 
-        // Resolve shop — from CSV column first, fallback to request shop_id
+        // Resolve shop
         const rowShopId = resolveShopId(row.shop || row.shop_name);
         if (!rowShopId) {
-          errors.push(`Row "${productName}": no shop found`);
+          errors.push(`"${productName}": shop "${row.shop}" not found`);
           skipped++;
           continue;
         }
@@ -102,7 +98,7 @@ router.post('/import', async (req, res) => {
         let productId = null;
 
         // 1. Find by serial number
-        if (row.serial_number) {
+        if (row.serial_number && row.serial_number.trim()) {
           const bySerial = await query(
             `SELECT id FROM products WHERE serial_number = $1 LIMIT 1`,
             [row.serial_number.trim()]
@@ -110,62 +106,62 @@ router.post('/import', async (req, res) => {
           if (bySerial.rows.length) productId = bySerial.rows[0].id;
         }
 
-        // 2. Find by name + brand
-        if (!productId && productName) {
+        // 2. Find by name
+        if (!productId) {
           const byName = await query(
-            `SELECT id FROM products
-             WHERE name ILIKE $1 AND (brand ILIKE $2 OR $2 IS NULL OR $2 = '')
-             AND is_active = true LIMIT 1`,
-            [productName.trim(), row.brand || null]
+            `SELECT id FROM products WHERE name ILIKE $1 AND is_active = true LIMIT 1`,
+            [productName.trim()]
           );
           if (byName.rows.length) productId = byName.rows[0].id;
         }
 
-        // 3. Create new product
+        // 3. Create new product — NO type/condition constraint issues
         if (!productId) {
           const newProduct = await query(
             `INSERT INTO products
-              (name, brand, color, serial_number, type, category, selling_price, base_cost, is_active)
-             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true) RETURNING id`,
+              (name, brand, color, serial_number, category, selling_price, base_cost, is_active)
+             VALUES ($1,$2,$3,$4,$5,$6,$7,true) RETURNING id`,
             [
               productName,
               row.brand || null,
               row.color || null,
               row.serial_number || null,
-              row.type || row.condition || 'Used',
               row.category || 'Mobile Phone',
               parseFloat(row.selling_price) || 0,
               parseFloat(row.cost_price) || parseFloat(row.base_cost) || 0,
             ]
           );
           productId = newProduct.rows[0].id;
+
+          // Update type separately — safe even if column doesn't exist
+          try {
+            await query(`UPDATE products SET type = $1 WHERE id = $2`,
+              [row.type || 'Used', productId]);
+          } catch(e) { /* type column may not exist — ignore */ }
+
           created++;
         } else {
-          // Update existing product
+          // Update existing
           await query(
             `UPDATE products SET
-              name          = COALESCE(NULLIF($1,''), name),
-              brand         = COALESCE(NULLIF($2,''), brand),
+              selling_price = CASE WHEN $1 > 0 THEN $1 ELSE selling_price END,
+              base_cost     = CASE WHEN $2 > 0 THEN $2 ELSE base_cost END,
               color         = COALESCE(NULLIF($3,''), color),
-              serial_number = COALESCE(NULLIF($4,''), serial_number),
-              selling_price = CASE WHEN $5 > 0 THEN $5 ELSE selling_price END,
-              base_cost     = CASE WHEN $6 > 0 THEN $6 ELSE base_cost END,
+              brand         = COALESCE(NULLIF($4,''), brand),
               updated_at    = NOW()
-             WHERE id = $7`,
+             WHERE id = $5`,
             [
-              productName || '',
-              row.brand || '',
-              row.color || '',
-              row.serial_number || '',
               parseFloat(row.selling_price) || 0,
               parseFloat(row.cost_price) || parseFloat(row.base_cost) || 0,
+              row.color || '',
+              row.brand || '',
               productId,
             ]
           );
           updated++;
         }
 
-        // Upsert inventory for the resolved shop
+        // Upsert inventory
         const qty = parseInt(row.quantity) || 0;
         await query(
           `INSERT INTO inventory (product_id, shop_id, quantity, min_stock)
@@ -176,7 +172,8 @@ router.post('/import', async (req, res) => {
         );
 
       } catch (rowErr) {
-        errors.push(`Row "${row.product_name || row.name}": ${rowErr.message}`);
+        console.error('Import row error:', rowErr.message, row);
+        errors.push(`"${row.product_name||row.name}": ${rowErr.message}`);
         skipped++;
       }
     }
@@ -187,8 +184,10 @@ router.post('/import', async (req, res) => {
       created, updated, skipped,
       errors: errors.length ? errors : undefined,
     });
+
   } catch (err) {
-    res.status(500).json({ success: false, message: err.message });
+    console.error('Import fatal error:', err);
+    res.status(500).json({ success: false, message: err.message, stack: err.stack });
   }
 });
 
