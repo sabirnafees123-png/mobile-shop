@@ -180,8 +180,7 @@ export default function Inventory() {
     } catch (err) { toast.error('Export failed: ' + err.message); }
   };
 
-    // ── Replace the handleImport function in frontend/src/pages/Inventory.js ──
-  // Find the existing handleImport function and replace with this:
+// Find the existing handleImport function and replace with this:
 
   const handleImport = async (e) => {
   const file = e.target.files[0];
@@ -200,7 +199,7 @@ export default function Inventory() {
     const rows = lines.slice(1).map(line => {
       const values = delimiter === '\t'
         ? line.split('\t')
-        : (line.match(/(\".*?\"|[^,]+)(?=,|$)/g) || []);
+        : line.split(',').map(v => v.replace(/^"|"$/g, ''));
       const obj = {};
       headers.forEach((h, i) => { obj[h] = (values[i]||'').replace(/^\"|\"$/g,'').trim(); });
       return obj;
