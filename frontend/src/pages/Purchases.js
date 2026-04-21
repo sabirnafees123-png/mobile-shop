@@ -8,6 +8,93 @@ const fmtDate = d => new Date(d).toLocaleDateString('en-AE');
 
 const PRODUCT_TYPES = ['New (Box Pack)', 'Used', 'Refurbished', 'Parts', 'Accessories', 'Wholesale'];
 
+const typeBadgeColor = (t) => ({
+  'New (Box Pack)': { bg: '#d1fae5', color: '#065f46' },
+  'Used':           { bg: '#fef3c7', color: '#92400e' },
+  'Refurbished':    { bg: '#dbeafe', color: '#1e40af' },
+  'Parts':          { bg: '#f3e8ff', color: '#6b21a8' },
+  'Accessories':    { bg: '#fce7f3', color: '#9d174d' },
+  'Wholesale':      { bg: '#e0f2fe', color: '#0369a1' },
+}[t] || { bg: '#f3f4f6', color: '#374151' });
+
+// ── Expanded row — loads items on demand ──────────────────────────────────────
+function PurchaseExpandedRow({ purchaseId, colSpan }) {
+  const [data, setData]       = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.get(`/purchases/${purchaseId}`)
+      .then(r => setData(r.data?.data))
+      .finally(() => setLoading(false));
+  }, [purchaseId]);
+
+  if (loading) return (
+    <tr style={{ background: '#f8f9fc' }}>
+      <td colSpan={colSpan} style={{ padding: '12px 24px', color: '#6b7280', fontSize: '.85rem' }}>
+        Loading items...
+      </td>
+    </tr>
+  );
+  if (!data) return null;
+
+  return (
+    <tr style={{ background: '#f8f9fc', borderBottom: '2px solid #e8eaf0' }}>
+      <td colSpan={colSpan} style={{ padding: '12px 24px' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '.85rem' }}>
+          <thead>
+            <tr style={{ background: '#f1f2f6' }}>
+              <th style={{ padding: '6px 10px', textAlign: 'left',  fontSize: '.75rem', color: '#6b7280' }}>Product</th>
+              <th style={{ padding: '6px 10px', textAlign: 'left',  fontSize: '.75rem', color: '#6b7280' }}>Serial / IMEI</th>
+              <th style={{ padding: '6px 10px', textAlign: 'left',  fontSize: '.75rem', color: '#6b7280' }}>Shop</th>
+              <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '.75rem', color: '#6b7280' }}>Qty</th>
+              <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '.75rem', color: '#6b7280' }}>Cost</th>
+              <th style={{ padding: '6px 10px', textAlign: 'right', fontSize: '.75rem', color: '#6b7280' }}>Selling Price</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(data.items || []).map((item, i) => {
+              const tc = typeBadgeColor(item.type);
+              return (
+                <tr key={i} style={{ borderBottom: '1px solid #e8eaf0' }}>
+                  <td style={{ padding: '8px 10px', fontWeight: 600 }}>
+                    {item.brand || ''} {item.product_name || ''}
+                    {item.color && <span style={{ color: '#9ca3af', fontSize: '.78rem', marginLeft: '4px' }}>· {item.color}</span>}
+                    {item.type && (
+                      <span style={{ marginLeft: '6px', padding: '1px 6px', borderRadius: '6px', fontSize: '.72rem', fontWeight: 600, background: tc.bg, color: tc.color }}>
+                        {item.type}
+                      </span>
+                    )}
+                  </td>
+                  <td style={{ padding: '8px 10px', fontFamily: 'monospace', fontSize: '.8rem', color: '#6b7280' }}>
+                    {item.serial_number || item.imei || '—'}
+                  </td>
+                  <td style={{ padding: '8px 10px' }}>
+                    <span style={{ background: '#f3f4f6', padding: '2px 6px', borderRadius: '6px', fontSize: '.78rem' }}>
+                      {item.shop_name || '—'}
+                    </span>
+                  </td>
+                  <td style={{ padding: '8px 10px', textAlign: 'right' }}>{item.qty}</td>
+                  <td style={{ padding: '8px 10px', textAlign: 'right', color: '#92400e' }}>
+                    AED {Math.round(item.unit_cost || 0).toLocaleString()}
+                  </td>
+                  <td style={{ padding: '8px 10px', textAlign: 'right', color: '#059669', fontWeight: 600 }}>
+                    AED {Math.round(item.recommended_selling_price || 0).toLocaleString()}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {data.notes && (
+          <div style={{ marginTop: '8px', fontSize: '.82rem', color: '#6b7280' }}>📝 {data.notes}</div>
+        )}
+      </td>
+    </tr>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 export default function Purchases() {
   const [purchases, setPurchases]     = useState([]);
   const [suppliers, setSuppliers]     = useState([]);
@@ -18,20 +105,19 @@ export default function Purchases() {
   const [viewPurchase, setViewPurchase]       = useState(null);
   const [viewLoading, setViewLoading]         = useState(false);
   const [filterShop, setFilterShop]           = useState('');
+  const [expandedRows, setExpandedRows]       = useState({});
 
   // Serial search state per item
   const [serialSearches, setSerialSearches] = useState({});
   const [serialResults, setSerialResults]   = useState({});
 
   const emptyItem = () => ({
-    // Product fields — entered manually or found by serial
     serial_number: '',
     product_name:  '',
     brand:         '',
     color:         '',
     product_type:  'Used',
-    product_id:    null,   // set if serial matches existing product
-    // Purchase fields
+    product_id:    null,
     qty: 1, unit_cost: '', recommended_selling_price: '', shop_id: '',
   });
 
@@ -65,6 +151,8 @@ export default function Purchases() {
 
   useEffect(() => { load(filterShop); }, [filterShop]);
 
+  const toggleRow = (id) => setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
+
   const openAdd = () => {
     setForm({
       supplier_id: '', purchase_date: new Date().toISOString().split('T')[0],
@@ -89,25 +177,17 @@ export default function Purchases() {
   const addItem    = () => setForm({ ...form, items: [...form.items, emptyItem()] });
   const removeItem = (i) => setForm({ ...form, items: form.items.filter((_, idx) => idx !== i) });
 
-  // Serial number search — finds existing product in system
   const searchSerial = async (idx, val) => {
     const items = [...form.items];
     items[idx] = { ...items[idx], serial_number: val, product_id: null };
     setForm({ ...form, items });
-
-    if (val.length < 2) {
-      setSerialResults(prev => ({ ...prev, [idx]: [] }));
-      return;
-    }
+    if (val.length < 2) { setSerialResults(prev => ({ ...prev, [idx]: [] })); return; }
     try {
       const res = await api.get(`/products/serial/${val}`);
       setSerialResults(prev => ({ ...prev, [idx]: res.data?.data || [] }));
-    } catch {
-      setSerialResults(prev => ({ ...prev, [idx]: [] }));
-    }
+    } catch { setSerialResults(prev => ({ ...prev, [idx]: [] })); }
   };
 
-  // User picks an existing product from serial search results
   const selectExistingProduct = (idx, product) => {
     const items = [...form.items];
     items[idx] = {
@@ -143,7 +223,6 @@ export default function Purchases() {
     if (form.items.some(i => !i.serial_number && !i.product_name)) return toast.error('Each item needs a serial number or product name');
     if (form.items.some(i => !i.unit_cost)) return toast.error('Each item needs a cost price');
     if (form.items.some(i => !i.shop_id)) return toast.error('Each item needs a shop selected');
-
     try {
       const payload = {
         supplier_id:   form.supplier_id,
@@ -151,7 +230,6 @@ export default function Purchases() {
         amount_paid:   form.payment_type === 'cash' ? total : parseFloat(form.amount_paid) || 0,
         notes:         form.notes,
         items: form.items.map(i => ({
-          // If product_id found by serial — use it. Otherwise backend will create product.
           product_id:                i.product_id || null,
           product_name:              i.product_name || i.serial_number,
           brand:                     i.brand || '',
@@ -188,14 +266,7 @@ export default function Purchases() {
 
   const payStatus = (s) => ({ paid: 'badge-green', partial: 'badge-yellow', unpaid: 'badge-red' }[s] || 'badge-gray');
 
-  const typeBadgeColor = (t) => ({
-    'New (Box Pack)': { bg: '#d1fae5', color: '#065f46' },
-    'Used':           { bg: '#fef3c7', color: '#92400e' },
-    'Refurbished':    { bg: '#dbeafe', color: '#1e40af' },
-    'Parts':          { bg: '#f3e8ff', color: '#6b21a8' },
-    'Accessories':    { bg: '#fce7f3', color: '#9d174d' },
-    'Wholesale':      { bg: '#e0f2fe', color: '#0369a1' },
-  }[t] || { bg: '#f3f4f6', color: '#374151' });
+  const COL_COUNT = 10; // expand-btn + 8 data cols + actions
 
   return (
     <div>
@@ -213,32 +284,50 @@ export default function Purchases() {
         </div>
       </div>
 
-      {/* Purchase List */}
+      {/* ── Purchase List ── */}
       <div className="card">
         {loading ? <div className="loading">Loading...</div> : (
           <div className="table-wrapper">
             <table>
               <thead>
                 <tr>
+                  <th style={{ width: '32px' }}></th>
                   <th>Purchase #</th><th>Supplier</th><th>Date</th>
                   <th>Items</th><th>Total</th><th>Paid</th><th>Due</th><th>Status</th><th></th>
                 </tr>
               </thead>
               <tbody>
                 {purchases.length === 0 ? (
-                  <tr><td colSpan={9}><div className="empty-state"><p>No purchases yet</p></div></td></tr>
+                  <tr><td colSpan={COL_COUNT}><div className="empty-state"><p>No purchases yet</p></div></td></tr>
                 ) : purchases.map(p => (
-                  <tr key={p.id}>
-                    <td><span className="badge badge-blue">{p.purchase_number}</span></td>
-                    <td>{p.supplier_name}</td>
-                    <td>{fmtDate(p.purchase_date)}</td>
-                    <td>{p.item_count}</td>
-                    <td>{fmt(p.total_amount)}</td>
-                    <td style={{ color: 'var(--accent-green)' }}>{fmt(p.amount_paid)}</td>
-                    <td style={{ color: p.amount_due > 0 ? 'var(--accent-red)' : 'var(--accent-green)' }}>{fmt(p.amount_due)}</td>
-                    <td><span className={`badge ${payStatus(p.payment_status)}`}>{p.payment_status}</span></td>
-                    <td><button className="btn btn-ghost btn-sm" onClick={() => openView(p)}>👁️</button></td>
-                  </tr>
+                  <React.Fragment key={p.id}>
+                    <tr>
+                      {/* Expand button */}
+                      <td style={{ padding: '8px', textAlign: 'center' }}>
+                        <button
+                          onClick={() => toggleRow(p.id)}
+                          style={{
+                            background: 'none', border: 'none', cursor: 'pointer',
+                            fontSize: '1.1rem', color: 'var(--accent)', fontWeight: 700,
+                            width: '24px', height: '24px', borderRadius: '4px',
+                            display: 'flex', alignItems: 'center', justifyContent: 'center',
+                            lineHeight: 1,
+                          }}>
+                          {expandedRows[p.id] ? '−' : '+'}
+                        </button>
+                      </td>
+                      <td><span className="badge badge-blue">{p.purchase_number}</span></td>
+                      <td>{p.supplier_name}</td>
+                      <td>{fmtDate(p.purchase_date)}</td>
+                      <td>{p.item_count}</td>
+                      <td>{fmt(p.total_amount)}</td>
+                      <td style={{ color: 'var(--accent-green)' }}>{fmt(p.amount_paid)}</td>
+                      <td style={{ color: p.amount_due > 0 ? 'var(--accent-red)' : 'var(--accent-green)' }}>{fmt(p.amount_due)}</td>
+                      <td><span className={`badge ${payStatus(p.payment_status)}`}>{p.payment_status}</span></td>
+                      <td><button className="btn btn-ghost btn-sm" onClick={() => openView(p)}>👁️</button></td>
+                    </tr>
+                    {expandedRows[p.id] && <PurchaseExpandedRow purchaseId={p.id} colSpan={COL_COUNT} />}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
@@ -246,7 +335,7 @@ export default function Purchases() {
         )}
       </div>
 
-      {/* View Purchase Modal */}
+      {/* ── View Purchase Modal ── */}
       {viewPurchase && (
         <div className="modal-overlay" onClick={() => setViewPurchase(null)}>
           <div className="modal" style={{ maxWidth: '720px' }} onClick={e => e.stopPropagation()}>
@@ -383,9 +472,8 @@ export default function Purchases() {
               {form.items.map((item, i) => (
                 <div key={i} style={{ background: 'var(--bg-secondary)', borderRadius: '8px', padding: '0.75rem', marginBottom: '0.75rem', border: '1px solid var(--border)' }}>
 
-                  {/* Row 1: Serial + Shop (the two most important fields) */}
+                  {/* Row 1: Serial + Shop */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                    {/* Serial Number — PRIMARY KEY */}
                     <div className="form-group" style={{ marginBottom: 0, position: 'relative' }}>
                       <label className="form-label">
                         🔍 Serial / IMEI <span style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>(scan or type — key field)</span>
@@ -398,7 +486,6 @@ export default function Purchases() {
                         autoComplete="off"
                         style={{ fontFamily: 'monospace', fontWeight: 600 }}
                       />
-                      {/* Dropdown if existing product found */}
                       {(serialResults[i] || []).length > 0 && (
                         <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
                           background: 'white', border: '1px solid var(--border)', borderRadius: '8px',
@@ -424,7 +511,6 @@ export default function Purchases() {
                       )}
                     </div>
 
-                    {/* Shop — per item */}
                     <div className="form-group" style={{ marginBottom: 0 }}>
                       <label className="form-label">Shop → <span style={{ color: '#dc2626' }}>*</span></label>
                       <select className="form-control" value={item.shop_id}
@@ -436,7 +522,7 @@ export default function Purchases() {
                     </div>
                   </div>
 
-                  {/* Row 2: Product details — manual entry */}
+                  {/* Row 2: Product details */}
                   <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
                     <div className="form-group" style={{ marginBottom: 0 }}>
                       <label className="form-label">
@@ -468,7 +554,7 @@ export default function Purchases() {
                     </div>
                   </div>
 
-                  {/* Row 3: Type + Cost + Sell Price + Qty */}
+                  {/* Row 3: Type + Cost + Sell + Qty */}
                   <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 0.7fr auto', gap: '8px', alignItems: 'end' }}>
                     <div className="form-group" style={{ marginBottom: 0 }}>
                       <label className="form-label">Type</label>
@@ -498,7 +584,6 @@ export default function Purchases() {
                     )}
                   </div>
 
-                  {/* Subtotal row */}
                   {item.unit_cost && item.qty && (
                     <div style={{ textAlign: 'right', fontSize: '.8rem', color: 'var(--text-muted)', marginTop: '6px' }}>
                       Subtotal: <strong>AED {Math.round((parseFloat(item.qty)||0) * (parseFloat(item.unit_cost)||0)).toLocaleString()}</strong>
@@ -526,7 +611,7 @@ export default function Purchases() {
         </div>
       )}
 
-      {/* Add Supplier Modal */}
+      {/* ── Add Supplier Modal ── */}
       {showAddSupplier && (
         <div className="modal-overlay" onClick={() => setShowAddSupplier(false)}>
           <div className="modal" style={{ maxWidth: '480px', zIndex: 1100 }} onClick={e => e.stopPropagation()}>
