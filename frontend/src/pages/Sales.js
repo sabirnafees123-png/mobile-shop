@@ -435,7 +435,7 @@ export default function Sales() {
                     )}
                   </div>
 
-                  <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr auto',gap:'8px',alignItems:'end'}}>
+                  <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr 1fr auto',gap:'8px',alignItems:'end'}}>
                     <div className="form-group" style={{marginBottom:0}}>
                       <label className="form-label">Or pick from list</label>
                       <select className="form-control" value={item.product_id}
@@ -449,10 +449,15 @@ export default function Sales() {
                       </select>
                     </div>
                     <div className="form-group" style={{marginBottom:0}}>
-                      <label className="form-label">Rec. Price</label>
-                      <input type="number" className="form-control" value={item.recommended_price||''} readOnly
-                        style={{background:'var(--bg-tertiary,#f3f4f6)',color:'var(--text-muted)',cursor:'not-allowed'}} />
-                    </div>
+  <label className="form-label">Cost Price</label>
+  <input type="number" className="form-control" value={item.unit_cost||''} readOnly
+    style={{background:'#fef3c7',color:'#92400e',cursor:'not-allowed',fontWeight:600}} />
+</div>
+<div className="form-group" style={{marginBottom:0}}>
+  <label className="form-label">Rec. Price</label>
+  <input type="number" className="form-control" value={item.recommended_price||''} readOnly
+    style={{background:'var(--bg-tertiary,#f3f4f6)',color:'var(--text-muted)',cursor:'not-allowed'}} />
+</div>
                     <div className="form-group" style={{marginBottom:0}}>
                       <label className="form-label">Qty</label>
                       <input type="number" min="1" className="form-control" value={item.qty}
