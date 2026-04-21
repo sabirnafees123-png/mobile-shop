@@ -86,7 +86,9 @@ export default function Sales() {
   const [filterShop, setFilterShop]   = useState('');
   // Serial search per item
   const [serialSearches, setSerialSearches] = useState({});
-  const [serialResults, setSerialResults]   = useState({});
+const [serialResults, setSerialResults]   = useState({});
+const [nameSearches, setNameSearches]     = useState({});
+const [nameResults, setNameResults]       = useState({});
   // Return
   const [returnSearch, setReturnSearch]   = useState('');
   const [returnResults, setReturnResults] = useState([]);
@@ -119,6 +121,16 @@ export default function Sales() {
       setSerialResults(prev => ({ ...prev, [idx]: res.data?.data || [] }));
     } catch { setSerialResults(prev => ({ ...prev, [idx]: [] })); }
   };
+
+const searchByName = async (idx, val) => {
+  setNameSearches(prev => ({ ...prev, [idx]: val }));
+  if (val.length < 2) { setNameResults(prev => ({ ...prev, [idx]: [] })); return; }
+  try {
+    const res = await api.get(`/products?search=${encodeURIComponent(val)}`);
+    setNameResults(prev => ({ ...prev, [idx]: (res.data?.data || []).slice(0, 10) }));
+  } catch { setNameResults(prev => ({ ...prev, [idx]: [] })); }
+};
+
 
   const selectSerialProduct = (idx, product) => {
     const items = [...form.items];
@@ -185,6 +197,8 @@ export default function Sales() {
       setShowModal(false);
       setForm(EMPTY_FORM());
       setSerialSearches({}); setSerialResults({});
+	setNameSearches({}); setNameResults({});
+
       load(filterShop);
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
   };
@@ -436,18 +450,33 @@ export default function Sales() {
                   </div>
 
                   <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr 1fr auto',gap:'8px',alignItems:'end'}}>
-                    <div className="form-group" style={{marginBottom:0}}>
-                      <label className="form-label">Or pick from list</label>
-                      <select className="form-control" value={item.product_id}
-                        onChange={e => updateItem(i,'product_id',e.target.value)}>
-                        <option value="">Select product...</option>
-                        {products.map(p => (
-                          <option key={p.id} value={p.id}>
-                            {p.brand} {p.name}{p.serial_number?` · ${p.serial_number}`:''}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+                    <div className="form-group" style={{marginBottom:0, position:'relative'}}>
+  <label className="form-label">Or search by name</label>
+  <input
+    className="form-control"
+    placeholder="Type product name e.g. iPad..."
+    value={nameSearches[i] !== undefined ? nameSearches[i] : (item.product_name || '')}
+    onChange={e => searchByName(i, e.target.value)}
+    autoComplete="off"
+  />
+  {(nameResults[i]||[]).length > 0 && (
+    <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:100,
+      background:'white',border:'1px solid var(--border)',borderRadius:'8px',
+      boxShadow:'0 4px 12px rgba(0,0,0,.1)',maxHeight:'200px',overflowY:'auto'}}>
+      {nameResults[i].map(p => (
+        <div key={p.id} onClick={() => selectSerialProduct(i,p)}
+          style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid var(--border)',fontSize:'.88rem'}}
+          onMouseEnter={e=>e.currentTarget.style.background='#f8f9fc'}
+          onMouseLeave={e=>e.currentTarget.style.background='white'}>
+          <strong>{p.brand} {p.name}</strong>
+          {p.serial_number && <span style={{color:'var(--text-muted)',marginLeft:'8px',fontSize:'.8rem',fontFamily:'monospace'}}>S/N: {p.serial_number}</span>}
+          <span style={{marginLeft:'8px',color:'#059669',fontSize:'.82rem'}}>AED {Math.round(p.selling_price||0).toLocaleString()}</span>
+          <span style={{marginLeft:'8px',color:'#92400e',fontSize:'.82rem'}}>Cost: AED {Math.round(p.base_cost||0).toLocaleString()}</span>
+        </div>
+      ))}
+    </div>
+  )}
+</div>
                     <div className="form-group" style={{marginBottom:0}}>
   <label className="form-label">Cost Price</label>
   <input type="number" className="form-control" value={item.unit_cost||''} readOnly
