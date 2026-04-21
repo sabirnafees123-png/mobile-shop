@@ -5,8 +5,9 @@ const API_URL = process.env.REACT_APP_API_URL || 'https://backend-three-topaz-7f
 
 const api = axios.create({
   baseURL: `${API_URL}/api/v1`,
-  timeout: 60000  // 60 seconds instead of 15
+  timeout: 60000,
   headers: { 'Content-Type': 'application/json' },
+
 });
 
 // ── Request interceptor: attach JWT token to every request ──────────────────
