@@ -124,11 +124,14 @@ const [nameResults, setNameResults]       = useState({});
 
 const searchByName = async (idx, val) => {
   setNameSearches(prev => ({ ...prev, [idx]: val }));
-  if (val.length < 2) { setNameResults(prev => ({ ...prev, [idx]: [] })); return; }
-  try {
-    const res = await api.get(`/products?search=${encodeURIComponent(val)}`);
-    setNameResults(prev => ({ ...prev, [idx]: (res.data?.data || []).slice(0, 10) }));
-  } catch { setNameResults(prev => ({ ...prev, [idx]: [] })); }
+  if (val.length < 1) { setNameResults(prev => ({ ...prev, [idx]: [] })); return; }
+  // Search from local products list — instant, no API call needed
+  const filtered = products.filter(p =>
+    p.name?.toLowerCase().includes(val.toLowerCase()) ||
+    p.brand?.toLowerCase().includes(val.toLowerCase()) ||
+    p.serial_number?.toLowerCase().includes(val.toLowerCase())
+  ).slice(0, 15);
+  setNameResults(prev => ({ ...prev, [idx]: filtered }));
 };
 
 
