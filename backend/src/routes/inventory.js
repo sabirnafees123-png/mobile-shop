@@ -3,12 +3,13 @@ const express = require('express');
 const router  = express.Router();
 const {
   getInventory, getInventoryByProduct, adjustStock,
-  updateMinStock, getMovements, getInventoryStats
+  updateMinStock, updateCostPrice, getMovements, getInventoryStats
 } = require('../controllers/inventoryController');
 
-router.get('/',           getInventory);
-router.get('/stats',      getInventoryStats);
-router.get('/movements',  getMovements);
+router.get('/',              getInventory);
+router.get('/stats',         getInventoryStats);
+router.get('/movements',     getMovements);
+router.post('/update-price', updateCostPrice);
 
 // ── EXPORT ──────────────────────────────────────────────────────────────────
 router.get('/export', async (req, res) => {
@@ -30,9 +31,9 @@ router.get('/export', async (req, res) => {
     const result = await query(sql, params);
     const headers = ['Serial Number','Product Name','Brand','Color','Type','Category','Selling Price','Cost Price','Quantity','Shop','Last Updated'];
     const rows = result.rows.map(r => [
-      r.serial_number || '', r.name, r.brand || '', r.color || '', r.type || '',
-      r.category || '', Math.round(r.selling_price || 0), Math.round(r.base_cost || 0),
-      r.quantity, r.shop_name || '',
+      r.serial_number||'', r.name, r.brand||'', r.color||'', r.type||'',
+      r.category||'', Math.round(r.selling_price||0), Math.round(r.base_cost||0),
+      r.quantity, r.shop_name||'',
       r.last_updated ? new Date(r.last_updated).toLocaleDateString('en-AE') : ''
     ]);
     const csv = [headers, ...rows]
@@ -51,18 +52,13 @@ router.post('/import', async (req, res) => {
   try {
     const { query } = require('../config/database');
     const { rows, shop_id } = req.body;
-
     if (!rows || !Array.isArray(rows) || rows.length === 0)
       return res.status(400).json({ success: false, message: 'No data provided' });
 
-    // Load shops and existing products in ONE query each — avoid N+1
     const shopsResult = await query(`SELECT id, name FROM shops WHERE is_active = true`);
     const shops = shopsResult.rows;
 
-    // Load ALL existing products at once
-    const existingProducts = await query(
-      `SELECT id, name, serial_number FROM products WHERE is_active = true`
-    );
+    const existingProducts = await query(`SELECT id, name, serial_number FROM products WHERE is_active = true`);
     const bySerial = {};
     const byName   = {};
     for (const p of existingProducts.rows) {
@@ -86,44 +82,26 @@ router.post('/import', async (req, res) => {
         if (!productName) { skipped++; continue; }
 
         const finalShopId = resolveShopId(row.shop || row.shop_name);
-        if (!finalShopId) {
-          errors.push(`"${productName}": shop "${row.shop}" not found`);
-          skipped++;
-          continue;
-        }
+        if (!finalShopId) { errors.push(`"${productName}": shop not found`); skipped++; continue; }
 
-        // Find existing product from in-memory maps — no DB query needed
         let productId =
-          (row.serial_number && row.serial_number.trim()
-            ? bySerial[row.serial_number.trim().toLowerCase()]
-            : null) ||
-          byName[productName.trim().toLowerCase()] ||
-          null;
+          (row.serial_number?.trim() ? bySerial[row.serial_number.trim().toLowerCase()] : null) ||
+          byName[productName.trim().toLowerCase()] || null;
 
         if (!productId) {
-          // Create new product
           const newProduct = await query(
             `INSERT INTO products (name, brand, color, serial_number, category, selling_price, base_cost, is_active)
              VALUES ($1,$2,$3,$4,$5,$6,$7,true) RETURNING id`,
-            [
-              productName,
-              row.brand || null,
-              row.color || null,
-              row.serial_number || null,
-              row.category || 'Mobile Phone',
-              parseFloat(row.selling_price) || 0,
-              parseFloat(row.cost_price) || parseFloat(row.base_cost) || 0,
-            ]
+            [productName, row.brand||null, row.color||null, row.serial_number||null,
+             row.category||'Mobile Phone', parseFloat(row.selling_price)||0,
+             parseFloat(row.cost_price)||parseFloat(row.base_cost)||0]
           );
           productId = newProduct.rows[0].id;
-          // Update type
           try { await query(`UPDATE products SET type=$1 WHERE id=$2`, [row.type||'Used', productId]); } catch(e) {}
-          // Add to in-memory map for subsequent rows
           if (row.serial_number) bySerial[row.serial_number.toLowerCase()] = productId;
           byName[productName.toLowerCase()] = productId;
           created++;
         } else {
-          // Update prices only
           await query(
             `UPDATE products SET
               selling_price = CASE WHEN $1 > 0 THEN $1 ELSE selling_price END,
@@ -131,17 +109,12 @@ router.post('/import', async (req, res) => {
               color         = COALESCE(NULLIF($3,''), color),
               updated_at    = NOW()
              WHERE id = $4`,
-            [
-              parseFloat(row.selling_price) || 0,
-              parseFloat(row.cost_price) || parseFloat(row.base_cost) || 0,
-              row.color || '',
-              productId,
-            ]
+            [parseFloat(row.selling_price)||0, parseFloat(row.cost_price)||parseFloat(row.base_cost)||0,
+             row.color||'', productId]
           );
           updated++;
         }
 
-        // Upsert inventory
         const qty = parseInt(row.quantity) || 0;
         await query(
           `INSERT INTO inventory (product_id, shop_id, quantity, min_stock)
@@ -150,7 +123,6 @@ router.post('/import', async (req, res) => {
            DO UPDATE SET quantity = $3, last_updated = NOW()`,
           [productId, finalShopId, qty]
         );
-
       } catch (rowErr) {
         errors.push(`"${row.product_name||row.name}": ${rowErr.message}`);
         skipped++;
@@ -163,7 +135,6 @@ router.post('/import', async (req, res) => {
       created, updated, skipped,
       errors: errors.length ? errors : undefined,
     });
-
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

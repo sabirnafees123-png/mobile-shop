@@ -3,8 +3,6 @@ import React, { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 
-const PAYMENT_METHODS = ['cash', 'card', 'bank_transfer', 'tabby', 'tamara', 'pending'];
-
 const EMPTY_FORM = () => ({
   customer_name: '', customer_phone: '+971',
   sale_date: new Date().toISOString().split('T')[0],
@@ -17,7 +15,6 @@ const EMPTY_FORM = () => ({
 
 const fmt     = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
 const fmtDate = d => { try { return new Date(d).toLocaleDateString('en-AE'); } catch { return d; } };
-
 const paymentColor = m => ({ cash:'#059669', card:'#2563eb', bank_transfer:'#7c3aed', tabby:'#0ea5e9', tamara:'#f59e0b', pending:'#dc2626' }[m] || '#6b7280');
 const statusColor  = s => ({ paid:'#059669', partial:'#d97706', unpaid:'#dc2626', returned:'#6b7280', payment_pending:'#2563eb' }[s] || '#6b7280');
 
@@ -71,6 +68,64 @@ function printInvoice(sale) {
   win.document.close();
 }
 
+// Expanded row component — loads items on demand
+function SaleExpandedRow({ saleId, colSpan }) {
+  const [data, setData]     = useState(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    api.get(`/sales/${saleId}`)
+      .then(r => setData(r.data?.data))
+      .finally(() => setLoading(false));
+  }, [saleId]);
+
+  if (loading) return (
+    <tr style={{background:'#f8f9fc'}}>
+      <td colSpan={colSpan} style={{padding:'12px 24px',color:'#6b7280',fontSize:'.85rem'}}>Loading items...</td>
+    </tr>
+  );
+  if (!data) return null;
+
+  return (
+    <tr style={{background:'#f8f9fc',borderBottom:'2px solid #e8eaf0'}}>
+      <td colSpan={colSpan} style={{padding:'12px 24px'}}>
+        <table style={{width:'100%',borderCollapse:'collapse',fontSize:'.85rem'}}>
+          <thead>
+            <tr style={{background:'#f1f2f6'}}>
+              <th style={{padding:'6px 10px',textAlign:'left',fontSize:'.75rem',color:'#6b7280'}}>Product</th>
+              <th style={{padding:'6px 10px',textAlign:'left',fontSize:'.75rem',color:'#6b7280'}}>Serial / IMEI</th>
+              <th style={{padding:'6px 10px',textAlign:'right',fontSize:'.75rem',color:'#6b7280'}}>Qty</th>
+              <th style={{padding:'6px 10px',textAlign:'right',fontSize:'.75rem',color:'#6b7280'}}>Cost</th>
+              <th style={{padding:'6px 10px',textAlign:'right',fontSize:'.75rem',color:'#6b7280'}}>Selling</th>
+              <th style={{padding:'6px 10px',textAlign:'right',fontSize:'.75rem',color:'#6b7280'}}>Margin</th>
+              <th style={{padding:'6px 10px',textAlign:'right',fontSize:'.75rem',color:'#6b7280'}}>Total</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(data.items||[]).map((item,i) => {
+              const margin = (parseFloat(item.unit_price)||0) - (parseFloat(item.unit_cost)||0);
+              return (
+                <tr key={i} style={{borderBottom:'1px solid #e8eaf0'}}>
+                  <td style={{padding:'8px 10px',fontWeight:600}}>{item.brand||''} {item.product_name||''}</td>
+                  <td style={{padding:'8px 10px',fontFamily:'monospace',fontSize:'.8rem',color:'#6b7280'}}>{item.serial_number||'—'}</td>
+                  <td style={{padding:'8px 10px',textAlign:'right'}}>{item.qty}</td>
+                  <td style={{padding:'8px 10px',textAlign:'right',color:'#92400e'}}>AED {Math.round(item.unit_cost||0).toLocaleString()}</td>
+                  <td style={{padding:'8px 10px',textAlign:'right',color:'#059669'}}>AED {Math.round(item.unit_price||0).toLocaleString()}</td>
+                  <td style={{padding:'8px 10px',textAlign:'right',color:'#6366f1',fontWeight:600}}>
+                    AED {Math.round(margin).toLocaleString()}
+                    {item.unit_cost > 0 && <span style={{fontSize:'.75rem',marginLeft:'4px',color:'#9ca3af'}}>({Math.round((margin/(item.unit_cost||1))*100)}%)</span>}
+                  </td>
+                  <td style={{padding:'8px 10px',textAlign:'right',fontWeight:600}}>AED {Math.round((item.qty||1)*item.unit_price).toLocaleString()}</td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+        {data.notes && <div style={{marginTop:'8px',fontSize:'.82rem',color:'#6b7280'}}>📝 {data.notes}</div>}
+      </td>
+    </tr>
+  );
+}
+
 export default function Sales() {
   const [sales, setSales]             = useState([]);
   const [products, setProducts]       = useState([]);
@@ -78,29 +133,45 @@ export default function Sales() {
   const [loading, setLoading]         = useState(true);
   const [showModal, setShowModal]     = useState(false);
   const [showReturn, setShowReturn]   = useState(false);
-  const [showPayment, setShowPayment] = useState(null); // invoice to adjust payment
+  const [showPayment, setShowPayment] = useState(null);
   const [viewSale, setViewSale]       = useState(null);
   const [viewLoading, setViewLoading] = useState(false);
   const [form, setForm]               = useState(EMPTY_FORM());
-  const [search, setSearch]           = useState('');
-  const [filterShop, setFilterShop]   = useState('');
-  // Serial search per item
+  const [expandedRows, setExpandedRows] = useState({});
+
+  // Filters
+  const [search, setSearch]               = useState('');
+  const [filterShop, setFilterShop]       = useState('');
+  const [filterStatus, setFilterStatus]   = useState('');
+  const [filterPayment, setFilterPayment] = useState('');
+  const [filterFrom, setFilterFrom]       = useState('');
+  const [filterTo, setFilterTo]           = useState('');
+
+  // Serial/name search per item
   const [serialSearches, setSerialSearches] = useState({});
-const [serialResults, setSerialResults]   = useState({});
-const [nameSearches, setNameSearches]     = useState({});
-const [nameResults, setNameResults]       = useState({});
+  const [serialResults, setSerialResults]   = useState({});
+  const [nameSearches, setNameSearches]     = useState({});
+  const [nameResults, setNameResults]       = useState({});
+
   // Return
   const [returnSearch, setReturnSearch]   = useState('');
   const [returnResults, setReturnResults] = useState([]);
   const [returnInvoice, setReturnInvoice] = useState(null);
   const [returnAmount, setReturnAmount]   = useState('');
   const [returnNote, setReturnNote]       = useState('');
-  // Payment adjustment
+
+  // Payment
   const [payAmount, setPayAmount] = useState('');
 
-  const load = (sid) => {
+  const load = (sid, status, payment, from, to) => {
     setLoading(true);
-    const qs = sid ? `?shop_id=${sid}` : '';
+    const params = new URLSearchParams();
+    if (sid)     params.append('shop_id', sid);
+    if (status)  params.append('payment_status', status);
+    if (payment) params.append('payment_method', payment);
+    if (from)    params.append('from', from);
+    if (to)      params.append('to', to);
+    const qs = params.toString() ? `?${params.toString()}` : '';
     Promise.all([api.get(`/sales${qs}`), api.get('/products'), api.get('/shops')])
       .then(([s, p, sh]) => {
         setSales(s.data?.data || []);
@@ -110,7 +181,17 @@ const [nameResults, setNameResults]       = useState({});
       .catch(() => toast.error('Failed to load'))
       .finally(() => setLoading(false));
   };
-  useEffect(() => { load(filterShop); }, [filterShop]);
+
+  useEffect(() => {
+    load(filterShop, filterStatus, filterPayment, filterFrom, filterTo);
+  }, [filterShop, filterStatus, filterPayment, filterFrom, filterTo]);
+
+  const reloadAll = () => load(filterShop, filterStatus, filterPayment, filterFrom, filterTo);
+
+  const clearFilters = () => {
+    setSearch(''); setFilterShop(''); setFilterStatus('');
+    setFilterPayment(''); setFilterFrom(''); setFilterTo('');
+  };
 
   // Serial search
   const searchSerial = async (idx, val) => {
@@ -122,18 +203,16 @@ const [nameResults, setNameResults]       = useState({});
     } catch { setSerialResults(prev => ({ ...prev, [idx]: [] })); }
   };
 
-const searchByName = async (idx, val) => {
-  setNameSearches(prev => ({ ...prev, [idx]: val }));
-  if (val.length < 1) { setNameResults(prev => ({ ...prev, [idx]: [] })); return; }
-  // Search from local products list — instant, no API call needed
-  const filtered = products.filter(p =>
-    p.name?.toLowerCase().includes(val.toLowerCase()) ||
-    p.brand?.toLowerCase().includes(val.toLowerCase()) ||
-    p.serial_number?.toLowerCase().includes(val.toLowerCase())
-  ).slice(0, 15);
-  setNameResults(prev => ({ ...prev, [idx]: filtered }));
-};
-
+  const searchByName = (idx, val) => {
+    setNameSearches(prev => ({ ...prev, [idx]: val }));
+    if (val.length < 1) { setNameResults(prev => ({ ...prev, [idx]: [] })); return; }
+    const filtered = products.filter(p =>
+      p.name?.toLowerCase().includes(val.toLowerCase()) ||
+      p.brand?.toLowerCase().includes(val.toLowerCase()) ||
+      p.serial_number?.toLowerCase().includes(val.toLowerCase())
+    ).slice(0, 15);
+    setNameResults(prev => ({ ...prev, [idx]: filtered }));
+  };
 
   const selectSerialProduct = (idx, product) => {
     const items = [...form.items];
@@ -149,6 +228,8 @@ const searchByName = async (idx, val) => {
     setForm({ ...form, items });
     setSerialSearches(prev => ({ ...prev, [idx]: product.serial_number || product.name }));
     setSerialResults(prev => ({ ...prev, [idx]: [] }));
+    setNameSearches(prev => ({ ...prev, [idx]: product.name }));
+    setNameResults(prev => ({ ...prev, [idx]: [] }));
   };
 
   const addItem    = () => setForm(f => ({ ...f, items: [...f.items, { product_id:'', product_name:'', serial_number:'', qty:1, unit_price:'', recommended_price:'', unit_cost:'' }] }));
@@ -166,6 +247,7 @@ const searchByName = async (idx, val) => {
         items[i].unit_cost         = p.base_cost || 0;
         items[i].serial_number     = p.serial_number || '';
         setSerialSearches(prev => ({ ...prev, [i]: p.serial_number || p.name || '' }));
+        setNameSearches(prev => ({ ...prev, [i]: p.name || '' }));
       }
     }
     setForm(f => ({ ...f, items }));
@@ -200,13 +282,11 @@ const searchByName = async (idx, val) => {
       setShowModal(false);
       setForm(EMPTY_FORM());
       setSerialSearches({}); setSerialResults({});
-	setNameSearches({}); setNameResults({});
-
-      load(filterShop);
+      setNameSearches({}); setNameResults({});
+      reloadAll();
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
   };
 
-  // Return handlers
   const searchForReturn = async (q) => {
     setReturnSearch(q);
     if (q.length < 2) { setReturnResults([]); return; }
@@ -233,30 +313,25 @@ const searchByName = async (idx, val) => {
       toast.success('Return processed!');
       setShowReturn(false); setReturnInvoice(null);
       setReturnSearch(''); setReturnNote(''); setReturnAmount('');
-      load(filterShop);
+      reloadAll();
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
   };
 
-  // Mark payment received
   const markReceived = async (invoiceId) => {
     try {
       await api.post(`/sales/${invoiceId}/mark-received`, {});
       toast.success('Payment marked as received!');
-      load(filterShop);
+      reloadAll();
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
   };
 
-  // Adjust pending payment
   const handleAdjustPayment = async () => {
     if (!payAmount || parseFloat(payAmount) <= 0) return toast.error('Enter valid amount');
     try {
-      const inv = showPayment;
-      const newPaid = parseFloat(inv.amount_paid) + parseFloat(payAmount);
-      // Use a simple PUT to update amount_paid
-      await api.post(`/sales/${inv.id}/mark-received`, { partial_amount: parseFloat(payAmount) });
+      await api.post(`/sales/${showPayment.id}/mark-received`, { partial_amount: parseFloat(payAmount) });
       toast.success('Payment updated!');
       setShowPayment(null); setPayAmount('');
-      load(filterShop);
+      reloadAll();
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
   };
 
@@ -267,12 +342,16 @@ const searchByName = async (idx, val) => {
     finally { setViewLoading(false); }
   };
 
+  const toggleRow = (id) => setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
+
   const filtered = sales.filter(s =>
     !search ||
     s.invoice_number?.toLowerCase().includes(search.toLowerCase()) ||
     s.customer_name?.toLowerCase().includes(search.toLowerCase()) ||
     s.customer_phone?.includes(search)
   );
+
+  const COL_COUNT = 11;
 
   return (
     <div>
@@ -282,10 +361,6 @@ const searchByName = async (idx, val) => {
           <div className="page-subtitle">{filtered.length} invoice(s)</div>
         </div>
         <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
-          <select className="form-control" style={{width:'auto'}} value={filterShop} onChange={e => setFilterShop(e.target.value)}>
-            <option value="">All Shops</option>
-            {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
           <button className="btn btn-ghost" style={{color:'#dc2626'}} onClick={() => setShowReturn(true)}>🔄 Return</button>
           <button className="btn btn-primary" onClick={() => {
             setForm({...EMPTY_FORM(), shop_id: shops.length===1 ? shops[0].id.toString() : (filterShop||'')});
@@ -294,58 +369,119 @@ const searchByName = async (idx, val) => {
         </div>
       </div>
 
+      {/* ── Filters ── */}
       <div className="card" style={{padding:'1rem',marginBottom:'1rem'}}>
-        <input className="form-control" placeholder="🔍 Search invoice #, customer name or phone..."
-          value={search} onChange={e => setSearch(e.target.value)} style={{maxWidth:'400px'}} />
+        <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 1fr auto',gap:'10px',alignItems:'end',flexWrap:'wrap'}}>
+          <div>
+            <label style={{fontSize:'.78rem',color:'#6b7280',display:'block',marginBottom:'4px'}}>Search</label>
+            <input className="form-control" placeholder="Invoice #, customer, phone..."
+              value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <div>
+            <label style={{fontSize:'.78rem',color:'#6b7280',display:'block',marginBottom:'4px'}}>Shop</label>
+            <select className="form-control" value={filterShop} onChange={e => setFilterShop(e.target.value)}>
+              <option value="">All Shops</option>
+              {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{fontSize:'.78rem',color:'#6b7280',display:'block',marginBottom:'4px'}}>Status</label>
+            <select className="form-control" value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+              <option value="">All Status</option>
+              <option value="paid">Paid</option>
+              <option value="unpaid">Unpaid</option>
+              <option value="partial">Partial</option>
+              <option value="payment_pending">Awaiting</option>
+              <option value="returned">Returned</option>
+            </select>
+          </div>
+          <div>
+            <label style={{fontSize:'.78rem',color:'#6b7280',display:'block',marginBottom:'4px'}}>Payment</label>
+            <select className="form-control" value={filterPayment} onChange={e => setFilterPayment(e.target.value)}>
+              <option value="">All Methods</option>
+              <option value="cash">Cash</option>
+              <option value="card">Card</option>
+              <option value="bank_transfer">Bank Transfer</option>
+              <option value="tabby">Tabby</option>
+              <option value="tamara">Tamara</option>
+              <option value="pending">Pending</option>
+            </select>
+          </div>
+          <div>
+            <label style={{fontSize:'.78rem',color:'#6b7280',display:'block',marginBottom:'4px'}}>From</label>
+            <input type="date" className="form-control" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} />
+          </div>
+          <div>
+            <label style={{fontSize:'.78rem',color:'#6b7280',display:'block',marginBottom:'4px'}}>To</label>
+            <input type="date" className="form-control" value={filterTo} onChange={e => setFilterTo(e.target.value)} />
+          </div>
+          <button className="btn btn-ghost btn-sm" style={{marginBottom:'2px'}} onClick={clearFilters}>✕ Clear</button>
+        </div>
       </div>
 
+      {/* ── Sales Table ── */}
       <div className="card">
         {loading ? <div className="loading">Loading...</div> : (
           <div className="table-wrapper">
             <table>
               <thead>
                 <tr>
+                  <th style={{width:'32px'}}></th>
                   <th>Invoice #</th><th>Customer</th><th>Shop</th><th>Date</th>
                   <th>Total</th><th>Paid</th><th>Due</th><th>Method</th><th>Status</th><th>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={10}><div className="empty-state"><p>No sales yet</p></div></td></tr>
+                  <tr><td colSpan={COL_COUNT}><div className="empty-state"><p>No sales found</p></div></td></tr>
                 ) : filtered.map(s => (
-                  <tr key={s.id}>
-                    <td>
-                      <span className="badge badge-blue">{s.invoice_number}</span>
-                      {s.is_exchange && <span style={{marginLeft:'4px',fontSize:'.7rem',background:'#fef3c7',color:'#92400e',padding:'1px 5px',borderRadius:'6px'}}>EX</span>}
-                    </td>
-                    <td>
-                      <div>{s.customer_name || <span style={{color:'var(--text-muted)'}}>Walk-in</span>}</div>
-                      {s.customer_phone && <div style={{fontSize:'.78rem',color:'var(--text-muted)'}}>{s.customer_phone}</div>}
-                    </td>
-                    <td><span className="badge badge-gray">{s.shop_name||'—'}</span></td>
-                    <td>{fmtDate(s.sale_date)}</td>
-                    <td><strong>{fmt(s.total_amount)}</strong></td>
-                    <td style={{color:'#059669'}}>{fmt(s.amount_paid)}</td>
-                    <td style={{color:s.amount_due>0?'#dc2626':'#059669'}}>{fmt(s.amount_due)}</td>
-                    <td><span style={{fontSize:'.78rem',fontWeight:600,color:paymentColor(s.payment_method),textTransform:'uppercase'}}>{s.payment_method}</span></td>
-                    <td><span style={{fontSize:'.78rem',fontWeight:600,color:statusColor(s.payment_status),textTransform:'uppercase'}}>
-                      {s.payment_status==='payment_pending'?'AWAITING':s.payment_status}
-                    </span></td>
-                    <td>
-                      <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
-                        <button className="btn btn-ghost btn-sm" onClick={() => openView(s)}>👁️</button>
-                        <button className="btn btn-ghost btn-sm" onClick={() => printInvoice(s)}>🖨️</button>
-                        {s.payment_status==='payment_pending' && (
-                          <button className="btn btn-sm" style={{background:'#d1fae5',color:'#065f46',border:'none',cursor:'pointer',fontSize:'.75rem',padding:'3px 8px',borderRadius:'6px'}}
-                            onClick={() => markReceived(s.id)}>✓ Received</button>
-                        )}
-                        {(s.payment_status==='partial'||s.payment_status==='unpaid') && (
-                          <button className="btn btn-sm" style={{background:'#fef3c7',color:'#92400e',border:'none',cursor:'pointer',fontSize:'.75rem',padding:'3px 8px',borderRadius:'6px'}}
-                            onClick={() => { setShowPayment(s); setPayAmount(''); }}>💰 Pay</button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
+                  <React.Fragment key={s.id}>
+                    <tr>
+                      {/* Expand button */}
+                      <td style={{padding:'8px',textAlign:'center'}}>
+                        <button onClick={() => toggleRow(s.id)}
+                          style={{background:'none',border:'none',cursor:'pointer',
+                            fontSize:'1.1rem',color:'var(--accent)',fontWeight:700,
+                            width:'24px',height:'24px',borderRadius:'4px',
+                            display:'flex',alignItems:'center',justifyContent:'center',
+                            lineHeight:1}}>
+                          {expandedRows[s.id] ? '−' : '+'}
+                        </button>
+                      </td>
+                      <td>
+                        <span className="badge badge-blue">{s.invoice_number}</span>
+                        {s.is_exchange && <span style={{marginLeft:'4px',fontSize:'.7rem',background:'#fef3c7',color:'#92400e',padding:'1px 5px',borderRadius:'6px'}}>EX</span>}
+                      </td>
+                      <td>
+                        <div>{s.customer_name || <span style={{color:'var(--text-muted)'}}>Walk-in</span>}</div>
+                        {s.customer_phone && <div style={{fontSize:'.78rem',color:'var(--text-muted)'}}>{s.customer_phone}</div>}
+                      </td>
+                      <td><span className="badge badge-gray">{s.shop_name||'—'}</span></td>
+                      <td>{fmtDate(s.sale_date)}</td>
+                      <td><strong>{fmt(s.total_amount)}</strong></td>
+                      <td style={{color:'#059669'}}>{fmt(s.amount_paid)}</td>
+                      <td style={{color:s.amount_due>0?'#dc2626':'#059669'}}>{fmt(s.amount_due)}</td>
+                      <td><span style={{fontSize:'.78rem',fontWeight:600,color:paymentColor(s.payment_method),textTransform:'uppercase'}}>{s.payment_method}</span></td>
+                      <td><span style={{fontSize:'.78rem',fontWeight:600,color:statusColor(s.payment_status),textTransform:'uppercase'}}>
+                        {s.payment_status==='payment_pending'?'AWAITING':s.payment_status}
+                      </span></td>
+                      <td>
+                        <div style={{display:'flex',gap:'4px',flexWrap:'wrap'}}>
+                          <button className="btn btn-ghost btn-sm" onClick={() => openView(s)}>👁️</button>
+                          <button className="btn btn-ghost btn-sm" onClick={() => printInvoice(s)}>🖨️</button>
+                          {s.payment_status==='payment_pending' && (
+                            <button className="btn btn-sm" style={{background:'#d1fae5',color:'#065f46',border:'none',cursor:'pointer',fontSize:'.75rem',padding:'3px 8px',borderRadius:'6px'}}
+                              onClick={() => markReceived(s.id)}>✓ Received</button>
+                          )}
+                          {(s.payment_status==='partial'||s.payment_status==='unpaid') && (
+                            <button className="btn btn-sm" style={{background:'#fef3c7',color:'#92400e',border:'none',cursor:'pointer',fontSize:'.75rem',padding:'3px 8px',borderRadius:'6px'}}
+                              onClick={() => { setShowPayment(s); setPayAmount(''); }}>💰 Pay</button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {expandedRows[s.id] && <SaleExpandedRow saleId={s.id} colSpan={COL_COUNT} />}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>
@@ -362,7 +498,6 @@ const searchByName = async (idx, val) => {
               <button className="modal-close" onClick={() => setShowModal(false)}>✕</button>
             </div>
             <div className="modal-body">
-
               {/* Shop */}
               <div className="form-group" style={{marginBottom:'1rem',padding:'0.75rem',background:'var(--bg-secondary)',borderRadius:'8px'}}>
                 <label className="form-label">Shop <span style={{color:'var(--accent-red)'}}>*</span></label>
@@ -382,7 +517,7 @@ const searchByName = async (idx, val) => {
                     onChange={e => setForm({...form,customer_name:e.target.value})} />
                 </div>
                 <div className="form-group">
-                  <label className="form-label">Phone <span style={{fontSize:'.75rem',color:'var(--text-muted)'}}>(+971 pre-filled)</span></label>
+                  <label className="form-label">Phone (+971 pre-filled)</label>
                   <input className="form-control" value={form.customer_phone}
                     onChange={e => setForm({...form,customer_phone:e.target.value})} />
                 </div>
@@ -414,7 +549,7 @@ const searchByName = async (idx, val) => {
               )}
               {['tabby','tamara','card','bank_transfer'].includes(form.payment_method) && (
                 <div style={{padding:'10px 14px',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:'8px',marginBottom:'12px',fontSize:'.85rem',color:'#1e40af'}}>
-                  ℹ️ <strong>{form.payment_method.toUpperCase()}</strong> — shows as "Awaiting". Accountant clicks <strong>Mark Received</strong> when money arrives.
+                  ℹ️ <strong>{form.payment_method.toUpperCase()}</strong> — shows as "Awaiting". Accountant clicks Mark Received when money arrives.
                 </div>
               )}
 
@@ -428,9 +563,9 @@ const searchByName = async (idx, val) => {
                 <div key={i} style={{background:'var(--bg-secondary)',borderRadius:'8px',padding:'0.75rem',marginBottom:'0.5rem'}}>
                   {/* Serial search */}
                   <div style={{marginBottom:'8px',position:'relative'}}>
-                    <label className="form-label">🔍 Serial / IMEI — scan or type (for accessories type product name)</label>
+                    <label className="form-label">🔍 Search by Serial / IMEI (scan or type)</label>
                     <input className="form-control"
-                      placeholder="Scan barcode, type serial number or product name..."
+                      placeholder="Scan barcode or type serial number..."
                       value={serialSearches[i]!==undefined ? serialSearches[i] : (item.serial_number||'')}
                       onChange={e => searchSerial(i, e.target.value)}
                       autoComplete="off" />
@@ -445,6 +580,33 @@ const searchByName = async (idx, val) => {
                             <strong>{p.brand} {p.name}</strong>
                             {p.serial_number && <span style={{color:'var(--text-muted)',marginLeft:'8px',fontSize:'.8rem',fontFamily:'monospace'}}>S/N: {p.serial_number}</span>}
                             <span style={{marginLeft:'8px',color:'#059669',fontSize:'.82rem'}}>AED {Math.round(p.selling_price||0).toLocaleString()}</span>
+                            <span style={{marginLeft:'8px',color:'#92400e',fontSize:'.82rem'}}>Cost: AED {Math.round(p.base_cost||0).toLocaleString()}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Name search */}
+                  <div style={{marginBottom:'8px',position:'relative'}}>
+                    <label className="form-label">🔍 Search by Product Name (type to filter)</label>
+                    <input className="form-control"
+                      placeholder="Type product name e.g. iPad, iPhone..."
+                      value={nameSearches[i]!==undefined ? nameSearches[i] : (item.product_name||'')}
+                      onChange={e => searchByName(i, e.target.value)}
+                      autoComplete="off" />
+                    {(nameResults[i]||[]).length > 0 && (
+                      <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:100,background:'white',
+                        border:'1px solid var(--border)',borderRadius:'8px',boxShadow:'0 4px 12px rgba(0,0,0,.1)',maxHeight:'220px',overflowY:'auto'}}>
+                        {nameResults[i].map(p => (
+                          <div key={p.id} onClick={() => selectSerialProduct(i,p)}
+                            style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid var(--border)',fontSize:'.88rem'}}
+                            onMouseEnter={e=>e.currentTarget.style.background='#f8f9fc'}
+                            onMouseLeave={e=>e.currentTarget.style.background='white'}>
+                            <strong>{p.brand} {p.name}</strong>
+                            {p.serial_number && <span style={{color:'var(--text-muted)',marginLeft:'8px',fontSize:'.8rem',fontFamily:'monospace'}}>S/N: {p.serial_number}</span>}
+                            <span style={{marginLeft:'8px',color:'#059669',fontSize:'.82rem'}}>AED {Math.round(p.selling_price||0).toLocaleString()}</span>
+                            <span style={{marginLeft:'8px',color:'#92400e',fontSize:'.82rem'}}>Cost: AED {Math.round(p.base_cost||0).toLocaleString()}</span>
                             <span style={{marginLeft:'8px',fontSize:'.75rem',background:'#f3f4f6',padding:'1px 6px',borderRadius:'4px'}}>{p.type||''}</span>
                           </div>
                         ))}
@@ -452,44 +614,17 @@ const searchByName = async (idx, val) => {
                     )}
                   </div>
 
-                  <div style={{display:'grid',gridTemplateColumns:'3fr 1fr 1fr 1fr 1fr auto',gap:'8px',alignItems:'end'}}>
-                    <div className="form-group" style={{marginBottom:0, position:'relative'}}>
-  <label className="form-label">Or search by name</label>
-  <input
-    className="form-control"
-    placeholder="Type product name e.g. iPad..."
-    value={nameSearches[i] !== undefined ? nameSearches[i] : (item.product_name || '')}
-    onChange={e => searchByName(i, e.target.value)}
-    autoComplete="off"
-  />
-  {(nameResults[i]||[]).length > 0 && (
-    <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:100,
-      background:'white',border:'1px solid var(--border)',borderRadius:'8px',
-      boxShadow:'0 4px 12px rgba(0,0,0,.1)',maxHeight:'200px',overflowY:'auto'}}>
-      {nameResults[i].map(p => (
-        <div key={p.id} onClick={() => selectSerialProduct(i,p)}
-          style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid var(--border)',fontSize:'.88rem'}}
-          onMouseEnter={e=>e.currentTarget.style.background='#f8f9fc'}
-          onMouseLeave={e=>e.currentTarget.style.background='white'}>
-          <strong>{p.brand} {p.name}</strong>
-          {p.serial_number && <span style={{color:'var(--text-muted)',marginLeft:'8px',fontSize:'.8rem',fontFamily:'monospace'}}>S/N: {p.serial_number}</span>}
-          <span style={{marginLeft:'8px',color:'#059669',fontSize:'.82rem'}}>AED {Math.round(p.selling_price||0).toLocaleString()}</span>
-          <span style={{marginLeft:'8px',color:'#92400e',fontSize:'.82rem'}}>Cost: AED {Math.round(p.base_cost||0).toLocaleString()}</span>
-        </div>
-      ))}
-    </div>
-  )}
-</div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr auto',gap:'8px',alignItems:'end'}}>
                     <div className="form-group" style={{marginBottom:0}}>
-  <label className="form-label">Cost Price</label>
-  <input type="number" className="form-control" value={item.unit_cost||''} readOnly
-    style={{background:'#fef3c7',color:'#92400e',cursor:'not-allowed',fontWeight:600}} />
-</div>
-<div className="form-group" style={{marginBottom:0}}>
-  <label className="form-label">Rec. Price</label>
-  <input type="number" className="form-control" value={item.recommended_price||''} readOnly
-    style={{background:'var(--bg-tertiary,#f3f4f6)',color:'var(--text-muted)',cursor:'not-allowed'}} />
-</div>
+                      <label className="form-label">Cost Price</label>
+                      <input type="number" className="form-control" value={item.unit_cost||''} readOnly
+                        style={{background:'#fef3c7',color:'#92400e',cursor:'not-allowed',fontWeight:600}} />
+                    </div>
+                    <div className="form-group" style={{marginBottom:0}}>
+                      <label className="form-label">Rec. Price</label>
+                      <input type="number" className="form-control" value={item.recommended_price||''} readOnly
+                        style={{background:'var(--bg-tertiary,#f3f4f6)',color:'var(--text-muted)',cursor:'not-allowed'}} />
+                    </div>
                     <div className="form-group" style={{marginBottom:0}}>
                       <label className="form-label">Qty</label>
                       <input type="number" min="1" className="form-control" value={item.qty}
@@ -518,7 +653,7 @@ const searchByName = async (idx, val) => {
                 </div>
               ))}
 
-              {/* Exchange toggle */}
+              {/* Exchange */}
               <div style={{background:form.is_exchange?'#fef9c3':'var(--bg-secondary)',border:`1px solid ${form.is_exchange?'#fde68a':'var(--border)'}`,borderRadius:'8px',padding:'12px',marginBottom:'12px'}}>
                 <label style={{display:'flex',alignItems:'center',gap:'8px',cursor:'pointer',fontWeight:600}}>
                   <input type="checkbox" checked={form.is_exchange} onChange={e => setForm({...form,is_exchange:e.target.checked})} />
@@ -537,7 +672,7 @@ const searchByName = async (idx, val) => {
                         onChange={e => setForm({...form,exchange_serial_number:e.target.value})} placeholder="Scan or type..." />
                     </div>
                     <div className="form-group">
-                      <label className="form-label">Trade-in Value (AED) — deducted from total</label>
+                      <label className="form-label">Trade-in Value (AED)</label>
                       <input type="number" className="form-control" value={form.exchange_trade_in_value}
                         onChange={e => setForm({...form,exchange_trade_in_value:e.target.value})} placeholder="0" />
                     </div>
@@ -545,7 +680,7 @@ const searchByName = async (idx, val) => {
                 )}
               </div>
 
-              {/* Bottom row */}
+              {/* Totals */}
               <div style={{background:'var(--bg-secondary)',borderRadius:'8px',padding:'1rem'}}>
                 <div className="form-grid">
                   <div className="form-group" style={{marginBottom:0}}>
@@ -707,7 +842,7 @@ const searchByName = async (idx, val) => {
                 )}
                 {viewSale.notes && <div style={{gridColumn:'1/-1'}}><strong>Notes:</strong> {viewSale.notes}</div>}
               </div>
-              {viewLoading ? <div style={{textAlign:'center',padding:'2rem',color:'var(--text-muted)'}}>Loading...</div> : (
+              {viewLoading ? <div style={{textAlign:'center',padding:'2rem'}}>Loading...</div> : (
                 <table style={{width:'100%',fontSize:'0.9rem',borderCollapse:'collapse'}}>
                   <thead><tr style={{borderBottom:'2px solid var(--border)'}}>
                     <th style={{textAlign:'left',padding:'8px 0'}}>Item</th>
