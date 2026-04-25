@@ -15,12 +15,10 @@ exports.getAllSales = async (req, res) => {
   try {
     const { from, to, payment_status, shop_id } = req.query;
 
-    // --- pagination params ---
     const page   = Math.max(1, parseInt(req.query.page)  || 1);
     const limit  = Math.max(1, parseInt(req.query.limit) || 50);
     const offset = (page - 1) * limit;
 
-    // --- shared WHERE fragment (same for both queries) ---
     let where = `WHERE 1=1`;
     const params = [];
     let idx = 1;
@@ -29,9 +27,6 @@ exports.getAllSales = async (req, res) => {
     if (payment_status) { where += ` AND si.payment_status = $${idx++}`; params.push(payment_status); }
     if (shop_id)        { where += ` AND si.shop_id = $${idx++}`;        params.push(parseInt(shop_id)); }
 
-    // --- COUNT query ---
-    // Wrap in subquery because the inner query has GROUP BY (one row per invoice).
-    // COUNT(*) on the subquery gives total matching invoices, not total groups.
     const countSql = `
       SELECT COUNT(*) AS total
       FROM (
@@ -48,7 +43,6 @@ exports.getAllSales = async (req, res) => {
     const countResult = await query(countSql, params);
     const total = parseInt(countResult.rows[0].total);
 
-    // --- DATA query — same joins/filters + LIMIT/OFFSET appended ---
     const dataSql = `
       SELECT si.*, c.name as customer_name, c.phone as customer_phone,
              sh.name as shop_name, u.name as sold_by,
@@ -141,7 +135,6 @@ exports.createSale = async (req, res) => {
       sale_date, discount = 0, payment_method = 'cash',
       amount_paid = 0, notes, items, shop_id,
       pending_amount = 0,
-      // Exchange fields
       is_exchange = false,
       exchange_product_name, exchange_serial_number, exchange_trade_in_value = 0,
     } = req.body;
@@ -149,7 +142,6 @@ exports.createSale = async (req, res) => {
     if (!items || !items.length) throw new Error('At least one sale item is required');
     if (!shop_id) throw new Error('shop_id is required');
 
-    // Customer lookup by phone (phone as identifier)
     let finalCustomerId = customer_id || null;
     if (customer_phone) {
       const phone = customer_phone.startsWith('+971') ? customer_phone : `+971${customer_phone}`;
@@ -176,12 +168,11 @@ exports.createSale = async (req, res) => {
     const paid        = parseFloat(amount_paid);
     const amountDue   = totalAmount - paid;
 
-    // Determine payment status
     let paymentStatus;
     if (payment_method === 'pending') {
       paymentStatus = 'unpaid';
     } else if (['tabby', 'tamara', 'card', 'bank_transfer'].includes(payment_method)) {
-      paymentStatus = 'payment_pending'; // money not yet in hand
+      paymentStatus = 'payment_pending';
     } else {
       paymentStatus = paid >= totalAmount ? 'paid' : paid > 0 ? 'partial' : 'unpaid';
     }
@@ -215,7 +206,6 @@ exports.createSale = async (req, res) => {
          VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [invoiceId, item.product_id, qty, item.unit_cost || 0, item.unit_price, item.discount || 0, item.serial_number || null]
       );
-      // Deduct from shop inventory
       await client.query(
         `UPDATE inventory SET quantity = quantity - $1, last_updated = NOW()
          WHERE product_id = $2 AND shop_id = $3 AND quantity >= $1`,
@@ -228,9 +218,7 @@ exports.createSale = async (req, res) => {
       );
     }
 
-    // Exchange: add incoming phone to inventory
     if (is_exchange && exchange_serial_number) {
-      // Check if product exists by serial
       const exProd = await client.query(
         `SELECT id FROM products WHERE serial_number = $1 LIMIT 1`, [exchange_serial_number]
       );
@@ -245,14 +233,12 @@ exports.createSale = async (req, res) => {
       }
     }
 
-    // Update customer balance for pending/partial
     if (finalCustomerId && amountDue > 0 && payment_method !== 'tabby' && payment_method !== 'tamara') {
       await client.query(
         `UPDATE customers SET balance = balance + $1 WHERE id = $2`, [amountDue, finalCustomerId]
       );
     }
 
-    // Cash register: only update if cash payment
     if (payment_method === 'cash' && paid > 0) {
       await client.query(
         `UPDATE cash_register SET total_sales_cash = total_sales_cash + $1
@@ -275,7 +261,7 @@ exports.createSale = async (req, res) => {
   }
 };
 
-// POST /api/v1/sales/:id/mark-received — accountant marks non-cash payment as received
+// POST /api/v1/sales/:id/mark-received
 exports.markPaymentReceived = async (req, res) => {
   const client = await getClient();
   try {
@@ -293,12 +279,11 @@ exports.markPaymentReceived = async (req, res) => {
     const recDate   = received_date || new Date().toISOString().split('T')[0];
     const amountNow = partial_amount
       ? parseFloat(partial_amount)
-      : parseFloat(invoice.amount_due); // default = settle full due
+      : parseFloat(invoice.amount_due);
 
     const newAmountPaid = parseFloat(invoice.amount_paid) + amountNow;
     const newAmountDue  = parseFloat(invoice.total_amount) - newAmountPaid;
 
-    // Determine new status
     let newStatus;
     if (newAmountDue <= 0) {
       newStatus = 'paid';
@@ -310,19 +295,18 @@ exports.markPaymentReceived = async (req, res) => {
 
     await client.query(
       `UPDATE sales_invoices SET
-         payment_status         = $1,
-         amount_paid            = $2,
-         amount_due             = $3,
-         payment_received_date  = $4,
-         payment_received_by    = $5
+         payment_status        = $1,
+         amount_paid           = $2,
+         amount_due            = $3,
+         payment_received_date = $4,
+         payment_received_by   = $5
        WHERE id = $6`,
       [newStatus, newAmountPaid, Math.max(newAmountDue, 0), recDate, req.user?.id || null, invoiceId]
     );
 
-    // Only update cash register when fully paid or partial cash received
     if (amountNow > 0) {
       await client.query(
-        `UPDATE cash_register 
+        `UPDATE cash_register
          SET total_sales_cash = total_sales_cash + $1
          WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
         [amountNow, recDate, invoice.shop_id]
@@ -343,24 +327,8 @@ exports.markPaymentReceived = async (req, res) => {
     client.release();
   }
 };
-    // Now update cash register on the received date
-    await client.query(
-      `UPDATE cash_register SET total_sales_cash = total_sales_cash + $1
-       WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
-      [parseFloat(invoice.total_amount), recDate, invoice.shop_id]
-    );
 
-    await client.query('COMMIT');
-    res.json({ success: true, message: 'Payment marked as received' });
-  } catch (err) {
-    await client.query('ROLLBACK');
-    res.status(400).json({ success: false, message: err.message });
-  } finally {
-    client.release();
-  }
-};
-
-// POST /api/v1/sales/:id/return — with partial return price
+// POST /api/v1/sales/:id/return
 exports.returnSale = async (req, res) => {
   const client = await getClient();
   try {
@@ -376,7 +344,6 @@ exports.returnSale = async (req, res) => {
 
     const items = await client.query('SELECT * FROM sale_items WHERE invoice_id = $1', [invoiceId]);
 
-    // Restore inventory
     for (const item of items.rows) {
       await client.query(
         `UPDATE inventory SET quantity = quantity + $1, last_updated = NOW()
@@ -390,12 +357,9 @@ exports.returnSale = async (req, res) => {
       );
     }
 
-    // return_amount is what we paid back to customer
-    // difference = original - return = what we keep
     const returnAmt = parseFloat(return_amount || invoice.amount_paid || 0);
     const deduction = parseFloat(invoice.amount_paid || 0) - returnAmt;
 
-    // Update customer balance
     if (invoice.customer_id) {
       if (invoice.amount_due > 0) {
         await client.query(
