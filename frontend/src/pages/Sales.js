@@ -473,10 +473,10 @@ export default function Sales() {
                             <button className="btn btn-sm" style={{background:'#d1fae5',color:'#065f46',border:'none',cursor:'pointer',fontSize:'.75rem',padding:'3px 8px',borderRadius:'6px'}}
                               onClick={() => markReceived(s.id)}>✓ Received</button>
                           )}
-                          {(s.payment_status==='partial'||s.payment_status==='unpaid') && (
-                            <button className="btn btn-sm" style={{background:'#fef3c7',color:'#92400e',border:'none',cursor:'pointer',fontSize:'.75rem',padding:'3px 8px',borderRadius:'6px'}}
-                              onClick={() => { setShowPayment(s); setPayAmount(''); }}>💰 Pay</button>
-                          )}
+                          {(s.payment_status==='partial'||s.payment_status==='unpaid'||s.payment_status==='payment_pending') && (
+  <button className="btn btn-sm" style={{background:'#fef3c7',color:'#92400e',border:'none',cursor:'pointer',fontSize:'.75rem',padding:'3px 8px',borderRadius:'6px'}}
+    onClick={() => { setShowPayment(s); setPayAmount(''); }}>💰 Pay</button>
+)}
                         </div>
                       </td>
                     </tr>
