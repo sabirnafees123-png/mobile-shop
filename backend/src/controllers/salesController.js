@@ -14,7 +14,42 @@ async function generateInvoiceNumber() {
 exports.getAllSales = async (req, res) => {
   try {
     const { from, to, payment_status, shop_id } = req.query;
-    let sql = `
+
+    // --- pagination params ---
+    const page   = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit  = Math.max(1, parseInt(req.query.limit) || 50);
+    const offset = (page - 1) * limit;
+
+    // --- shared WHERE fragment (same for both queries) ---
+    let where = `WHERE 1=1`;
+    const params = [];
+    let idx = 1;
+    if (from)           { where += ` AND si.sale_date >= $${idx++}`;     params.push(from); }
+    if (to)             { where += ` AND si.sale_date <= $${idx++}`;     params.push(to); }
+    if (payment_status) { where += ` AND si.payment_status = $${idx++}`; params.push(payment_status); }
+    if (shop_id)        { where += ` AND si.shop_id = $${idx++}`;        params.push(parseInt(shop_id)); }
+
+    // --- COUNT query ---
+    // Wrap in subquery because the inner query has GROUP BY (one row per invoice).
+    // COUNT(*) on the subquery gives total matching invoices, not total groups.
+    const countSql = `
+      SELECT COUNT(*) AS total
+      FROM (
+        SELECT si.id
+        FROM sales_invoices si
+        LEFT JOIN customers c  ON c.id  = si.customer_id
+        LEFT JOIN shops sh     ON sh.id = si.shop_id
+        LEFT JOIN users u      ON u.id  = si.user_id
+        LEFT JOIN sale_items s ON s.invoice_id = si.id
+        ${where}
+        GROUP BY si.id, c.name, c.phone, sh.name, u.name
+      ) sub
+    `;
+    const countResult = await query(countSql, params);
+    const total = parseInt(countResult.rows[0].total);
+
+    // --- DATA query — same joins/filters + LIMIT/OFFSET appended ---
+    const dataSql = `
       SELECT si.*, c.name as customer_name, c.phone as customer_phone,
              sh.name as shop_name, u.name as sold_by,
              COUNT(s.id) as item_count
@@ -23,17 +58,24 @@ exports.getAllSales = async (req, res) => {
       LEFT JOIN shops sh     ON sh.id = si.shop_id
       LEFT JOIN users u      ON u.id  = si.user_id
       LEFT JOIN sale_items s ON s.invoice_id = si.id
-      WHERE 1=1
+      ${where}
+      GROUP BY si.id, c.name, c.phone, sh.name, u.name
+      ORDER BY si.sale_date DESC, si.created_at DESC
+      LIMIT $${idx} OFFSET $${idx + 1}
     `;
-    const params = [];
-    let idx = 1;
-    if (from)           { sql += ` AND si.sale_date >= $${idx++}`;     params.push(from); }
-    if (to)             { sql += ` AND si.sale_date <= $${idx++}`;     params.push(to); }
-    if (payment_status) { sql += ` AND si.payment_status = $${idx++}`; params.push(payment_status); }
-    if (shop_id)        { sql += ` AND si.shop_id = $${idx++}`;        params.push(parseInt(shop_id)); }
-    sql += ` GROUP BY si.id, c.name, c.phone, sh.name, u.name ORDER BY si.sale_date DESC, si.created_at DESC`;
-    const result = await query(sql, params);
-    res.json({ success: true, count: result.rows.length, data: result.rows });
+    const result = await query(dataSql, [...params, limit, offset]);
+
+    res.json({
+      success: true,
+      count: result.rows.length,
+      data: result.rows,
+      pagination: {
+        total,
+        page,
+        limit,
+        total_pages: Math.ceil(total / limit),
+      },
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
@@ -239,26 +281,68 @@ exports.markPaymentReceived = async (req, res) => {
   try {
     await client.query('BEGIN');
     const invoiceId = req.params.id;
-    const { received_date } = req.body;
+    const { received_date, partial_amount } = req.body;
 
     const inv = await client.query('SELECT * FROM sales_invoices WHERE id = $1', [invoiceId]);
     if (!inv.rows.length) throw new Error('Invoice not found');
     const invoice = inv.rows[0];
 
     if (invoice.payment_status === 'returned') throw new Error('Invoice is returned');
-    if (invoice.payment_status === 'paid') throw new Error('Already marked as paid');
+    if (invoice.payment_status === 'paid')     throw new Error('Already marked as paid');
 
-    const recDate = received_date || new Date().toISOString().split('T')[0];
+    const recDate   = received_date || new Date().toISOString().split('T')[0];
+    const amountNow = partial_amount
+      ? parseFloat(partial_amount)
+      : parseFloat(invoice.amount_due); // default = settle full due
+
+    const newAmountPaid = parseFloat(invoice.amount_paid) + amountNow;
+    const newAmountDue  = parseFloat(invoice.total_amount) - newAmountPaid;
+
+    // Determine new status
+    let newStatus;
+    if (newAmountDue <= 0) {
+      newStatus = 'paid';
+    } else if (newAmountPaid > 0) {
+      newStatus = 'partial';
+    } else {
+      newStatus = 'unpaid';
+    }
 
     await client.query(
       `UPDATE sales_invoices SET
-         payment_status = 'paid',
-         payment_received_date = $1,
-         payment_received_by = $2
-       WHERE id = $3`,
-      [recDate, req.user?.id || null, invoiceId]
+         payment_status         = $1,
+         amount_paid            = $2,
+         amount_due             = $3,
+         payment_received_date  = $4,
+         payment_received_by    = $5
+       WHERE id = $6`,
+      [newStatus, newAmountPaid, Math.max(newAmountDue, 0), recDate, req.user?.id || null, invoiceId]
     );
 
+    // Only update cash register when fully paid or partial cash received
+    if (amountNow > 0) {
+      await client.query(
+        `UPDATE cash_register 
+         SET total_sales_cash = total_sales_cash + $1
+         WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
+        [amountNow, recDate, invoice.shop_id]
+      );
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      success: true,
+      message: newStatus === 'paid'
+        ? 'Payment fully received — invoice marked as paid'
+        : `Partial payment of AED ${amountNow} recorded — AED ${Math.max(newAmountDue, 0)} still due`,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(400).json({ success: false, message: err.message });
+  } finally {
+    client.release();
+  }
+};
     // Now update cash register on the received date
     await client.query(
       `UPDATE cash_register SET total_sales_cash = total_sales_cash + $1

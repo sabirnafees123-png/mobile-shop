@@ -1,4 +1,3 @@
-// src/pages/Products.js
 import React, { useEffect, useState } from 'react';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
@@ -11,27 +10,42 @@ const EMPTY = {
   base_cost: '', selling_price: '', is_active: true,
 };
 
+const LIMIT = 50;
+
 export default function Products() {
-  const [products, setProducts] = useState([]);
-  const [loading, setLoading]   = useState(true);
-  const [showModal, setShowModal] = useState(false);
-  const [editing, setEditing]   = useState(null);
-  const [form, setForm]         = useState(EMPTY);
-  const [search, setSearch]     = useState('');
+  const [products, setProducts]     = useState([]);
+  const [loading, setLoading]       = useState(true);
+  const [showModal, setShowModal]   = useState(false);
+  const [editing, setEditing]       = useState(null);
+  const [form, setForm]             = useState(EMPTY);
+  const [search, setSearch]         = useState('');
   const [filterType, setFilterType] = useState('');
+
+  // Pagination state
+  const [page, setPage]           = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
 
   const load = () => {
     setLoading(true);
-    const params = {};
+    const params = { page, limit: LIMIT };
     if (search)     params.search = search;
     if (filterType) params.type   = filterType;
     api.get('/products', { params })
-      .then(r => setProducts(r.data?.data || []))
+      .then(r => {
+        setProducts(r.data?.data || []);
+        setTotalPages(r.data?.pagination?.total_pages || 1);
+        setTotalCount(r.data?.pagination?.total || 0);
+      })
       .catch(() => toast.error('Failed to load'))
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [search, filterType]);
+  // Reset to page 1 when filters change
+  useEffect(() => { setPage(1); }, [search, filterType]);
+
+  // Fetch whenever page, search, or filterType changes
+  useEffect(() => { load(); }, [page, search, filterType]);
 
   const openAdd  = () => { setEditing(null); setForm(EMPTY); setShowModal(true); };
   const openEdit = (p) => { setEditing(p); setForm({ ...EMPTY, ...p }); setShowModal(true); };
@@ -79,7 +93,9 @@ export default function Products() {
       <div className="page-header">
         <div>
           <div className="page-title">📦 Products</div>
-          <div className="page-subtitle">{products.length} product(s) in catalog</div>
+          <div className="page-subtitle">
+            Showing {products.length} of {totalCount} product(s)
+          </div>
         </div>
         <button className="btn btn-primary" onClick={openAdd}>+ Add Product</button>
       </div>
@@ -132,7 +148,7 @@ export default function Products() {
                   const tc = typeBadgeColor(p.type);
                   return (
                     <tr key={p.id}>
-                      <td>{i + 1}</td>
+                      <td>{(page - 1) * LIMIT + i + 1}</td>
                       <td style={{ fontFamily: 'monospace', fontSize: '.85rem', color: 'var(--text-muted)' }}>
                         {p.serial_number || '—'}
                       </td>
@@ -167,11 +183,34 @@ export default function Products() {
                 })}
               </tbody>
             </table>
+
+            {/* Pagination bar */}
+            {totalPages > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '1rem', borderTop: '1px solid var(--border)' }}>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setPage(p => p - 1)}
+                  disabled={page === 1}
+                >
+                  ← Prev
+                </button>
+                <span style={{ fontSize: '.9rem', color: 'var(--text-muted)' }}>
+                  Page {page} of {totalPages}
+                </span>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setPage(p => p + 1)}
+                  disabled={page === totalPages}
+                >
+                  Next →
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
 
-      {/* Modal */}
+      {/* Modal — unchanged */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal" style={{ maxWidth: '560px' }} onClick={e => e.stopPropagation()}>
@@ -180,8 +219,6 @@ export default function Products() {
               <button className="modal-close" onClick={() => setShowModal(false)}>✕</button>
             </div>
             <div className="modal-body">
-
-              {/* Type selector — most prominent */}
               <div className="form-group" style={{ marginBottom: '16px' }}>
                 <label className="form-label">Type *</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
@@ -203,9 +240,7 @@ export default function Products() {
                   })}
                 </div>
               </div>
-
               <div className="form-grid">
-                {/* Serial Number — barcode scanner ready (autofocus) */}
                 <div className="form-group" style={{ gridColumn: 'span 2' }}>
                   <label className="form-label">Serial / IMEI Number
                     <span style={{ fontSize: '.75rem', color: 'var(--text-muted)', marginLeft: '8px' }}>
@@ -220,7 +255,6 @@ export default function Products() {
                     autoComplete="off"
                   />
                 </div>
-
                 <div className="form-group" style={{ gridColumn: 'span 2' }}>
                   <label className="form-label">Product Name *</label>
                   <input className="form-control"
@@ -228,7 +262,6 @@ export default function Products() {
                     value={form.name}
                     onChange={e => setForm({ ...form, name: e.target.value })} />
                 </div>
-
                 <div className="form-group">
                   <label className="form-label">Brand *</label>
                   <input className="form-control"
@@ -236,7 +269,6 @@ export default function Products() {
                     value={form.brand}
                     onChange={e => setForm({ ...form, brand: e.target.value })} />
                 </div>
-
                 <div className="form-group">
                   <label className="form-label">Color</label>
                   <input className="form-control"
@@ -244,7 +276,6 @@ export default function Products() {
                     value={form.color}
                     onChange={e => setForm({ ...form, color: e.target.value })} />
                 </div>
-
                 <div className="form-group">
                   <label className="form-label">Base Cost (AED)</label>
                   <input type="number" className="form-control"
@@ -252,7 +283,6 @@ export default function Products() {
                     onChange={e => setForm({ ...form, base_cost: e.target.value })}
                     placeholder="0" />
                 </div>
-
                 <div className="form-group">
                   <label className="form-label">Selling Price (AED)</label>
                   <input type="number" className="form-control"
@@ -260,7 +290,6 @@ export default function Products() {
                     onChange={e => setForm({ ...form, selling_price: e.target.value })}
                     placeholder="0" />
                 </div>
-
                 <div className="form-group" style={{ gridColumn: 'span 2' }}>
                   <label className="form-label">Description / Notes</label>
                   <input className="form-control"

@@ -14,21 +14,61 @@ async function generatePurchaseNumber() {
 exports.getAllPurchases = async (req, res) => {
   try {
     const { shop_id } = req.query;
-    let sql = `
+
+    // --- pagination params ---
+    const page   = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit  = Math.max(1, parseInt(req.query.limit) || 50);
+    const offset = (page - 1) * limit;
+
+    // --- shared WHERE fragment ---
+    let where = `WHERE 1=1`;
+    const params = [];
+    let idx = 1;
+    if (shop_id) {
+      where += ` AND p.id IN (SELECT purchase_id FROM purchase_items WHERE shop_id = $${idx++})`;
+      params.push(parseInt(shop_id));
+    }
+
+    // --- COUNT query ---
+    // Subquery needed because inner query uses GROUP BY
+    const countSql = `
+      SELECT COUNT(*) AS total
+      FROM (
+        SELECT p.id
+        FROM purchases p
+        JOIN suppliers s ON s.id = p.supplier_id
+        LEFT JOIN purchase_items pi ON pi.purchase_id = p.id
+        ${where}
+        GROUP BY p.id, s.name
+      ) sub
+    `;
+    const countResult = await query(countSql, params);
+    const total = parseInt(countResult.rows[0].total);
+
+    // --- DATA query ---
+    const dataSql = `
       SELECT p.*, s.name as supplier_name, COUNT(pi.id) as item_count
       FROM purchases p
       JOIN suppliers s ON s.id = p.supplier_id
       LEFT JOIN purchase_items pi ON pi.purchase_id = p.id
-      WHERE 1=1
+      ${where}
+      GROUP BY p.id, s.name
+      ORDER BY p.purchase_date DESC, p.created_at DESC
+      LIMIT $${idx} OFFSET $${idx + 1}
     `;
-    const params = [];
-    if (shop_id) {
-      sql += ` AND p.id IN (SELECT purchase_id FROM purchase_items WHERE shop_id = $1)`;
-      params.push(parseInt(shop_id));
-    }
-    sql += ` GROUP BY p.id, s.name ORDER BY p.purchase_date DESC, p.created_at DESC`;
-    const result = await query(sql, params);
-    res.json({ success: true, count: result.rows.length, data: result.rows });
+    const result = await query(dataSql, [...params, limit, offset]);
+
+    res.json({
+      success: true,
+      count: result.rows.length,
+      data: result.rows,
+      pagination: {
+        total,
+        page,
+        limit,
+        total_pages: Math.ceil(total / limit),
+      },
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }

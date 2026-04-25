@@ -162,8 +162,13 @@ export default function Sales() {
 
   // Payment
   const [payAmount, setPayAmount] = useState('');
+  const [page, setPage]             = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const LIMIT = 50;
 
-  const load = (sid, status, payment, from, to) => {
+
+  const load = (sid, status, payment, from, to, pg = 1) => {
     setLoading(true);
     const params = new URLSearchParams();
     if (sid)     params.append('shop_id', sid);
@@ -171,10 +176,14 @@ export default function Sales() {
     if (payment) params.append('payment_method', payment);
     if (from)    params.append('from', from);
     if (to)      params.append('to', to);
-    const qs = params.toString() ? `?${params.toString()}` : '';
+    params.append('page', pg);
+params.append('limit', LIMIT);
+const qs = `?${params.toString()}`;
     Promise.all([api.get(`/sales${qs}`), api.get('/products'), api.get('/shops')])
       .then(([s, p, sh]) => {
         setSales(s.data?.data || []);
+	setTotalPages(s.data?.pagination?.total_pages || 1);
+	setTotalCount(s.data?.pagination?.total || 0);
         setProducts(p.data?.data || []);
         setShops(sh.data?.data || []);
       })
@@ -183,15 +192,24 @@ export default function Sales() {
   };
 
   useEffect(() => {
-    load(filterShop, filterStatus, filterPayment, filterFrom, filterTo);
-  }, [filterShop, filterStatus, filterPayment, filterFrom, filterTo]);
+  setPage(1);
+  load(filterShop, filterStatus, filterPayment, filterFrom, filterTo, 1);
+}, [filterShop, filterStatus, filterPayment, filterFrom, filterTo]);
 
-  const reloadAll = () => load(filterShop, filterStatus, filterPayment, filterFrom, filterTo);
+useEffect(() => {
+  if (page === 1) return; // already handled by filter effect on reset
+  load(filterShop, filterStatus, filterPayment, filterFrom, filterTo, page);
+}, [page]);
+
+
+  const reloadAll = () => load(filterShop, filterStatus, filterPayment, filterFrom, filterTo, page);
 
   const clearFilters = () => {
-    setSearch(''); setFilterShop(''); setFilterStatus('');
-    setFilterPayment(''); setFilterFrom(''); setFilterTo('');
-  };
+  setSearch(''); setFilterShop(''); setFilterStatus('');
+  setFilterPayment(''); setFilterFrom(''); setFilterTo('');
+  setPage(1);
+};
+
 
   // Serial search
   const searchSerial = async (idx, val) => {
@@ -358,7 +376,7 @@ export default function Sales() {
       <div className="page-header">
         <div>
           <div className="page-title">🧾 Sales / Invoices</div>
-          <div className="page-subtitle">{filtered.length} invoice(s)</div>
+          <div className="page-subtitle">Showing {filtered.length} of {totalCount} invoices</div>
         </div>
         <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
           <button className="btn btn-ghost" style={{color:'#dc2626'}} onClick={() => setShowReturn(true)}>🔄 Return</button>
@@ -485,6 +503,24 @@ export default function Sales() {
                 ))}
               </tbody>
             </table>
+ {totalPages > 1 && (
+              <div style={{display:'flex',alignItems:'center',justifyContent:'flex-end',
+                gap:'10px',padding:'12px 16px',borderTop:'1px solid var(--border)',fontSize:'.9rem'}}>
+                <span style={{color:'var(--text-muted)'}}>Page {page} of {totalPages}</span>
+                <button className="btn btn-ghost btn-sm"
+                  disabled={page === 1}
+                  onClick={() => setPage(p => p - 1)}
+                  style={{opacity: page === 1 ? 0.4 : 1}}>
+                  ← Prev
+                </button>
+                <button className="btn btn-ghost btn-sm"
+                  disabled={page === totalPages}
+                  onClick={() => setPage(p => p + 1)}
+                  style={{opacity: page === totalPages ? 0.4 : 1}}>
+                  Next →
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>

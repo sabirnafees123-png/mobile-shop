@@ -107,6 +107,12 @@ export default function Purchases() {
   const [filterShop, setFilterShop]           = useState('');
   const [expandedRows, setExpandedRows]       = useState({});
 
+  // ── Pagination state ──────────────────────────────────────────────────────
+  const [page, setPage]           = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const LIMIT = 50;
+
   // Serial search state per item
   const [serialSearches, setSerialSearches] = useState({});
   const [serialResults, setSerialResults]   = useState({});
@@ -132,16 +138,19 @@ export default function Purchases() {
 
   const [supplierForm, setSupplierForm] = useState({ name: '', phone: '', email: '', address: '', city: '', notes: '' });
 
-  const load = (sid) => {
+  const load = (sid, currentPage) => {
     setLoading(true);
-    const qs = sid ? `?shop_id=${sid}` : '';
+    const params = new URLSearchParams({ page: currentPage, limit: LIMIT });
+    if (sid) params.set('shop_id', sid);
     Promise.all([
-      api.get(`/purchases${qs}`),
+      api.get(`/purchases?${params.toString()}`),
       api.get('/suppliers'),
       api.get('/shops'),
     ])
       .then(([p, s, sh]) => {
         setPurchases(p.data?.data || []);
+        setTotalPages(p.data?.pagination?.total_pages || 1);
+        setTotalCount(p.data?.pagination?.total || 0);
         setSuppliers(Array.isArray(s.data) ? s.data : s.data?.data || []);
         setShops(sh.data?.data || []);
       })
@@ -149,7 +158,12 @@ export default function Purchases() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(filterShop); }, [filterShop]);
+  // Reset to page 1 when shop filter changes
+  useEffect(() => {
+    setPage(1);
+  }, [filterShop]);
+
+  useEffect(() => { load(filterShop, page); }, [filterShop, page]);
 
   const toggleRow = (id) => setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
 
@@ -247,7 +261,7 @@ export default function Purchases() {
       setShowModal(false);
       setSerialSearches({});
       setSerialResults({});
-      load(filterShop);
+      load(filterShop, page);
     } catch (err) { toast.error(err.response?.data?.message || err.message); }
   };
 
@@ -273,7 +287,7 @@ export default function Purchases() {
       <div className="page-header">
         <div>
           <div className="page-title">📦 Purchases</div>
-          <div className="page-subtitle">{purchases.length} purchase(s)</div>
+          <div className="page-subtitle">Showing {purchases.length} of {totalCount} purchases</div>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           <select className="form-control" style={{ width: 'auto' }} value={filterShop} onChange={e => setFilterShop(e.target.value)}>
@@ -287,51 +301,76 @@ export default function Purchases() {
       {/* ── Purchase List ── */}
       <div className="card">
         {loading ? <div className="loading">Loading...</div> : (
-          <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th style={{ width: '32px' }}></th>
-                  <th>Purchase #</th><th>Supplier</th><th>Date</th>
-                  <th>Items</th><th>Total</th><th>Paid</th><th>Due</th><th>Status</th><th></th>
-                </tr>
-              </thead>
-              <tbody>
-                {purchases.length === 0 ? (
-                  <tr><td colSpan={COL_COUNT}><div className="empty-state"><p>No purchases yet</p></div></td></tr>
-                ) : purchases.map(p => (
-                  <React.Fragment key={p.id}>
-                    <tr>
-                      {/* Expand button */}
-                      <td style={{ padding: '8px', textAlign: 'center' }}>
-                        <button
-                          onClick={() => toggleRow(p.id)}
-                          style={{
-                            background: 'none', border: 'none', cursor: 'pointer',
-                            fontSize: '1.1rem', color: 'var(--accent)', fontWeight: 700,
-                            width: '24px', height: '24px', borderRadius: '4px',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            lineHeight: 1,
-                          }}>
-                          {expandedRows[p.id] ? '−' : '+'}
-                        </button>
-                      </td>
-                      <td><span className="badge badge-blue">{p.purchase_number}</span></td>
-                      <td>{p.supplier_name}</td>
-                      <td>{fmtDate(p.purchase_date)}</td>
-                      <td>{p.item_count}</td>
-                      <td>{fmt(p.total_amount)}</td>
-                      <td style={{ color: 'var(--accent-green)' }}>{fmt(p.amount_paid)}</td>
-                      <td style={{ color: p.amount_due > 0 ? 'var(--accent-red)' : 'var(--accent-green)' }}>{fmt(p.amount_due)}</td>
-                      <td><span className={`badge ${payStatus(p.payment_status)}`}>{p.payment_status}</span></td>
-                      <td><button className="btn btn-ghost btn-sm" onClick={() => openView(p)}>👁️</button></td>
-                    </tr>
-                    {expandedRows[p.id] && <PurchaseExpandedRow purchaseId={p.id} colSpan={COL_COUNT} />}
-                  </React.Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="table-wrapper">
+              <table>
+                <thead>
+                  <tr>
+                    <th style={{ width: '32px' }}></th>
+                    <th>Purchase #</th><th>Supplier</th><th>Date</th>
+                    <th>Items</th><th>Total</th><th>Paid</th><th>Due</th><th>Status</th><th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {purchases.length === 0 ? (
+                    <tr><td colSpan={COL_COUNT}><div className="empty-state"><p>No purchases yet</p></div></td></tr>
+                  ) : purchases.map(p => (
+                    <React.Fragment key={p.id}>
+                      <tr>
+                        {/* Expand button */}
+                        <td style={{ padding: '8px', textAlign: 'center' }}>
+                          <button
+                            onClick={() => toggleRow(p.id)}
+                            style={{
+                              background: 'none', border: 'none', cursor: 'pointer',
+                              fontSize: '1.1rem', color: 'var(--accent)', fontWeight: 700,
+                              width: '24px', height: '24px', borderRadius: '4px',
+                              display: 'flex', alignItems: 'center', justifyContent: 'center',
+                              lineHeight: 1,
+                            }}>
+                            {expandedRows[p.id] ? '−' : '+'}
+                          </button>
+                        </td>
+                        <td><span className="badge badge-blue">{p.purchase_number}</span></td>
+                        <td>{p.supplier_name}</td>
+                        <td>{fmtDate(p.purchase_date)}</td>
+                        <td>{p.item_count}</td>
+                        <td>{fmt(p.total_amount)}</td>
+                        <td style={{ color: 'var(--accent-green)' }}>{fmt(p.amount_paid)}</td>
+                        <td style={{ color: p.amount_due > 0 ? 'var(--accent-red)' : 'var(--accent-green)' }}>{fmt(p.amount_due)}</td>
+                        <td><span className={`badge ${payStatus(p.payment_status)}`}>{p.payment_status}</span></td>
+                        <td><button className="btn btn-ghost btn-sm" onClick={() => openView(p)}>👁️</button></td>
+                      </tr>
+                      {expandedRows[p.id] && <PurchaseExpandedRow purchaseId={p.id} colSpan={COL_COUNT} />}
+                    </React.Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* ── Pagination bar ── */}
+            {totalPages > 1 && (
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: '8px', padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
+                <span style={{ fontSize: '.85rem', color: 'var(--text-muted)' }}>
+                  Page {page} of {totalPages}
+                </span>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setPage(p => p - 1)}
+                  disabled={page === 1}
+                >
+                  ← Previous
+                </button>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => setPage(p => p + 1)}
+                  disabled={page === totalPages}
+                >
+                  Next →
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
 

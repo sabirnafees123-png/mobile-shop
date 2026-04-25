@@ -3,31 +3,58 @@ const pool = require('../config/database');
 
 const PRODUCT_TYPES = ['New (Box Pack)', 'Used', 'Refurbished', 'Parts', 'Accessories', 'Wholesale'];
 
-// GET all products — also supports serial number search
 const getProducts = async (req, res) => {
   try {
     const { search, category, type, is_active } = req.query;
-    let query = `SELECT * FROM products WHERE 1=1`;
+
+    // Pagination params
+    const page  = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit = Math.max(1, parseInt(req.query.limit) || 50);
+    const offset = (page - 1) * limit;
+
+    let whereClause = `WHERE 1=1`;
     const params = [];
 
     if (search) {
       params.push(`%${search}%`);
-      query += ` AND (name ILIKE $${params.length}
-                   OR brand ILIKE $${params.length}
-                   OR model ILIKE $${params.length}
-                   OR serial_number ILIKE $${params.length}
-                   OR color ILIKE $${params.length})`;
+      whereClause += ` AND (name ILIKE $${params.length}
+                       OR brand ILIKE $${params.length}
+                       OR model ILIKE $${params.length}
+                       OR serial_number ILIKE $${params.length}
+                       OR color ILIKE $${params.length})`;
     }
-    if (category) { params.push(category); query += ` AND category = $${params.length}`; }
-    if (type)     { params.push(type);     query += ` AND type = $${params.length}`; }
+    if (category) { params.push(category); whereClause += ` AND category = $${params.length}`; }
+    if (type)     { params.push(type);     whereClause += ` AND type = $${params.length}`; }
     if (is_active !== undefined && is_active !== '') {
       params.push(is_active === 'true');
-      query += ` AND is_active = $${params.length}`;
+      whereClause += ` AND is_active = $${params.length}`;
     }
 
-    query += ` ORDER BY created_at DESC`;
-    const result = await pool.query(query, params);
-    res.json({ success: true, data: result.rows });
+    // COUNT query — same filters, no LIMIT/OFFSET
+    const countResult = await pool.query(
+      `SELECT COUNT(*) FROM products ${whereClause}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0].count, 10);
+
+    // DATA query — append LIMIT/OFFSET after freezing param positions
+    const dataParams = [...params, limit, offset];
+    const dataResult = await pool.query(
+      `SELECT * FROM products ${whereClause} ORDER BY created_at DESC LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
+      dataParams
+    );
+
+    res.json({
+      success: true,
+      count: dataResult.rows.length,
+      data: dataResult.rows,
+      pagination: {
+        total,
+        page,
+        limit,
+        total_pages: Math.ceil(total / limit),
+      },
+    });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
