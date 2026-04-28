@@ -131,7 +131,16 @@ const printReport = async () => {
       <title>Business Summary Report</title>
       <style>
         * { margin:0; padding:0; box-sizing:border-box; }
-        body { font-family: Arial, sans-serif; font-size: 12px; color: #1a1a2e; padding: 24px; }
+        body {
+  font-family: Arial, sans-serif;
+  font-size: 11px;
+  color: #1a1a2e;
+  padding: 16px;
+  width: 210mm;
+  min-height: 297mm;
+  margin: 0 auto;
+  background: white;
+}
         h1 { font-size: 20px; font-weight: bold; color: #1a1a2e; }
         h2 { font-size: 13px; font-weight: bold; color: #6366f1; margin: 20px 0 8px; text-transform: uppercase; letter-spacing: .5px; border-bottom: 2px solid #6366f1; padding-bottom: 4px; }
         .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; border-bottom: 2px solid #1a1a2e; padding-bottom: 16px; }
@@ -148,7 +157,13 @@ const printReport = async () => {
         .net-profit-box th { background: #059669; }
         .net-profit-box tr.total-row td { background: #d1fae5; color: #065f46; font-size: 14px; border-top: 2px solid #059669; }
         .footer { margin-top: 32px; border-top: 1px solid #e8eaf0; padding-top: 12px; text-align: center; font-size: 10px; color: #9ca3af; }
-        @media print { body { padding: 12px; } }
+        @media print {
+  body { padding: 0; margin: 0; }
+  @page {
+    size: A4 portrait;
+    margin: 12mm 10mm 12mm 10mm;
+  }
+}
       </style>
     </head><body>
 
