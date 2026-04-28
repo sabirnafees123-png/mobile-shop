@@ -44,15 +44,196 @@ export default function Reports() {
 
   const switchTab = (t) => { setTab(t); setData(null); };
   const payStatus = s => ({ paid: 'badge-green', partial: 'badge-yellow', unpaid: 'badge-red', returned: 'badge-gray' }[s] || 'badge-gray');
+// ── PRINT REPORT FUNCTION ─────────────────────────────────────────────────────
+// Add this function inside your Reports.js component,
+// just above the return() statement.
+// Also add the "🖨️ Print Report" button to the page header (shown at bottom).
+
+const printReport = async () => {
+  if (!from || !to) return toast.error('Select a date range first');
+  try {
+    const res = await api.get('/reports/print-summary', { params: { from, to } });
+    const d   = res.data?.data;
+    if (!d) return toast.error('No data');
+
+    const fmtN  = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
+    const pct   = n => `${parseFloat(n || 0).toFixed(1)}%`;
+    const fmtDt = s => { try { return new Date(s).toLocaleDateString('en-AE'); } catch { return s; } };
+
+    // ── helpers to build table rows ───────────────────────────────────────────
+    const shopNames = [...new Set(d.sales_by_shop.map(r => r.shop_name))];
+
+    // Sales section — one column per shop + Total
+    const salesRows = [
+      ['Total Invoices',    ...d.sales_by_shop.map(r => r.invoice_count),  d.sales_by_shop.reduce((s,r)=>s+parseInt(r.invoice_count||0),0)],
+      ['Returned',          ...d.sales_by_shop.map(r => r.returned_count), d.sales_by_shop.reduce((s,r)=>s+parseInt(r.returned_count||0),0)],
+      ['Net Sales',         ...d.sales_by_shop.map(r => fmtN(r.net_sales)), fmtN(d.totals.net_sales)],
+      ['Cost of Goods Sold',...d.sales_by_shop.map(r => fmtN(r.cost_of_goods)), fmtN(d.totals.cost_of_goods)],
+      ['Gross Profit',      ...d.sales_by_shop.map(r => fmtN(parseFloat(r.net_sales||0)-parseFloat(r.cost_of_goods||0))), fmtN(d.totals.gross_profit)],
+      ['Gross Margin %',    ...d.sales_by_shop.map(r => {
+        const s = parseFloat(r.net_sales||0), c = parseFloat(r.cost_of_goods||0);
+        return s > 0 ? pct(((s-c)/s)*100) : '0.0%';
+      }), pct(d.totals.gross_margin)],
+    ];
+
+    // Payment breakdown — cash, card, bank_transfer, tabby, tamara, pending per shop
+    const methods = ['cash','card','bank_transfer','tabby','tamara','pending'];
+    const methodLabel = { cash:'Cash', card:'Card', bank_transfer:'Bank Transfer', tabby:'Tabby', tamara:'Tamara', pending:'Pending/Unpaid' };
+    const paymentRows = methods.map(m => {
+      const cols = shopNames.map(shop => {
+        const row = d.payment_by_shop.find(r => r.shop_name === shop && r.payment_method === m);
+        return row ? fmtN(row.amount) : 'AED 0';
+      });
+      const total = d.payment_by_shop.filter(r => r.payment_method === m).reduce((s,r)=>s+parseFloat(r.amount||0),0);
+      return [methodLabel[m]||m, ...cols, fmtN(total)];
+    });
+
+    // Expenses — all categories, per shop
+    const allCategories = [...new Set(d.expenses_by_shop.map(r => r.category).filter(Boolean))];
+    const expenseRows = allCategories.map(cat => {
+      const cols = shopNames.map(shop => {
+        const row = d.expenses_by_shop.find(r => r.shop_name === shop && r.category === cat);
+        return row ? fmtN(row.total) : 'AED 0';
+      });
+      const total = d.expenses_by_shop.filter(r => r.category === cat).reduce((s,r)=>s+parseFloat(r.total||0),0);
+      return [cat || 'Uncategorized', ...cols, fmtN(total)];
+    });
+    const expTotalCols = shopNames.map(shop => {
+      const t = d.expenses_by_shop.filter(r => r.shop_name === shop).reduce((s,r)=>s+parseFloat(r.total||0),0);
+      return fmtN(t);
+    });
+    expenseRows.push(['Total Expenses', ...expTotalCols, fmtN(d.totals.total_expenses)]);
+
+    // Purchases — per shop
+    const purchaseRows = [
+      ['Total Purchased', ...d.purchases_by_shop.map(r => fmtN(r.total_purchased)), fmtN(d.totals.total_purchased)],
+      ['Cash Paid',       ...d.purchases_by_shop.map(r => fmtN(r.cash_paid)),       fmtN(d.purchases_by_shop.reduce((s,r)=>s+parseFloat(r.cash_paid||0),0))],
+      ['Credit Owed',     ...d.purchases_by_shop.map(r => fmtN(r.credit_owed)),     fmtN(d.purchases_by_shop.reduce((s,r)=>s+parseFloat(r.credit_owed||0),0))],
+    ];
+
+    // ── build table HTML helper ───────────────────────────────────────────────
+    const buildTable = (headers, rows, highlightLast = false) => `
+      <table>
+        <thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
+        <tbody>
+          ${rows.map((row, ri) => {
+            const isLast = highlightLast && ri === rows.length - 1;
+            return `<tr class="${isLast ? 'total-row' : ''}">${row.map((cell,ci)=>`<td class="${ci===0?'label-cell':''}">${cell}</td>`).join('')}</tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+
+    const headers = ['', ...shopNames, 'Total'];
+
+    // ── open print window ─────────────────────────────────────────────────────
+    const win = window.open('', '_blank');
+    win.document.write(`<!DOCTYPE html><html><head>
+      <title>Business Summary Report</title>
+      <style>
+        * { margin:0; padding:0; box-sizing:border-box; }
+        body { font-family: Arial, sans-serif; font-size: 12px; color: #1a1a2e; padding: 24px; }
+        h1 { font-size: 20px; font-weight: bold; color: #1a1a2e; }
+        h2 { font-size: 13px; font-weight: bold; color: #6366f1; margin: 20px 0 8px; text-transform: uppercase; letter-spacing: .5px; border-bottom: 2px solid #6366f1; padding-bottom: 4px; }
+        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; border-bottom: 2px solid #1a1a2e; padding-bottom: 16px; }
+        .header-right { text-align: right; font-size: 11px; color: #6b7280; }
+        table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 11.5px; }
+        th { background: #1a1a2e; color: white; padding: 7px 10px; text-align: right; font-size: 11px; }
+        th:first-child { text-align: left; }
+        td { padding: 6px 10px; border-bottom: 1px solid #e8eaf0; text-align: right; }
+        td.label-cell { text-align: left; font-weight: 500; color: #374151; }
+        tr:nth-child(even) { background: #f8f9fc; }
+        tr.total-row td { font-weight: 700; background: #f1f2f6; border-top: 2px solid #1a1a2e; }
+        .net-profit-box { background: #f0fdf4; border: 2px solid #059669; border-radius: 8px; padding: 16px; margin-top: 20px; }
+        .net-profit-box table { margin: 0; }
+        .net-profit-box th { background: #059669; }
+        .net-profit-box tr.total-row td { background: #d1fae5; color: #065f46; font-size: 14px; border-top: 2px solid #059669; }
+        .footer { margin-top: 32px; border-top: 1px solid #e8eaf0; padding-top: 12px; text-align: center; font-size: 10px; color: #9ca3af; }
+        @media print { body { padding: 12px; } }
+      </style>
+    </head><body>
+
+    <div class="header">
+      <div>
+        <h1>📊 Business Summary Report</h1>
+        <div style="font-size:11px;color:#6b7280;margin-top:4px;">
+          Period: <strong>${fmtDt(d.from)}</strong> — <strong>${fmtDt(d.to)}</strong>
+        </div>
+      </div>
+      <div class="header-right">
+        Generated: ${new Date().toLocaleDateString('en-AE')} ${new Date().toLocaleTimeString('en-AE')}<br/>
+        Shops: ${shopNames.join(', ')}
+      </div>
+    </div>
+
+    <h2>📦 Sales Summary</h2>
+    ${buildTable(headers, salesRows)}
+
+    <h2>💳 Payment Collection</h2>
+    ${buildTable(headers, paymentRows)}
+
+    <h2>💸 Expenses by Category</h2>
+    ${expenseRows.length > 1
+      ? buildTable(headers, expenseRows, true)
+      : `<p style="color:#6b7280;padding:8px 0;">No expenses recorded for this period.</p>`}
+
+    <h2>🛒 Purchases</h2>
+    ${buildTable(headers, purchaseRows)}
+
+    <div class="net-profit-box">
+      <h2 style="color:#059669;border-color:#059669;">💰 Net Profit Summary</h2>
+      ${buildTable(['', 'Amount'], [
+        ['Net Sales',         fmtN(d.totals.net_sales)],
+        ['Cost of Goods Sold',`<span style="color:#dc2626">- ${fmtN(d.totals.cost_of_goods)}</span>`],
+        ['Gross Profit',      `<span style="color:#059669">${fmtN(d.totals.gross_profit)}</span>`],
+        ['Gross Margin %',    pct(d.totals.gross_margin)],
+        ['Total Expenses',    `<span style="color:#dc2626">- ${fmtN(d.totals.total_expenses)}</span>`],
+        [`NET PROFIT (${pct(d.totals.net_margin)} margin)`,
+          `<span style="color:${parseFloat(d.totals.net_profit)>=0?'#059669':'#dc2626'};font-size:15px;">${fmtN(d.totals.net_profit)}</span>`],
+      ], true)}
+    </div>
+
+    <div class="footer">
+      This report is auto-generated · ${new Date().toLocaleDateString('en-AE')}
+    </div>
+
+    <script>window.onload = () => window.print();</script>
+    </body></html>`);
+    win.document.close();
+  } catch (err) {
+    toast.error('Failed to generate report');
+    console.error(err);
+  }
+};
+
+// ── ADD THIS BUTTON to the page-header div in Reports.js ─────────────────────
+// Find this in your return():
+//   <div className="page-title">📊 Reports</div>
+//   <div className="page-subtitle">Business performance & analytics</div>
+// 
+// Change the page-header to:
+//
+// <div className="page-header">
+//   <div>
+//     <div className="page-title">📊 Reports</div>
+//     <div className="page-subtitle">Business performance & analytics</div>
+//   </div>
+//   <button className="btn btn-primary" onClick={printReport}>
+//     🖨️ Print Report
+//   </button>
+// </div>
+
 
   return (
     <div>
       <div className="page-header">
-        <div>
-          <div className="page-title">📊 Reports</div>
-          <div className="page-subtitle">Business performance & analytics</div>
-        </div>
-      </div>
+  <div>
+    <div className="page-title">📊 Reports</div>
+    <div className="page-subtitle">Business performance & analytics</div>
+  </div>
+  <button className="btn btn-primary" onClick={printReport}>
+    🖨️ Print Report
+  </button>
+</div>
 
       {/* Filters */}
       <div className="card" style={{padding:'1rem',marginBottom:'1rem'}}>

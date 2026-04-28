@@ -218,4 +218,120 @@ router.get('/salesperson', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
+// ── GET /api/v1/reports/print-summary ────────────────────────────────────────
+// Add this route to backend/src/routes/reports.js
+// Paste it just before the last line: module.exports = router;
+
+router.get('/print-summary', async (req, res) => {
+  try {
+    const { from, to } = req.query;
+
+    const dateS = from && to ? `AND si.sale_date BETWEEN '${from}' AND '${to}'`
+      : from ? `AND si.sale_date >= '${from}'` : to ? `AND si.sale_date <= '${to}'` : '';
+    const dateP = from && to ? `AND p.purchase_date BETWEEN '${from}' AND '${to}'`
+      : from ? `AND p.purchase_date >= '${from}'` : to ? `AND p.purchase_date <= '${to}'` : '';
+    const dateE = from && to ? `AND e.expense_date BETWEEN '${from}' AND '${to}'`
+      : from ? `AND e.expense_date >= '${from}'` : to ? `AND e.expense_date <= '${to}'` : '';
+
+    // ── 1. Sales per shop (with cost of goods from sale_items) ───────────────
+    const salesByShop = await query(`
+      SELECT
+        sh.id   AS shop_id,
+        sh.name AS shop_name,
+        COUNT(DISTINCT si.id) FILTER (WHERE si.payment_status != 'returned')               AS invoice_count,
+        COUNT(DISTINCT si.id) FILTER (WHERE si.payment_status  = 'returned')               AS returned_count,
+        COALESCE(SUM(si.total_amount)  FILTER (WHERE si.payment_status != 'returned'), 0)  AS net_sales,
+        COALESCE(SUM(si.amount_paid)   FILTER (WHERE si.payment_status != 'returned'), 0)  AS cash_collected,
+        COALESCE(SUM(si.amount_due)    FILTER (WHERE si.payment_status != 'returned'), 0)  AS pending_amount,
+        -- Cost of goods: sum unit_cost * qty from sale_items
+        COALESCE(SUM(sli.unit_cost * sli.qty) FILTER (WHERE si.payment_status != 'returned'), 0) AS cost_of_goods
+      FROM shops sh
+      LEFT JOIN sales_invoices si  ON si.shop_id = sh.id ${dateS}
+      LEFT JOIN sale_items     sli ON sli.invoice_id = si.id
+      WHERE sh.is_active = true
+      GROUP BY sh.id, sh.name
+      ORDER BY sh.name
+    `);
+
+    // ── 2. Payment method breakdown per shop ─────────────────────────────────
+    const paymentByShop = await query(`
+      SELECT
+        sh.name AS shop_name,
+        si.payment_method,
+        COALESCE(SUM(si.amount_paid), 0) AS amount
+      FROM shops sh
+      LEFT JOIN sales_invoices si ON si.shop_id = sh.id
+        AND si.payment_status != 'returned' ${dateS}
+      WHERE sh.is_active = true
+      GROUP BY sh.name, si.payment_method
+      ORDER BY sh.name, si.payment_method
+    `);
+
+    // ── 3. Expenses by shop and category ─────────────────────────────────────
+    const expensesByShop = await query(`
+      SELECT
+        sh.name  AS shop_name,
+        ec.name  AS category,
+        COALESCE(SUM(e.amount), 0) AS total,
+        COUNT(*)                   AS count
+      FROM shops sh
+      LEFT JOIN expenses            e  ON e.shop_id = sh.id ${dateE}
+      LEFT JOIN expense_categories  ec ON ec.id = e.category_id
+      WHERE sh.is_active = true
+      GROUP BY sh.name, ec.name
+      ORDER BY sh.name, total DESC
+    `);
+
+    // ── 4. Purchases per shop ─────────────────────────────────────────────────
+    const purchasesByShop = await query(`
+      SELECT
+        sh.name AS shop_name,
+        COALESCE(SUM(p.total_amount), 0)  AS total_purchased,
+        COALESCE(SUM(p.amount_paid),  0)  AS cash_paid,
+        COALESCE(SUM(p.amount_due),   0)  AS credit_owed,
+        COUNT(*)                          AS purchase_count
+      FROM shops sh
+      LEFT JOIN purchases p ON p.shop_id = sh.id ${dateP}
+      WHERE sh.is_active = true
+      GROUP BY sh.name
+      ORDER BY sh.name
+    `);
+
+    // ── 5. Build totals ───────────────────────────────────────────────────────
+    const shops        = salesByShop.rows;
+    const totalNetSales    = shops.reduce((s, r) => s + parseFloat(r.net_sales    || 0), 0);
+    const totalCOGS        = shops.reduce((s, r) => s + parseFloat(r.cost_of_goods|| 0), 0);
+    const totalGrossProfit = totalNetSales - totalCOGS;
+
+    const expRows      = expensesByShop.rows;
+    const totalExpenses = expRows.reduce((s, r) => s + parseFloat(r.total || 0), 0);
+    const totalNetProfit = totalGrossProfit - totalExpenses;
+
+    const purchRows    = purchasesByShop.rows;
+    const totalPurchased = purchRows.reduce((s, r) => s + parseFloat(r.total_purchased || 0), 0);
+
+    res.json({
+      success: true,
+      data: {
+        from, to,
+        sales_by_shop:    salesByShop.rows,
+        payment_by_shop:  paymentByShop.rows,
+        expenses_by_shop: expensesByShop.rows,
+        purchases_by_shop: purchasesByShop.rows,
+        totals: {
+          net_sales:     totalNetSales,
+          cost_of_goods: totalCOGS,
+          gross_profit:  totalGrossProfit,
+          gross_margin:  totalNetSales > 0 ? ((totalGrossProfit / totalNetSales) * 100).toFixed(1) : '0.0',
+          total_expenses: totalExpenses,
+          net_profit:    totalNetProfit,
+          net_margin:    totalNetSales > 0 ? ((totalNetProfit / totalNetSales) * 100).toFixed(1) : '0.0',
+          total_purchased: totalPurchased,
+        },
+      },
+    });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+
 module.exports = router;
