@@ -106,6 +106,8 @@ export default function Purchases() {
   const [viewLoading, setViewLoading]         = useState(false);
   const [filterShop, setFilterShop]           = useState('');
   const [expandedRows, setExpandedRows]       = useState({});
+  const [submitting, setSubmitting] = useState(false);
+
 
   // ── Pagination state ──────────────────────────────────────────────────────
   const [page, setPage]           = useState(1);
@@ -233,7 +235,9 @@ export default function Purchases() {
   const total = form.items.reduce((s, i) => s + ((parseFloat(i.qty)||0) * (parseFloat(i.unit_cost)||0)), 0);
 
   const handleSubmit = async () => {
-    if (!form.supplier_id) return toast.error('Select a supplier');
+    if (submitting) return;
+    setSubmitting(true);
+    if (!form.supplier_id) { setSubmitting(false); return toast.error('Select a supplier'); }
     if (form.items.some(i => !i.serial_number && !i.product_name)) return toast.error('Each item needs a serial number or product name');
     if (form.items.some(i => !i.unit_cost)) return toast.error('Each item needs a cost price');
     if (form.items.some(i => !i.shop_id)) return toast.error('Each item needs a shop selected');
@@ -263,7 +267,9 @@ export default function Purchases() {
       setSerialResults({});
       load(filterShop, page);
     } catch (err) { toast.error(err.response?.data?.message || err.message); }
+    finally { setSubmitting(false); }
   };
+
 
   const handleAddSupplier = async () => {
     if (!supplierForm.name) return toast.error('Supplier name required');
@@ -644,7 +650,9 @@ export default function Purchases() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleSubmit}>Create Purchase</button>
+              <button className="btn btn-primary" onClick={handleSubmit} disabled={submitting}>
+  					{submitting ? 'Creating...' : 'Create Purchase'}
+		</button>
             </div>
           </div>
         </div>

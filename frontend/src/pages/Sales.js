@@ -162,6 +162,7 @@ export default function Sales() {
 
   // Payment
   const [payAmount, setPayAmount] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [page, setPage]             = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
@@ -276,7 +277,9 @@ useEffect(() => {
   const total    = subtotal - (parseFloat(form.discount)||0) - tradeIn;
 
   const handleSubmit = async () => {
-    if (!form.shop_id) return toast.error('Please select a shop');
+    if (submitting) return;
+    setSubmitting(true);
+    if (!form.shop_id) { setSubmitting(false); return toast.error('Please select a shop'); }
     if (form.items.some(i => !i.product_id || !i.unit_price)) return toast.error('Each item needs a product and price');
     if (form.is_exchange && !form.exchange_serial_number) return toast.error('Enter exchange phone serial number');
     try {
@@ -303,7 +306,9 @@ useEffect(() => {
       setNameSearches({}); setNameResults({});
       reloadAll();
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
+    finally { setSubmitting(false); }
   };
+
 
   const searchForReturn = async (q) => {
     setReturnSearch(q);
@@ -746,7 +751,13 @@ useEffect(() => {
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setShowModal(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleSubmit}>Create Sale</button>
+              <button 
+		  className="btn btn-primary" 
+  onClick={handleSubmit} 
+  disabled={submitting}>
+  {submitting ? 'Creating...' : 'Create Sale'}
+</button>
+
             </div>
           </div>
         </div>
