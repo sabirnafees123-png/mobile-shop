@@ -1,5 +1,6 @@
 // src/pages/Expenses.js
 import React, { useEffect, useState } from 'react';
+import { TableSkeleton, EmptyExpenses } from '../components/UI';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 
@@ -185,7 +186,7 @@ export default function Expenses() {
 
       {/* Table */}
       <div className="card">
-        {loading ? <div className="loading">Loading...</div> : (
+        {loading ? <TableSkeleton rows={8} cols={8} /> : (
           <div className="table-wrapper">
             <table>
               <thead>
@@ -196,7 +197,7 @@ export default function Expenses() {
               </thead>
               <tbody>
                 {filtered.length === 0 ? (
-                  <tr><td colSpan={8}><div className="empty-state">No expenses found</div></td></tr>
+                  <tr><td colSpan={8}><EmptyExpenses onNew={openAdd} /></td></tr>
                 ) : filtered.map(e => (
                   <tr key={e.id}>
                     <td>{fmtDate(e.expense_date)}</td>

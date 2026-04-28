@@ -241,8 +241,8 @@ function SupplierLedger({ supplier, onBack, onPayment }) {
         <button className="btn btn-secondary sm" onClick={() => { setDateFrom(''); setDateTo(''); }}>Clear</button>
       </div>
 
-      {loading ? <div className="loading-state">Loading ledger...</div>
-        : !data || data.ledger.length === 0 ? <div className="empty-state">No transactions found</div>
+      {loading ? <div className="loading-state">⏳ Loading ledger...</div>
+        : !data || data.ledger.length === 0 ? <div className="empty-state"><div style={{fontSize:"1.5rem",marginBottom:"8px"}}>📋</div>No transactions found for this period</div>
         : (
           <div className="table-wrapper">
             <table className="ledger-table">
@@ -308,8 +308,8 @@ function SuppliersList({ onSelect, onPayment, onAdd, onEdit }) {
       <div className="toolbar">
         <input type="text" placeholder="Search supplier..." value={search} onChange={e => setSearch(e.target.value)} className="form-input search" />
       </div>
-      {loading ? <div className="loading-state">Loading...</div>
-        : filtered.length === 0 ? <div className="empty-state">No suppliers found</div>
+      {loading ? <div className="loading-state">⏳ Loading suppliers...</div>
+        : filtered.length === 0 ? <div className="empty-state"><div style={{fontSize:"2rem",marginBottom:"8px"}}>🏭</div><div style={{fontWeight:600,marginBottom:"4px"}}>No suppliers found</div><div style={{fontSize:".82rem"}}>Add your first supplier to track purchases and payables.</div></div>
         : (
           <div className="table-wrapper">
             <table className="suppliers-table">

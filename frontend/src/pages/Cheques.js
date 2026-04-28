@@ -1,5 +1,6 @@
 // src/pages/Cheques.js
 import React, { useEffect, useState } from 'react';
+import { TableSkeleton, EmptyCheques } from '../components/UI';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 
@@ -90,7 +91,7 @@ export default function Cheques() {
       </div>
 
       <div className="card">
-        {loading ? <div className="loading">Loading...</div> : (
+        {loading ? <TableSkeleton rows={6} cols={9} /> : (
           <div className="table-wrapper">
             <table>
               <thead>
@@ -101,7 +102,7 @@ export default function Cheques() {
               </thead>
               <tbody>
                 {cheques.length === 0 ? (
-                  <tr><td colSpan={9}><div className="empty-state"><p>No cheques yet</p></div></td></tr>
+                  <tr><td colSpan={9}><EmptyCheques onNew={openAdd} /></td></tr>
                 ) : cheques.map(c => (
                   <tr key={c.id}>
                     <td><span className={`badge ${c.type === 'inbound' ? 'badge-green' : 'badge-red'}`}>{c.type === 'inbound' ? '↓ IN' : '↑ OUT'}</span></td>

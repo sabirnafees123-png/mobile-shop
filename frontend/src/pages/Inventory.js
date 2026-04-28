@@ -1,5 +1,6 @@
 // src/pages/Inventory.js
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { TableSkeleton, EmptyInventory } from '../components/UI';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 
@@ -365,9 +366,9 @@ export default function Inventory() {
       {/* Table */}
       <div style={{background:'#fff',borderRadius:'10px',border:'1px solid #e8eaf0',overflow:'hidden'}}>
         {loading ? (
-          <div className="loading" style={{padding:'48px',textAlign:'center'}}>Loading…</div>
+          <TableSkeleton rows={10} cols={8} />
         ) : inventory.length === 0 ? (
-          <div style={{padding:'48px',textAlign:'center',color:'#6b7280'}}>No inventory records found</div>
+          <EmptyInventory />
         ) : (
           <>
             <div style={{overflowX:'auto'}}>

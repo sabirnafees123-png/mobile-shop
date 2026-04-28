@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { TableSkeleton, EmptyProducts, ErrorState } from '../components/UI';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 
@@ -122,7 +123,7 @@ export default function Products() {
 
       {/* Table */}
       <div className="card">
-        {loading ? <div className="loading">Loading...</div> : (
+        {loading ? <TableSkeleton rows={8} cols={10} />  : (
           <div className="table-wrapper">
             <table>
               <thead>
@@ -142,7 +143,7 @@ export default function Products() {
               <tbody>
                 {products.length === 0 ? (
                   <tr><td colSpan={10}>
-                    <div className="empty-state"><p>No products found. Click + Add Product to start.</p></div>
+                    <EmptyProducts onNew={openAdd} />
                   </td></tr>
                 ) : products.map((p, i) => {
                   const tc = typeBadgeColor(p.type);

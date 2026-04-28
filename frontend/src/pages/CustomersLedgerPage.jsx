@@ -231,8 +231,8 @@ function CustomerLedger({ customer, onBack, onReceipt }) {
         <button className="btn btn-secondary sm" onClick={() => { setDateFrom(''); setDateTo(''); }}>Clear</button>
       </div>
 
-      {loading ? <div className="loading-state">Loading ledger...</div>
-        : !data || data.ledger.length === 0 ? <div className="empty-state">No transactions found</div>
+      {loading ? <div className="loading-state">⏳ Loading ledger...</div>
+        : !data || data.ledger.length === 0 ? <div className="empty-state"><div style={{fontSize:"1.5rem",marginBottom:"8px"}}>📋</div>No transactions found for this period</div>
         : (
           <div className="table-wrapper">
             <table className="ledger-table">
@@ -300,8 +300,8 @@ function CustomersList({ onSelect, onReceipt, onAdd, onEdit }) {
       <div className="toolbar">
         <input type="text" placeholder="Search customer..." value={search} onChange={e => setSearch(e.target.value)} className="form-input search" />
       </div>
-      {loading ? <div className="loading-state">Loading...</div>
-        : filtered.length === 0 ? <div className="empty-state">No customers found</div>
+      {loading ? <div className="loading-state">⏳ Loading customers...</div>
+        : filtered.length === 0 ? <div className="empty-state"><div style={{fontSize:"2rem",marginBottom:"8px"}}>👥</div><div style={{fontWeight:600,marginBottom:"4px"}}>No customers found</div><div style={{fontSize:".82rem"}}>Customers are added automatically when you create a sale.</div></div>
         : (
           <div className="table-wrapper">
             <table className="suppliers-table">

@@ -1,5 +1,6 @@
 // src/pages/Transfers.js
 import React, { useEffect, useState } from 'react';
+import { TableSkeleton, EmptyTransfers } from '../components/UI';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 
@@ -88,7 +89,7 @@ export default function Transfers() {
 
       {/* Transfers table */}
       <div className="card">
-        {loading ? <div className="loading">Loading...</div> : (
+        {loading ? <TableSkeleton rows={6} cols={6} /> : (
           <div className="table-wrapper">
             <table>
               <thead>
@@ -98,7 +99,7 @@ export default function Transfers() {
               </thead>
               <tbody>
                 {transfers.length === 0 ? (
-                  <tr><td colSpan={6}><div className="empty-state">No transfers yet</div></td></tr>
+                  <tr><td colSpan={6}><EmptyTransfers onNew={() => { setForm(EMPTY); setShowModal(true); }} /></td></tr>
                 ) : transfers.map(t => (
                   <tr key={t.id}>
                     <td>{fmtDate(t.transfer_date)}</td>

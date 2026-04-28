@@ -3,8 +3,38 @@ const { query } = require('../config/database');
 
 exports.getAll = async (req, res) => {
   try {
-    const result = await query(`SELECT * FROM suppliers WHERE is_active = true ORDER BY name`);
-    res.json({ success: true, data: result.rows });
+    const { search } = req.query;
+    const page  = Math.max(1, parseInt(req.query.page)  || 1);
+    const limit = Math.max(1, parseInt(req.query.limit) || 50);
+    const offset = (page - 1) * limit;
+
+    let where = `WHERE is_active = true`;
+    const params = [];
+
+    if (search) {
+      params.push(`%${search}%`);
+      where += ` AND (name ILIKE $${params.length} OR phone ILIKE $${params.length} OR city ILIKE $${params.length})`;
+    }
+
+    const countResult = await query(`SELECT COUNT(*) FROM suppliers ${where}`, params);
+    const total = parseInt(countResult.rows[0].count, 10);
+
+    const dataParams = [...params, limit, offset];
+    const result = await query(
+      `SELECT s.*,
+        COALESCE((SELECT SUM(total_amount) FROM purchases WHERE supplier_id = s.id), 0) as total_purchased,
+        COALESCE((SELECT SUM(amount) FROM supplier_payments WHERE supplier_id = s.id), 0) as total_paid
+       FROM suppliers s ${where}
+       ORDER BY s.name
+       LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
+      dataParams
+    );
+
+    res.json({
+      success: true,
+      data: result.rows,
+      pagination: { total, page, limit, total_pages: Math.ceil(total / limit) },
+    });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 };
 
