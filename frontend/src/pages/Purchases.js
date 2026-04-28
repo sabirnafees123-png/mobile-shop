@@ -104,6 +104,8 @@ export default function Purchases() {
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const [viewPurchase, setViewPurchase]       = useState(null);
   const [viewLoading, setViewLoading]         = useState(false);
+  const [showSupPay, setShowSupPay]           = useState(null); // supplier payment modal
+  const [supPayForm, setSupPayForm]           = useState({ amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'cash', note: '' });
   const [filterShop, setFilterShop]           = useState('');
   const [expandedRows, setExpandedRows]       = useState({});
   const [submitting, setSubmitting] = useState(false);
@@ -284,6 +286,17 @@ export default function Purchases() {
     } catch (err) { toast.error(err.response?.data?.error || err.message); }
   };
 
+  const handleSupplierPayment = async () => {
+    if (!supPayForm.amount || parseFloat(supPayForm.amount) <= 0) return toast.error('Enter valid amount');
+    try {
+      await api.post(`/suppliers/${showSupPay.supplier_id}/payments`, supPayForm);
+      toast.success('Payment recorded!');
+      setShowSupPay(null);
+      setSupPayForm({ amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'cash', note: '' });
+      load(filterShop, page);
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
+  };
+
   const payStatus = (s) => ({ paid: 'badge-green', partial: 'badge-yellow', unpaid: 'badge-red' }[s] || 'badge-gray');
 
   const COL_COUNT = 10; // expand-btn + 8 data cols + actions
@@ -345,7 +358,19 @@ export default function Purchases() {
                         <td style={{ color: 'var(--accent-green)' }}>{fmt(p.amount_paid)}</td>
                         <td style={{ color: p.amount_due > 0 ? 'var(--accent-red)' : 'var(--accent-green)' }}>{fmt(p.amount_due)}</td>
                         <td><span className={`badge ${payStatus(p.payment_status)}`}>{p.payment_status}</span></td>
-                        <td><button className="btn btn-ghost btn-sm" onClick={() => openView(p)}>👁️</button></td>
+                        <td>
+                          <div style={{ display:'flex', gap:'4px' }}>
+                            <button className="btn btn-ghost btn-sm" onClick={() => openView(p)}>👁️</button>
+                            {(p.payment_status === 'unpaid' || p.payment_status === 'partial') && (
+                              <button
+                                className="btn btn-sm"
+                                style={{ background:'#fef3c7', color:'#92400e', border:'none', cursor:'pointer', fontSize:'.75rem', padding:'3px 8px', borderRadius:'6px' }}
+                                onClick={() => { setShowSupPay(p); setSupPayForm({ amount: Math.round(p.amount_due).toString(), payment_date: new Date().toISOString().split('T')[0], payment_method: 'cash', note: '' }); }}>
+                                💳 Pay
+                              </button>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                       {expandedRows[p.id] && <PurchaseExpandedRow purchaseId={p.id} colSpan={COL_COUNT} />}
                     </React.Fragment>
@@ -653,6 +678,61 @@ export default function Purchases() {
               <button className="btn btn-primary" onClick={handleSubmit} disabled={submitting}>
   					{submitting ? 'Creating...' : 'Create Purchase'}
 		</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Supplier Payment Modal ── */}
+      {showSupPay && (
+        <div className="modal-overlay" onClick={() => setShowSupPay(null)}>
+          <div className="modal" style={{ maxWidth: '440px' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <strong>💳 Pay Supplier — {showSupPay.supplier_name}</strong>
+              <button className="modal-close" onClick={() => setShowSupPay(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div style={{ padding:'12px', background:'var(--bg-secondary)', borderRadius:'8px', marginBottom:'16px', fontSize:'.9rem' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'4px' }}>
+                  <span>Purchase Total:</span><strong>{fmt(showSupPay.total_amount)}</strong>
+                </div>
+                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'4px' }}>
+                  <span>Already Paid:</span><strong style={{ color:'#059669' }}>{fmt(showSupPay.amount_paid)}</strong>
+                </div>
+                <div style={{ display:'flex', justifyContent:'space-between', borderTop:'1px solid var(--border)', paddingTop:'6px' }}>
+                  <span>Outstanding:</span><strong style={{ color:'#dc2626' }}>{fmt(showSupPay.amount_due)}</strong>
+                </div>
+              </div>
+              <div className="form-grid">
+                <div className="form-group">
+                  <label className="form-label">Amount (AED) *</label>
+                  <input type="number" className="form-control" value={supPayForm.amount}
+                    onChange={e => setSupPayForm({ ...supPayForm, amount: e.target.value })} placeholder="0" />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Date</label>
+                  <input type="date" className="form-control" value={supPayForm.payment_date}
+                    onChange={e => setSupPayForm({ ...supPayForm, payment_date: e.target.value })} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Method</label>
+                  <select className="form-control" value={supPayForm.payment_method}
+                    onChange={e => setSupPayForm({ ...supPayForm, payment_method: e.target.value })}>
+                    <option value="cash">Cash</option>
+                    <option value="bank">Bank Transfer</option>
+                    <option value="cheque">Cheque</option>
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Note</label>
+                  <input className="form-control" value={supPayForm.note}
+                    onChange={e => setSupPayForm({ ...supPayForm, note: e.target.value })} placeholder="Optional" />
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setShowSupPay(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleSupplierPayment}>Record Payment</button>
             </div>
           </div>
         </div>

@@ -19,6 +19,7 @@ exports.getSummary = async (req, res) => {
       supplierOwed, customerOwed, topProducts,
       inventoryValue, pendingCheques,
       expensesMonth, shopsList, salesByShop,
+      cashRegister, lowStockItems,
     ] = await Promise.all([
       // Today's sales
       query(`SELECT COALESCE(SUM(total_amount),0) as total, COUNT(*) as count
@@ -93,6 +94,30 @@ exports.getSummary = async (req, res) => {
         GROUP BY sh.id, sh.name
         ORDER BY sh.name
       `, [thisMonth]),
+
+      // Cash register today
+      query(`
+        SELECT
+          COUNT(*) FILTER (WHERE status = 'open') as open_registers,
+          COUNT(*) as total_registers,
+          COALESCE(SUM(opening_balance), 0) as opening_balance,
+          COALESCE(SUM(total_sales_cash), 0) as total_sales_cash,
+          COALESCE(SUM(total_expenses), 0) as total_expenses,
+          COALESCE(SUM(total_payments), 0) as total_payments
+        FROM cash_register
+        WHERE register_date = $1 ${shopCheque}
+      `, [today]),
+
+      // Low stock items (top 10)
+      query(`
+        SELECT p.name, p.brand, i.quantity, i.min_stock, s.name as shop_name
+        FROM inventory i
+        JOIN products p ON p.id = i.product_id
+        LEFT JOIN shops s ON s.id = i.shop_id
+        WHERE i.quantity <= i.min_stock AND p.is_active = true ${shopInv}
+        ORDER BY i.quantity ASC
+        LIMIT 10
+      `),
     ]);
 
     res.json({
@@ -123,6 +148,15 @@ exports.getSummary = async (req, res) => {
           pending_total: parseFloat(pendingCheques.rows[0].total),
         },
         top_products: topProducts.rows,
+        cash_register: {
+          open_registers:    parseInt(cashRegister.rows[0].open_registers),
+          total_registers:   parseInt(cashRegister.rows[0].total_registers),
+          opening_balance:   parseFloat(cashRegister.rows[0].opening_balance),
+          total_sales_cash:  parseFloat(cashRegister.rows[0].total_sales_cash),
+          total_expenses:    parseFloat(cashRegister.rows[0].total_expenses),
+          total_payments:    parseFloat(cashRegister.rows[0].total_payments),
+        },
+        low_stock_items: lowStockItems.rows,
       },
     });
   } catch (err) {

@@ -19,52 +19,123 @@ const paymentColor = m => ({ cash:'#059669', card:'#2563eb', bank_transfer:'#7c3
 const statusColor  = s => ({ paid:'#059669', partial:'#d97706', unpaid:'#dc2626', returned:'#6b7280', payment_pending:'#2563eb' }[s] || '#6b7280');
 
 function printInvoice(sale) {
-  const items = (sale.items||[]).map(item => `
+  const items = (sale.items||[]).map((item, idx) => `
     <tr>
-      <td style="padding:8px;border-bottom:1px solid #eee;">${item.brand||''} ${item.product_name||''}</td>
-      <td style="padding:8px;border-bottom:1px solid #eee;font-size:11px;color:#888;">${item.serial_number||''}</td>
-      <td style="padding:8px;border-bottom:1px solid #eee;text-align:center;">${item.qty}</td>
-      <td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">AED ${Math.round(item.unit_price).toLocaleString()}</td>
-      <td style="padding:8px;border-bottom:1px solid #eee;text-align:right;">AED ${Math.round((item.qty||1)*item.unit_price).toLocaleString()}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;font-size:13px;">${idx+1}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;">
+        <div style="font-weight:600;font-size:13px;">${item.brand||''} ${item.product_name||''}</div>
+        ${item.serial_number?`<div style="font-size:11px;color:#94a3b8;font-family:monospace;margin-top:2px;">S/N: ${item.serial_number}</div>`:''}
+      </td>
+      <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;text-align:center;font-size:13px;">${item.qty}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;text-align:right;font-size:13px;">AED ${Math.round(item.unit_price).toLocaleString()}</td>
+      <td style="padding:10px 12px;border-bottom:1px solid #f1f5f9;text-align:right;font-size:13px;font-weight:600;">AED ${Math.round((item.qty||1)*item.unit_price).toLocaleString()}</td>
     </tr>`).join('');
   const win = window.open('','_blank');
   win.document.write(`<!DOCTYPE html><html><head><title>Invoice ${sale.invoice_number}</title>
-  <style>body{font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:20px;color:#1a1a2e}
-  table{width:100%;border-collapse:collapse;margin-bottom:20px}
-  thead tr{background:#1a1a2e;color:white}thead th{padding:10px 8px;text-align:left;font-size:13px}
-  .totals{text-align:right;border-top:2px solid #1a1a2e;padding-top:12px}
-  .total-row{display:flex;justify-content:flex-end;gap:20px;margin-bottom:6px;font-size:14px}
-  @media print{body{padding:0}}</style></head><body>
-  <div style="display:flex;justify-content:space-between;margin-bottom:30px;border-bottom:2px solid #1a1a2e;padding-bottom:20px">
-    <div><div style="font-size:22px;font-weight:bold">${sale.shop_name||'MobileShop'}</div><div style="font-size:12px;color:#888">Sharjah · UAE</div></div>
-    <div style="text-align:right"><div style="font-size:26px;font-weight:bold;color:#6366f1">INVOICE</div>
-    <div><strong>${sale.invoice_number}</strong></div><div>${fmtDate(sale.sale_date)}</div>
-    ${sale.is_exchange?'<div style="color:#f59e0b;font-weight:bold">EXCHANGE</div>':''}</div>
-  </div>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px">
-    <div style="background:#f8f9fc;padding:12px;border-radius:8px">
-      <div style="font-size:11px;color:#888;text-transform:uppercase">Customer</div>
-      <div style="font-weight:600">${sale.customer_name||'Walk-in'}</div>
-      ${sale.customer_phone?`<div style="font-size:12px;color:#888">${sale.customer_phone}</div>`:''}
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Inter',sans-serif;background:#fff;color:#0f172a;font-size:14px;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+    .page{max-width:794px;margin:0 auto;padding:40px;}
+    .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:32px;padding-bottom:24px;border-bottom:2px solid #6366f1;}
+    .brand-name{font-size:22px;font-weight:700;color:#0f172a;letter-spacing:-0.5px;}
+    .brand-sub{font-size:12px;color:#64748b;margin-top:3px;}
+    .invoice-label{font-size:28px;font-weight:800;color:#6366f1;letter-spacing:-1px;}
+    .invoice-meta{text-align:right;margin-top:6px;}
+    .invoice-meta div{font-size:12px;color:#64748b;margin-bottom:2px;}
+    .invoice-meta strong{color:#0f172a;font-size:13px;}
+    .info-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:28px;}
+    .info-box{background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:14px;}
+    .info-box-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.8px;color:#94a3b8;margin-bottom:6px;}
+    .info-box-val{font-size:14px;font-weight:600;color:#0f172a;}
+    .info-box-sub{font-size:12px;color:#64748b;margin-top:2px;}
+    .status-badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
+    table{width:100%;border-collapse:collapse;margin-bottom:24px;}
+    thead tr{background:#0f172a;}
+    thead th{padding:10px 12px;text-align:left;font-size:11px;font-weight:600;color:#fff;text-transform:uppercase;letter-spacing:0.5px;}
+    thead th:last-child,thead th:nth-child(3){text-align:right;}
+    thead th:nth-child(3){text-align:center;}
+    tbody tr:last-child td{border-bottom:none;}
+    .totals-section{display:flex;justify-content:flex-end;margin-bottom:28px;}
+    .totals-box{width:260px;}
+    .totals-row{display:flex;justify-content:space-between;padding:6px 0;font-size:13px;border-bottom:1px solid #f1f5f9;}
+    .totals-row.grand{border-top:2px solid #0f172a;border-bottom:none;padding-top:10px;font-size:16px;font-weight:700;color:#6366f1;}
+    .exchange-box{background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;margin-bottom:20px;font-size:13px;}
+    .footer{text-align:center;padding-top:24px;border-top:1px solid #e2e8f0;font-size:12px;color:#94a3b8;}
+    .paid-stamp{display:inline-block;border:3px solid #22c55e;color:#16a34a;font-size:20px;font-weight:800;padding:6px 18px;border-radius:4px;transform:rotate(-5deg);letter-spacing:2px;margin-bottom:8px;}
+    @media print{body{padding:0}.page{padding:24px}@page{margin:10mm;size:A4}}
+  </style></head><body>
+  <div class="page">
+    <div class="header">
+      <div>
+        <div class="brand-name">${sale.shop_name||'MobileShop'}</div>
+        <div class="brand-sub">Sharjah · UAE</div>
+      </div>
+      <div style="text-align:right">
+        <div class="invoice-label">INVOICE</div>
+        <div class="invoice-meta">
+          <div><strong>${sale.invoice_number}</strong></div>
+          <div>Date: ${fmtDate(sale.sale_date)}</div>
+          ${sale.is_exchange?'<div style="color:#f59e0b;font-weight:600;font-size:12px;margin-top:4px;">🔄 EXCHANGE</div>':''}
+        </div>
+      </div>
     </div>
-    <div style="background:#f8f9fc;padding:12px;border-radius:8px">
-      <div style="font-size:11px;color:#888;text-transform:uppercase">Payment</div>
-      <div style="font-weight:600">${(sale.payment_method||'').toUpperCase()}</div>
+
+    <div class="info-grid">
+      <div class="info-box">
+        <div class="info-box-label">Bill To</div>
+        <div class="info-box-val">${sale.customer_name||'Walk-in Customer'}</div>
+        ${sale.customer_phone&&sale.customer_phone!=='+971'?`<div class="info-box-sub">${sale.customer_phone}</div>`:''}
+      </div>
+      <div class="info-box">
+        <div class="info-box-label">Payment Details</div>
+        <div class="info-box-val">${(sale.payment_method||'').toUpperCase()}</div>
+        <div class="info-box-sub">
+          <span class="status-badge" style="background:${sale.payment_status==='paid'?'#dcfce7':sale.payment_status==='partial'?'#fef3c7':'#fee2e2'};color:${sale.payment_status==='paid'?'#16a34a':sale.payment_status==='partial'?'#92400e':'#dc2626'}">
+            ${(sale.payment_status||'').toUpperCase()}
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <table>
+      <thead><tr>
+        <th style="width:36px">#</th>
+        <th>Item Description</th>
+        <th style="text-align:center;width:60px">Qty</th>
+        <th style="text-align:right;width:100px">Unit Price</th>
+        <th style="text-align:right;width:110px">Total</th>
+      </tr></thead>
+      <tbody>${items}</tbody>
+    </table>
+
+    ${sale.is_exchange?`<div class="exchange-box">
+      <strong>🔄 Trade-in:</strong> ${sale.exchange_product_name||''} 
+      ${sale.exchange_serial_number?`· S/N: ${sale.exchange_serial_number}`:''}
+      · Value: <strong>AED ${Math.round(sale.exchange_trade_in_value||0).toLocaleString()}</strong>
+    </div>`:''}
+
+    <div class="totals-section">
+      <div class="totals-box">
+        ${sale.discount>0?`<div class="totals-row"><span>Subtotal</span><span>AED ${Math.round((sale.total_amount||0)+(sale.discount||0)+(sale.exchange_trade_in_value||0)).toLocaleString()}</span></div>`:''}
+        ${sale.discount>0?`<div class="totals-row"><span>Discount</span><span style="color:#dc2626">− AED ${Math.round(sale.discount).toLocaleString()}</span></div>`:''}
+        ${(sale.exchange_trade_in_value>0)?`<div class="totals-row"><span>Trade-in Value</span><span style="color:#f59e0b">− AED ${Math.round(sale.exchange_trade_in_value).toLocaleString()}</span></div>`:''}
+        <div class="totals-row grand"><span>Total</span><span>AED ${Math.round(sale.total_amount).toLocaleString()}</span></div>
+        <div class="totals-row" style="color:#16a34a"><span>Amount Paid</span><span>AED ${Math.round(sale.amount_paid).toLocaleString()}</span></div>
+        ${sale.amount_due>0?`<div class="totals-row" style="color:#dc2626"><span>Balance Due</span><span>AED ${Math.round(sale.amount_due).toLocaleString()}</span></div>`:''}
+      </div>
+    </div>
+
+    ${sale.payment_status==='paid'?'<div style="text-align:center;margin-bottom:20px"><div class="paid-stamp">PAID</div></div>':''}
+    ${sale.notes?`<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;margin-bottom:20px;font-size:13px;"><strong>Notes:</strong> ${sale.notes}</div>`:''}
+
+    <div class="footer">
+      <div>Thank you for your business!</div>
+      <div style="margin-top:4px">${sale.shop_name||'MobileShop'} · Sharjah, UAE · ${new Date().toLocaleDateString('en-AE')}</div>
     </div>
   </div>
-  <table><thead><tr><th>Item</th><th>Serial</th><th style="text-align:center">Qty</th><th style="text-align:right">Price</th><th style="text-align:right">Total</th></tr></thead>
-  <tbody>${items}</tbody></table>
-  ${sale.is_exchange?`<div style="background:#fef3c7;padding:12px;border-radius:8px;margin-bottom:16px;font-size:13px">
-  <strong>Exchange:</strong> ${sale.exchange_product_name||''} (S/N: ${sale.exchange_serial_number||''}) — Trade-in: AED ${Math.round(sale.exchange_trade_in_value||0).toLocaleString()}</div>`:''}
-  <div class="totals">
-    ${sale.discount>0?`<div class="total-row"><span>Discount:</span><span style="color:#dc2626">- AED ${Math.round(sale.discount).toLocaleString()}</span></div>`:''}
-    <div class="total-row" style="font-size:20px;font-weight:bold;color:#6366f1"><span>Total:</span><span>AED ${Math.round(sale.total_amount).toLocaleString()}</span></div>
-    <div class="total-row" style="color:#059669"><span>Paid:</span><span>AED ${Math.round(sale.amount_paid).toLocaleString()}</span></div>
-    ${sale.amount_due>0?`<div class="total-row" style="color:#dc2626"><span>Due:</span><span>AED ${Math.round(sale.amount_due).toLocaleString()}</span></div>`:''}
-  </div>
-  <div style="margin-top:40px;border-top:1px solid #e8eaf0;padding-top:16px;text-align:center;font-size:12px;color:#9ca3af">
-    Thank you for your business! · ${new Date().toLocaleDateString('en-AE')}</div>
-  <script>window.onload=()=>window.print()</script></body></html>`);
+  <script>window.onload=()=>{ setTimeout(()=>window.print(), 400); }</script>
+  </body></html>`);
   win.document.close();
 }
 

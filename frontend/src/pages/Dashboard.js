@@ -40,6 +40,8 @@ export default function Dashboard() {
   const cheques      = data.cheques      || {};
   const top_products = data.top_products || [];
   const shops        = data.shops        || [];
+  const cash_register = data.cash_register || {};
+  const low_stock_items = data.low_stock_items || [];
 
   const currentShopName = shopId
     ? shops.find(s => s.id === shopId)?.name || 'Shop'
@@ -341,6 +343,58 @@ export default function Dashboard() {
           </>
         )}
 
+        {/* Cash Register Today */}
+        {(cash_register.open_registers > 0 || cash_register.total_registers > 0) && (
+          <>
+            <div className="dash-section-label">Cash Register — Today</div>
+            <div className="dash-grid">
+              <StatCard color="green"  label="Opening Balance"  value={fmt(cash_register.opening_balance)}  sub={<><b>{cash_register.open_registers || 0}</b> register(s) open</>} icon={<CashIcon />} />
+              <StatCard color="blue"   label="Cash Sales Today" value={fmt(cash_register.total_sales_cash)} sub="cash transactions"   icon={<SalesIcon />} />
+              <StatCard color="yellow" label="Total Expenses"   value={fmt(cash_register.total_expenses)}   sub="expenses recorded"   icon={<ExpIcon />} />
+              <StatCard color="teal"   label="Expected Closing" value={fmt((parseFloat(cash_register.opening_balance)||0) + (parseFloat(cash_register.total_sales_cash)||0) - (parseFloat(cash_register.total_expenses)||0))} sub="opening + sales − expenses" icon={<TrendIcon />} />
+            </div>
+          </>
+        )}
+
+        {/* Low Stock Alerts */}
+        {low_stock_items.length > 0 && (
+          <>
+            <div className="dash-section-label" style={{ color: '#ef4444' }}>
+              ⚠️ Low Stock Alerts ({low_stock_items.length})
+            </div>
+            <div className="dash-table-wrap">
+              <div className="dash-table-head">
+                <span className="dash-table-head-title" style={{ color:'#dc2626' }}>Products Running Low</span>
+                <span className="dash-table-head-sub">quantity ≤ minimum stock</span>
+              </div>
+              <table className="dash-table">
+                <thead>
+                  <tr>
+                    <th>Product</th>
+                    <th>Shop</th>
+                    <th>In Stock</th>
+                    <th>Min Stock</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {low_stock_items.map((item, i) => (
+                    <tr key={i}>
+                      <td style={{ fontWeight: 500 }}>{item.brand} {item.name}</td>
+                      <td><span style={{ background:'#f1f5f9', padding:'2px 8px', borderRadius:'6px', fontSize:'12px' }}>{item.shop_name}</span></td>
+                      <td>
+                        <span style={{ fontWeight: 700, color: item.quantity === 0 ? '#dc2626' : '#d97706' }}>
+                          {item.quantity === 0 ? '⚠ Out' : item.quantity}
+                        </span>
+                      </td>
+                      <td style={{ color:'#94a3b8' }}>{item.min_stock}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
+        )}
+
       </div>
     </>
   );
@@ -396,3 +450,4 @@ const TruckIcon= () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor
 const UsersIcon= () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>;
 const ExpIcon  = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M2 17a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-4H2v4z"/><path d="M22 9V7a2 2 0 0 0-2-2H4a2 2 0 0 0-2 2v2h20z"/></svg>;
 const ChequeIcon=() => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg>;
+const CashIcon  = () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="1" y="4" width="22" height="16" rx="2"/><circle cx="12" cy="12" r="3"/></svg>;
