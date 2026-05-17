@@ -315,40 +315,47 @@ router.get('/print-summary', async (req, res) => {
       : from ? `AND e.expense_date >= '${from}'` : to ? `AND e.expense_date <= '${to}'` : '';
 
     // ── 1. Sales per shop (with cost of goods from sale_items) ───────────────
-    const dateFilterS = from && to
-      ? `si.sale_date BETWEEN '${from}' AND '${to}'`
-      : from ? `si.sale_date >= '${from}'`
-      : to   ? `si.sale_date <= '${to}'`
-      : `1=1`;
+    const dateFrom = from || '2000-01-01';
+    const dateTo   = to   || new Date().toISOString().split('T')[0];
 
     const salesByShop = await query(`
       SELECT
         sh.id   AS shop_id,
         sh.name AS shop_name,
-        COUNT(DISTINCT si.id) FILTER (WHERE si.payment_status != 'returned' AND ${dateFilterS})               AS invoice_count,
-        COUNT(DISTINCT si.id) FILTER (WHERE si.payment_status  = 'returned' AND ${dateFilterS})               AS returned_count,
-        COALESCE(SUM(DISTINCT si.total_amount * (CASE WHEN si.payment_status != 'returned' AND ${dateFilterS} THEN 1 ELSE 0 END)), 0) AS net_sales_wrong,
-        -- Use subquery to avoid row multiplication from JOIN with sale_items
+        COALESCE((
+          SELECT COUNT(DISTINCT si2.id)
+          FROM sales_invoices si2
+          WHERE si2.shop_id = sh.id
+            AND si2.payment_status != 'returned'
+            AND si2.sale_date BETWEEN $1 AND $2
+        ), 0) AS invoice_count,
+        COALESCE((
+          SELECT COUNT(DISTINCT si2.id)
+          FROM sales_invoices si2
+          WHERE si2.shop_id = sh.id
+            AND si2.payment_status = 'returned'
+            AND si2.sale_date BETWEEN $1 AND $2
+        ), 0) AS returned_count,
         COALESCE((
           SELECT SUM(si2.total_amount)
           FROM sales_invoices si2
           WHERE si2.shop_id = sh.id
             AND si2.payment_status != 'returned'
-            AND ${dateFilterS.replace(/si\./g, 'si2.')}
+            AND si2.sale_date BETWEEN $1 AND $2
         ), 0) AS net_sales,
         COALESCE((
           SELECT SUM(si2.amount_paid)
           FROM sales_invoices si2
           WHERE si2.shop_id = sh.id
             AND si2.payment_status != 'returned'
-            AND ${dateFilterS.replace(/si\./g, 'si2.')}
+            AND si2.sale_date BETWEEN $1 AND $2
         ), 0) AS cash_collected,
         COALESCE((
           SELECT SUM(si2.amount_due)
           FROM sales_invoices si2
           WHERE si2.shop_id = sh.id
             AND si2.payment_status != 'returned'
-            AND ${dateFilterS.replace(/si\./g, 'si2.')}
+            AND si2.sale_date BETWEEN $1 AND $2
         ), 0) AS pending_amount,
         COALESCE((
           SELECT SUM(sli2.unit_cost * sli2.qty)
@@ -356,26 +363,12 @@ router.get('/print-summary', async (req, res) => {
           JOIN sales_invoices si2 ON si2.id = sli2.invoice_id
           WHERE si2.shop_id = sh.id
             AND si2.payment_status != 'returned'
-            AND ${dateFilterS.replace(/si\./g, 'si2.')}
-        ), 0) AS cost_of_goods,
-        COALESCE((
-          SELECT COUNT(DISTINCT si2.id)
-          FROM sales_invoices si2
-          WHERE si2.shop_id = sh.id
-            AND si2.payment_status != 'returned'
-            AND ${dateFilterS.replace(/si\./g, 'si2.')}
-        ), 0) AS invoice_count2,
-        COALESCE((
-          SELECT COUNT(DISTINCT si2.id)
-          FROM sales_invoices si2
-          WHERE si2.shop_id = sh.id
-            AND si2.payment_status = 'returned'
-            AND ${dateFilterS.replace(/si\./g, 'si2.')}
-        ), 0) AS returned_count2
+            AND si2.sale_date BETWEEN $1 AND $2
+        ), 0) AS cost_of_goods
       FROM shops sh
       WHERE sh.is_active = true
       ORDER BY sh.name
-    `);
+    `, [dateFrom, dateTo]);
 
     // ── 2. Payment method breakdown per shop ─────────────────────────────────
     const paymentByShop = await query(`
@@ -422,14 +415,7 @@ router.get('/print-summary', async (req, res) => {
     `);
 
     // ── 5. Build totals ───────────────────────────────────────────────────────
-    // Normalize column names from subquery approach
-    const salesByShop_normalized = salesByShop.rows.map(r => ({
-      ...r,
-      invoice_count:  r.invoice_count2  || r.invoice_count  || 0,
-      returned_count: r.returned_count2 || r.returned_count || 0,
-    }));
-
-    const shops        = salesByShop_normalized;
+    const shops            = salesByShop.rows;
     const totalNetSales    = shops.reduce((s, r) => s + parseFloat(r.net_sales    || 0), 0);
     const totalCOGS        = shops.reduce((s, r) => s + parseFloat(r.cost_of_goods|| 0), 0);
     const totalGrossProfit = totalNetSales - totalCOGS;
@@ -445,7 +431,7 @@ router.get('/print-summary', async (req, res) => {
       success: true,
       data: {
         from, to,
-        sales_by_shop:    salesByShop_normalized,
+        sales_by_shop:    salesByShop.rows,
         payment_by_shop:  paymentByShop.rows,
         expenses_by_shop: expensesByShop.rows,
         purchases_by_shop: purchasesByShop.rows,
