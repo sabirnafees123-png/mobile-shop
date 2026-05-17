@@ -327,15 +327,53 @@ router.get('/print-summary', async (req, res) => {
         sh.name AS shop_name,
         COUNT(DISTINCT si.id) FILTER (WHERE si.payment_status != 'returned' AND ${dateFilterS})               AS invoice_count,
         COUNT(DISTINCT si.id) FILTER (WHERE si.payment_status  = 'returned' AND ${dateFilterS})               AS returned_count,
-        COALESCE(SUM(si.total_amount)  FILTER (WHERE si.payment_status != 'returned' AND ${dateFilterS}), 0)  AS net_sales,
-        COALESCE(SUM(si.amount_paid)   FILTER (WHERE si.payment_status != 'returned' AND ${dateFilterS}), 0)  AS cash_collected,
-        COALESCE(SUM(si.amount_due)    FILTER (WHERE si.payment_status != 'returned' AND ${dateFilterS}), 0)  AS pending_amount,
-        COALESCE(SUM(sli.unit_cost * sli.qty) FILTER (WHERE si.payment_status != 'returned' AND ${dateFilterS}), 0) AS cost_of_goods
+        COALESCE(SUM(DISTINCT si.total_amount * (CASE WHEN si.payment_status != 'returned' AND ${dateFilterS} THEN 1 ELSE 0 END)), 0) AS net_sales_wrong,
+        -- Use subquery to avoid row multiplication from JOIN with sale_items
+        COALESCE((
+          SELECT SUM(si2.total_amount)
+          FROM sales_invoices si2
+          WHERE si2.shop_id = sh.id
+            AND si2.payment_status != 'returned'
+            AND ${dateFilterS.replace(/si\./g, 'si2.')}
+        ), 0) AS net_sales,
+        COALESCE((
+          SELECT SUM(si2.amount_paid)
+          FROM sales_invoices si2
+          WHERE si2.shop_id = sh.id
+            AND si2.payment_status != 'returned'
+            AND ${dateFilterS.replace(/si\./g, 'si2.')}
+        ), 0) AS cash_collected,
+        COALESCE((
+          SELECT SUM(si2.amount_due)
+          FROM sales_invoices si2
+          WHERE si2.shop_id = sh.id
+            AND si2.payment_status != 'returned'
+            AND ${dateFilterS.replace(/si\./g, 'si2.')}
+        ), 0) AS pending_amount,
+        COALESCE((
+          SELECT SUM(sli2.unit_cost * sli2.qty)
+          FROM sale_items sli2
+          JOIN sales_invoices si2 ON si2.id = sli2.invoice_id
+          WHERE si2.shop_id = sh.id
+            AND si2.payment_status != 'returned'
+            AND ${dateFilterS.replace(/si\./g, 'si2.')}
+        ), 0) AS cost_of_goods,
+        COALESCE((
+          SELECT COUNT(DISTINCT si2.id)
+          FROM sales_invoices si2
+          WHERE si2.shop_id = sh.id
+            AND si2.payment_status != 'returned'
+            AND ${dateFilterS.replace(/si\./g, 'si2.')}
+        ), 0) AS invoice_count2,
+        COALESCE((
+          SELECT COUNT(DISTINCT si2.id)
+          FROM sales_invoices si2
+          WHERE si2.shop_id = sh.id
+            AND si2.payment_status = 'returned'
+            AND ${dateFilterS.replace(/si\./g, 'si2.')}
+        ), 0) AS returned_count2
       FROM shops sh
-      LEFT JOIN sales_invoices si  ON si.shop_id = sh.id
-      LEFT JOIN sale_items     sli ON sli.invoice_id = si.id
       WHERE sh.is_active = true
-      GROUP BY sh.id, sh.name
       ORDER BY sh.name
     `);
 
@@ -384,7 +422,14 @@ router.get('/print-summary', async (req, res) => {
     `);
 
     // ── 5. Build totals ───────────────────────────────────────────────────────
-    const shops        = salesByShop.rows;
+    // Normalize column names from subquery approach
+    const salesByShop_normalized = salesByShop.rows.map(r => ({
+      ...r,
+      invoice_count:  r.invoice_count2  || r.invoice_count  || 0,
+      returned_count: r.returned_count2 || r.returned_count || 0,
+    }));
+
+    const shops        = salesByShop_normalized;
     const totalNetSales    = shops.reduce((s, r) => s + parseFloat(r.net_sales    || 0), 0);
     const totalCOGS        = shops.reduce((s, r) => s + parseFloat(r.cost_of_goods|| 0), 0);
     const totalGrossProfit = totalNetSales - totalCOGS;
@@ -400,7 +445,7 @@ router.get('/print-summary', async (req, res) => {
       success: true,
       data: {
         from, to,
-        sales_by_shop:    salesByShop.rows,
+        sales_by_shop:    salesByShop_normalized,
         payment_by_shop:  paymentByShop.rows,
         expenses_by_shop: expensesByShop.rows,
         purchases_by_shop: purchasesByShop.rows,
