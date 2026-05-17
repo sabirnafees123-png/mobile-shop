@@ -237,63 +237,6 @@ export default function Reports() {
       win.document.close();
     } catch (err) { toast.error('Failed to generate report'); console.error(err); }
   };
-    if (!from || !to) return toast.error('Select a date range first');
-    try {
-      const res = await api.get('/reports/print-summary', { params: { from, to } });
-      const d = res.data?.data;
-      if (!d) return toast.error('No data');
-      const fmtN = n => `AED ${Math.round(parseFloat(n||0)).toLocaleString()}`;
-      const pct  = n => `${parseFloat(n||0).toFixed(1)}%`;
-      const shopNames = d.sales_by_shop.map(r => r.shop_name);
-      const buildTable = (rows) => rows.map(row => `
-        <tr style="border-bottom:1px solid #f1f5f9">
-          <td style="padding:10px 16px;font-size:13px;color:#334155">${row[0]}</td>
-          ${row.slice(1).map((cell,i) => `<td style="padding:10px 16px;text-align:right;font-size:13px;font-weight:${i===row.length-2?'700':'400'};color:${i===row.length-2?'#6366f1':'#334155'}">${cell}</td>`).join('')}
-        </tr>`).join('');
-      const salesRows = [
-        ['Total Invoices',     ...d.sales_by_shop.map(r=>r.invoice_count),  d.sales_by_shop.reduce((s,r)=>s+parseInt(r.invoice_count||0),0)],
-        ['Returned',           ...d.sales_by_shop.map(r=>r.returned_count), d.sales_by_shop.reduce((s,r)=>s+parseInt(r.returned_count||0),0)],
-        ['Net Sales',          ...d.sales_by_shop.map(r=>fmtN(r.net_sales)),       fmtN(d.totals.net_sales)],
-        ['Cost of Goods Sold', ...d.sales_by_shop.map(r=>fmtN(r.cost_of_goods)),   fmtN(d.totals.cost_of_goods)],
-        ['Gross Profit',       ...d.sales_by_shop.map(r=>fmtN(parseFloat(r.net_sales||0)-parseFloat(r.cost_of_goods||0))), fmtN(d.totals.gross_profit)],
-        ['Gross Margin %',     ...d.sales_by_shop.map(r=>{ const s=parseFloat(r.net_sales||0),c=parseFloat(r.cost_of_goods||0); return s>0?pct(((s-c)/s)*100):'0.0%'; }), pct(d.totals.gross_margin)],
-      ];
-      const expRows = Object.entries(d.expenses_by_shop.reduce((acc,r)=>{
-        if(!acc[r.category])acc[r.category]={};
-        acc[r.category][r.shop_name]=r.total; return acc;
-      },{})).map(([cat,vals])=>[cat,...shopNames.map(sh=>fmtN(vals[sh]||0)), fmtN(Object.values(vals).reduce((s,v)=>s+parseFloat(v||0),0))]);
-      const win = window.open('','_blank');
-      win.document.write(`<!DOCTYPE html><html><head><title>Business Summary Report</title>
-      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-      <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Inter',sans-serif;color:#0f172a;font-size:14px}
-      table{width:100%;border-collapse:collapse}thead tr{background:#0f172a}thead th{padding:10px 16px;text-align:left;color:#fff;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
-      thead th:not(:first-child){text-align:right}.section{margin-bottom:28px}.section-title{font-size:15px;font-weight:700;color:#0f172a;padding:12px 0;border-bottom:2px solid #6366f1;margin-bottom:0;display:flex;align-items:center;gap:8px}
-      @media print{@page{margin:10mm;size:A4}}</style></head><body>
-      <div style="padding:32px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:20px;border-bottom:2px solid #6366f1">
-          <div><div style="font-size:24px;font-weight:800;color:#0f172a">Business Summary Report</div>
-          <div style="font-size:13px;color:#64748b;margin-top:4px">${fmtDate(from)} — ${fmtDate(to)}</div></div>
-          <div style="text-align:right"><div style="font-size:28px;font-weight:800;color:#6366f1">${fmtN(d.totals.net_sales)}</div><div style="font-size:12px;color:#64748b">Net Sales</div></div>
-        </div>
-        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px">
-          ${[['Net Sales',fmtN(d.totals.net_sales),'#6366f1'],['Gross Profit',fmtN(d.totals.gross_profit),'#059669'],['Net Profit',fmtN(d.totals.net_profit),'#059669'],['Expenses',fmtN(d.totals.total_expenses),'#dc2626']]
-            .map(([l,v,c])=>`<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;border-top:3px solid ${c}"><div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase">${l}</div><div style="font-size:18px;font-weight:800;color:${c};margin-top:4px">${v}</div></div>`).join('')}
-        </div>
-        <div class="section"><div class="section-title">📊 Sales Summary</div>
-        <table><thead><tr><th>Metric</th>${shopNames.map(s=>`<th>${s}</th>`).join('')}<th>Total</th></tr></thead>
-        <tbody>${buildTable(salesRows)}</tbody></table></div>
-        <div class="section"><div class="section-title">💸 Expenses by Category</div>
-        <table><thead><tr><th>Category</th>${shopNames.map(s=>`<th>${s}</th>`).join('')}<th>Total</th></tr></thead>
-        <tbody>${buildTable(expRows)}</tbody></table></div>
-        <div style="margin-top:28px;padding-top:16px;border-top:1px solid #e2e8f0;text-align:center;font-size:11px;color:#94a3b8">
-          Generated: ${new Date().toLocaleString('en-AE')}
-        </div>
-      </div>
-      <script>window.onload=()=>setTimeout(()=>window.print(),400)</script>
-      </body></html>`);
-      win.document.close();
-    } catch { toast.error('Failed to generate print report'); }
-  };
 
   const payStatus = s => ({ paid:'badge-green', partial:'badge-yellow', unpaid:'badge-red', returned:'badge-gray' }[s]||'badge-gray');
 
