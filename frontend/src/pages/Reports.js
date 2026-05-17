@@ -1,486 +1,516 @@
 // src/pages/Reports.js
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../utils/api';
 import toast from 'react-hot-toast';
 
-const fmt = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
-const fmtDate = d => new Date(d).toLocaleDateString('en-AE');
+const fmt    = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
+const fmtPct = n => `${parseFloat(n || 0).toFixed(1)}%`;
+const fmtDate = d => { try { return new Date(d).toLocaleDateString('en-AE'); } catch { return d; } };
 
-const TABS = ['Summary', 'Stock Value', 'Sales', 'Purchases', 'Expenses', 'Top Products', 'Salesperson'];
+const REPORT_TYPES = [
+  { id: 'summary',          label: '📊 Sales Summary',           desc: 'Overall sales, COGS, profit by shop' },
+  { id: 'product-margin',   label: '📦 Product Wise Margin',     desc: 'Margin % per product for date range' },
+  { id: 'purchase-invoice', label: '🧾 Purchase Invoice Report', desc: 'Stock status per purchase invoice' },
+  { id: 'stock-value',      label: '🏪 Stock Value by Shop',     desc: 'Category wise stock value per shop' },
+  { id: 'daily-inventory',  label: '📅 Daily Inventory Value',   desc: 'Estimated inventory value per day' },
+  { id: 'sales',            label: '💰 Sales Detail',            desc: 'All invoices in date range' },
+  { id: 'purchases',        label: '🛒 Purchases Detail',        desc: 'All purchases in date range' },
+  { id: 'expenses',         label: '💸 Expenses Detail',         desc: 'Expenses by category' },
+  { id: 'top-products',     label: '🏆 Top Products',            desc: 'Best selling products' },
+  { id: 'salesperson',      label: '👤 Salesperson',             desc: 'Performance per staff member' },
+];
+
+const CATEGORIES = ['Mobile', 'Laptop', 'Tab', 'Accessories', 'Ipad'];
 
 export default function Reports() {
-  const today         = new Date().toISOString().split('T')[0];
-  const firstOfMonth  = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
+  const today        = new Date().toISOString().split('T')[0];
+  const firstOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1).toISOString().split('T')[0];
 
-  const [tab, setTab]       = useState('Summary');
-  const [from, setFrom]     = useState(firstOfMonth);
-  const [to, setTo]         = useState(today);
-  const [shopId, setShopId] = useState('');
-  const [shops, setShops]   = useState([]);
-  const [data, setData]     = useState(null);
-  const [loading, setLoading] = useState(false);
+  const [from, setFrom]         = useState(firstOfMonth);
+  const [to, setTo]             = useState(today);
+  const [shopId, setShopId]     = useState('');
+  const [shops, setShops]       = useState([]);
+  const [summary, setSummary]   = useState(null);
+  const [reportType, setReportType] = useState('');
+  const [reportData, setReportData] = useState(null);
+  const [loading, setLoading]   = useState(false);
+  const [summaryLoading, setSummaryLoading] = useState(false);
+
+  // Purchase invoice search
+  const [invoiceSearch, setInvoiceSearch] = useState('');
+
+  // Product margin filters
+  const [marginCategory, setMarginCategory] = useState('');
 
   useEffect(() => {
     api.get('/shops').then(r => setShops(r.data?.data || [])).catch(() => {});
   }, []);
 
-  const load = async (activeTab = tab) => {
+  const loadSummary = async () => {
+    setSummaryLoading(true);
+    try {
+      const params = { from, to };
+      if (shopId) params.shop_id = shopId;
+      const res = await api.get('/reports/summary', { params });
+      setSummary(res.data?.data || res.data);
+    } catch { toast.error('Failed to load summary'); }
+    finally { setSummaryLoading(false); }
+  };
+
+  const loadReport = async (type = reportType) => {
+    if (!type) return toast.error('Select a report type');
     setLoading(true);
-    setData(null);
+    setReportData(null);
     try {
       const params = { from, to };
       if (shopId) params.shop_id = shopId;
       let res;
-      if (activeTab === 'Summary')       res = await api.get('/reports/summary',      { params });
-      else if (activeTab === 'Stock Value') res = await api.get('/reports/stock-value', { params: { as_of_date: to } });
-      else if (activeTab === 'Sales')    res = await api.get('/reports/sales',         { params });
-      else if (activeTab === 'Purchases') res = await api.get('/reports/purchases',   { params });
-      else if (activeTab === 'Expenses')  res = await api.get('/reports/expenses',    { params });
-      else if (activeTab === 'Top Products') res = await api.get('/reports/top-products', { params });
-      else if (activeTab === 'Salesperson')  res = await api.get('/reports/salesperson',  { params });
-      setData(res.data?.data || res.data);
-    } catch { toast.error('Failed to load report'); }
+      if (type === 'summary')          res = await api.get('/reports/summary',          { params });
+      else if (type === 'product-margin')   res = await api.get('/reports/product-margin',   { params: { ...params, category: marginCategory } });
+      else if (type === 'purchase-invoice') res = await api.get('/reports/purchase-invoice', { params: { invoice_number: invoiceSearch } });
+      else if (type === 'stock-value')      res = await api.get('/reports/stock-value',      { params: { as_of_date: to } });
+      else if (type === 'daily-inventory')  res = await api.get('/reports/daily-inventory',  { params });
+      else if (type === 'sales')            res = await api.get('/reports/sales',             { params });
+      else if (type === 'purchases')        res = await api.get('/reports/purchases',         { params });
+      else if (type === 'expenses')         res = await api.get('/reports/expenses',          { params });
+      else if (type === 'top-products')     res = await api.get('/reports/top-products',      { params });
+      else if (type === 'salesperson')      res = await api.get('/reports/salesperson',       { params });
+      setReportData(res?.data?.data || res?.data);
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to load report'); }
     finally { setLoading(false); }
   };
 
-  const switchTab = (t) => { setTab(t); setData(null); };
-  const payStatus = s => ({ paid: 'badge-green', partial: 'badge-yellow', unpaid: 'badge-red', returned: 'badge-gray' }[s] || 'badge-gray');
-// ── PRINT REPORT FUNCTION ─────────────────────────────────────────────────────
-// Add this function inside your Reports.js component,
-// just above the return() statement.
-// Also add the "🖨️ Print Report" button to the page header (shown at bottom).
+  const setQuick = (type) => {
+    const now = new Date();
+    if (type === 'today') { setFrom(today); setTo(today); }
+    else if (type === 'month') { setFrom(firstOfMonth); setTo(today); }
+    else if (type === '7days') {
+      const d = new Date(); d.setDate(d.getDate()-7);
+      setFrom(d.toISOString().split('T')[0]); setTo(today);
+    } else if (type === '30days') {
+      const d = new Date(); d.setDate(d.getDate()-30);
+      setFrom(d.toISOString().split('T')[0]); setTo(today);
+    }
+  };
 
-const printReport = async () => {
-  if (!from || !to) return toast.error('Select a date range first');
-  try {
-    const res = await api.get('/reports/print-summary', { params: { from, to } });
-    const d   = res.data?.data;
-    if (!d) return toast.error('No data');
-
-    const fmtN  = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
-    const pct   = n => `${parseFloat(n || 0).toFixed(1)}%`;
-    const fmtDt = s => { try { return new Date(s).toLocaleDateString('en-AE'); } catch { return s; } };
-
-    // ── helpers to build table rows ───────────────────────────────────────────
-    const shopNames = [...new Set(d.sales_by_shop.map(r => r.shop_name))];
-
-    // Sales section — one column per shop + Total
-    const salesRows = [
-      ['Total Invoices',    ...d.sales_by_shop.map(r => r.invoice_count),  d.sales_by_shop.reduce((s,r)=>s+parseInt(r.invoice_count||0),0)],
-      ['Returned',          ...d.sales_by_shop.map(r => r.returned_count), d.sales_by_shop.reduce((s,r)=>s+parseInt(r.returned_count||0),0)],
-      ['Net Sales',         ...d.sales_by_shop.map(r => fmtN(r.net_sales)), fmtN(d.totals.net_sales)],
-      ['Cost of Goods Sold',...d.sales_by_shop.map(r => fmtN(r.cost_of_goods)), fmtN(d.totals.cost_of_goods)],
-      ['Gross Profit',      ...d.sales_by_shop.map(r => fmtN(parseFloat(r.net_sales||0)-parseFloat(r.cost_of_goods||0))), fmtN(d.totals.gross_profit)],
-      ['Gross Margin %',    ...d.sales_by_shop.map(r => {
-        const s = parseFloat(r.net_sales||0), c = parseFloat(r.cost_of_goods||0);
-        return s > 0 ? pct(((s-c)/s)*100) : '0.0%';
-      }), pct(d.totals.gross_margin)],
-    ];
-
-    // Payment breakdown — cash, card, bank_transfer, tabby, tamara, pending per shop
-    const methods = ['cash','card','bank_transfer','tabby','tamara','pending'];
-    const methodLabel = { cash:'Cash', card:'Card', bank_transfer:'Bank Transfer', tabby:'Tabby', tamara:'Tamara', pending:'Pending/Unpaid' };
-    const paymentRows = methods.map(m => {
-      const cols = shopNames.map(shop => {
-        const row = d.payment_by_shop.find(r => r.shop_name === shop && r.payment_method === m);
-        return row ? fmtN(row.amount) : 'AED 0';
-      });
-      const total = d.payment_by_shop.filter(r => r.payment_method === m).reduce((s,r)=>s+parseFloat(r.amount||0),0);
-      return [methodLabel[m]||m, ...cols, fmtN(total)];
-    });
-
-    // Expenses — all categories, per shop
-    const allCategories = [...new Set(d.expenses_by_shop.map(r => r.category).filter(Boolean))];
-    const expenseRows = allCategories.map(cat => {
-      const cols = shopNames.map(shop => {
-        const row = d.expenses_by_shop.find(r => r.shop_name === shop && r.category === cat);
-        return row ? fmtN(row.total) : 'AED 0';
-      });
-      const total = d.expenses_by_shop.filter(r => r.category === cat).reduce((s,r)=>s+parseFloat(r.total||0),0);
-      return [cat || 'Uncategorized', ...cols, fmtN(total)];
-    });
-    const expTotalCols = shopNames.map(shop => {
-      const t = d.expenses_by_shop.filter(r => r.shop_name === shop).reduce((s,r)=>s+parseFloat(r.total||0),0);
-      return fmtN(t);
-    });
-    expenseRows.push(['Total Expenses', ...expTotalCols, fmtN(d.totals.total_expenses)]);
-
-    // Purchases — per shop
-    const purchaseRows = [
-      ['Total Purchased', ...d.purchases_by_shop.map(r => fmtN(r.total_purchased)), fmtN(d.totals.total_purchased)],
-      ['Cash Paid',       ...d.purchases_by_shop.map(r => fmtN(r.cash_paid)),       fmtN(d.purchases_by_shop.reduce((s,r)=>s+parseFloat(r.cash_paid||0),0))],
-      ['Credit Owed',     ...d.purchases_by_shop.map(r => fmtN(r.credit_owed)),     fmtN(d.purchases_by_shop.reduce((s,r)=>s+parseFloat(r.credit_owed||0),0))],
-    ];
-
-    // ── build table HTML helper ───────────────────────────────────────────────
-    const buildTable = (headers, rows, highlightLast = false) => `
-      <table>
-        <thead><tr>${headers.map(h=>`<th>${h}</th>`).join('')}</tr></thead>
-        <tbody>
-          ${rows.map((row, ri) => {
-            const isLast = highlightLast && ri === rows.length - 1;
-            return `<tr class="${isLast ? 'total-row' : ''}">${row.map((cell,ci)=>`<td class="${ci===0?'label-cell':''}">${cell}</td>`).join('')}</tr>`;
-          }).join('')}
-        </tbody>
-      </table>`;
-
-    const headers = ['', ...shopNames, 'Total'];
-
-    // ── open print window ─────────────────────────────────────────────────────
-    const win = window.open('', '_blank');
-    win.document.write(`<!DOCTYPE html><html><head>
-      <title>Business Summary Report</title>
-      <style>
-        * { margin:0; padding:0; box-sizing:border-box; }
-        body {
-  font-family: Arial, sans-serif;
-  font-size: 11px;
-  color: #1a1a2e;
-  padding: 16px;
-  width: 210mm;
-  min-height: 297mm;
-  margin: 0 auto;
-  background: white;
-}
-        h1 { font-size: 20px; font-weight: bold; color: #1a1a2e; }
-        h2 { font-size: 13px; font-weight: bold; color: #6366f1; margin: 20px 0 8px; text-transform: uppercase; letter-spacing: .5px; border-bottom: 2px solid #6366f1; padding-bottom: 4px; }
-        .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 20px; border-bottom: 2px solid #1a1a2e; padding-bottom: 16px; }
-        .header-right { text-align: right; font-size: 11px; color: #6b7280; }
-        table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 11.5px; }
-        th { background: #1a1a2e; color: white; padding: 7px 10px; text-align: right; font-size: 11px; }
-        th:first-child { text-align: left; }
-        td { padding: 6px 10px; border-bottom: 1px solid #e8eaf0; text-align: right; }
-        td.label-cell { text-align: left; font-weight: 500; color: #374151; }
-        tr:nth-child(even) { background: #f8f9fc; }
-        tr.total-row td { font-weight: 700; background: #f1f2f6; border-top: 2px solid #1a1a2e; }
-        .net-profit-box { background: #f0fdf4; border: 2px solid #059669; border-radius: 8px; padding: 16px; margin-top: 20px; }
-        .net-profit-box table { margin: 0; }
-        .net-profit-box th { background: #059669; }
-        .net-profit-box tr.total-row td { background: #d1fae5; color: #065f46; font-size: 14px; border-top: 2px solid #059669; }
-        .footer { margin-top: 32px; border-top: 1px solid #e8eaf0; padding-top: 12px; text-align: center; font-size: 10px; color: #9ca3af; }
-        @media print {
-  body { padding: 0; margin: 0; }
-  @page {
-    size: A4 portrait;
-    margin: 12mm 10mm 12mm 10mm;
-  }
-}
-      </style>
-    </head><body>
-
-    <div class="header">
-      <div>
-        <h1>📊 Business Summary Report</h1>
-        <div style="font-size:11px;color:#6b7280;margin-top:4px;">
-          Period: <strong>${fmtDt(d.from)}</strong> — <strong>${fmtDt(d.to)}</strong>
+  const printReport = async () => {
+    if (!from || !to) return toast.error('Select a date range first');
+    try {
+      const res = await api.get('/reports/print-summary', { params: { from, to } });
+      const d = res.data?.data;
+      if (!d) return toast.error('No data');
+      const fmtN = n => `AED ${Math.round(parseFloat(n||0)).toLocaleString()}`;
+      const pct  = n => `${parseFloat(n||0).toFixed(1)}%`;
+      const shopNames = d.sales_by_shop.map(r => r.shop_name);
+      const buildTable = (rows) => rows.map(row => `
+        <tr style="border-bottom:1px solid #f1f5f9">
+          <td style="padding:10px 16px;font-size:13px;color:#334155">${row[0]}</td>
+          ${row.slice(1).map((cell,i) => `<td style="padding:10px 16px;text-align:right;font-size:13px;font-weight:${i===row.length-2?'700':'400'};color:${i===row.length-2?'#6366f1':'#334155'}">${cell}</td>`).join('')}
+        </tr>`).join('');
+      const salesRows = [
+        ['Total Invoices',     ...d.sales_by_shop.map(r=>r.invoice_count),  d.sales_by_shop.reduce((s,r)=>s+parseInt(r.invoice_count||0),0)],
+        ['Returned',           ...d.sales_by_shop.map(r=>r.returned_count), d.sales_by_shop.reduce((s,r)=>s+parseInt(r.returned_count||0),0)],
+        ['Net Sales',          ...d.sales_by_shop.map(r=>fmtN(r.net_sales)),       fmtN(d.totals.net_sales)],
+        ['Cost of Goods Sold', ...d.sales_by_shop.map(r=>fmtN(r.cost_of_goods)),   fmtN(d.totals.cost_of_goods)],
+        ['Gross Profit',       ...d.sales_by_shop.map(r=>fmtN(parseFloat(r.net_sales||0)-parseFloat(r.cost_of_goods||0))), fmtN(d.totals.gross_profit)],
+        ['Gross Margin %',     ...d.sales_by_shop.map(r=>{ const s=parseFloat(r.net_sales||0),c=parseFloat(r.cost_of_goods||0); return s>0?pct(((s-c)/s)*100):'0.0%'; }), pct(d.totals.gross_margin)],
+      ];
+      const expRows = Object.entries(d.expenses_by_shop.reduce((acc,r)=>{
+        if(!acc[r.category])acc[r.category]={};
+        acc[r.category][r.shop_name]=r.total; return acc;
+      },{})).map(([cat,vals])=>[cat,...shopNames.map(sh=>fmtN(vals[sh]||0)), fmtN(Object.values(vals).reduce((s,v)=>s+parseFloat(v||0),0))]);
+      const win = window.open('','_blank');
+      win.document.write(`<!DOCTYPE html><html><head><title>Business Summary Report</title>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+      <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Inter',sans-serif;color:#0f172a;font-size:14px}
+      table{width:100%;border-collapse:collapse}thead tr{background:#0f172a}thead th{padding:10px 16px;text-align:left;color:#fff;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.5px}
+      thead th:not(:first-child){text-align:right}.section{margin-bottom:28px}.section-title{font-size:15px;font-weight:700;color:#0f172a;padding:12px 0;border-bottom:2px solid #6366f1;margin-bottom:0;display:flex;align-items:center;gap:8px}
+      @media print{@page{margin:10mm;size:A4}}</style></head><body>
+      <div style="padding:32px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:28px;padding-bottom:20px;border-bottom:2px solid #6366f1">
+          <div><div style="font-size:24px;font-weight:800;color:#0f172a">Business Summary Report</div>
+          <div style="font-size:13px;color:#64748b;margin-top:4px">${fmtDate(from)} — ${fmtDate(to)}</div></div>
+          <div style="text-align:right"><div style="font-size:28px;font-weight:800;color:#6366f1">${fmtN(d.totals.net_sales)}</div><div style="font-size:12px;color:#64748b">Net Sales</div></div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:28px">
+          ${[['Net Sales',fmtN(d.totals.net_sales),'#6366f1'],['Gross Profit',fmtN(d.totals.gross_profit),'#059669'],['Net Profit',fmtN(d.totals.net_profit),'#059669'],['Expenses',fmtN(d.totals.total_expenses),'#dc2626']]
+            .map(([l,v,c])=>`<div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;padding:12px;border-top:3px solid ${c}"><div style="font-size:11px;font-weight:700;color:#94a3b8;text-transform:uppercase">${l}</div><div style="font-size:18px;font-weight:800;color:${c};margin-top:4px">${v}</div></div>`).join('')}
+        </div>
+        <div class="section"><div class="section-title">📊 Sales Summary</div>
+        <table><thead><tr><th>Metric</th>${shopNames.map(s=>`<th>${s}</th>`).join('')}<th>Total</th></tr></thead>
+        <tbody>${buildTable(salesRows)}</tbody></table></div>
+        <div class="section"><div class="section-title">💸 Expenses by Category</div>
+        <table><thead><tr><th>Category</th>${shopNames.map(s=>`<th>${s}</th>`).join('')}<th>Total</th></tr></thead>
+        <tbody>${buildTable(expRows)}</tbody></table></div>
+        <div style="margin-top:28px;padding-top:16px;border-top:1px solid #e2e8f0;text-align:center;font-size:11px;color:#94a3b8">
+          Generated: ${new Date().toLocaleString('en-AE')}
         </div>
       </div>
-      <div class="header-right">
-        Generated: ${new Date().toLocaleDateString('en-AE')} ${new Date().toLocaleTimeString('en-AE')}<br/>
-        Shops: ${shopNames.join(', ')}
-      </div>
-    </div>
+      <script>window.onload=()=>setTimeout(()=>window.print(),400)</script>
+      </body></html>`);
+      win.document.close();
+    } catch { toast.error('Failed to generate print report'); }
+  };
 
-    <h2>📦 Sales Summary</h2>
-    ${buildTable(headers, salesRows)}
-
-    <h2>💳 Payment Collection</h2>
-    ${buildTable(headers, paymentRows)}
-
-    <h2>💸 Expenses by Category</h2>
-    ${expenseRows.length > 1
-      ? buildTable(headers, expenseRows, true)
-      : `<p style="color:#6b7280;padding:8px 0;">No expenses recorded for this period.</p>`}
-
-    <h2>🛒 Purchases</h2>
-    ${buildTable(headers, purchaseRows)}
-
-    <div class="net-profit-box">
-      <h2 style="color:#059669;border-color:#059669;">💰 Net Profit Summary</h2>
-      ${buildTable(['', 'Amount'], [
-        ['Net Sales',         fmtN(d.totals.net_sales)],
-        ['Cost of Goods Sold',`<span style="color:#dc2626">- ${fmtN(d.totals.cost_of_goods)}</span>`],
-        ['Gross Profit',      `<span style="color:#059669">${fmtN(d.totals.gross_profit)}</span>`],
-        ['Gross Margin %',    pct(d.totals.gross_margin)],
-        ['Total Expenses',    `<span style="color:#dc2626">- ${fmtN(d.totals.total_expenses)}</span>`],
-        [`NET PROFIT (${pct(d.totals.net_margin)} margin)`,
-          `<span style="color:${parseFloat(d.totals.net_profit)>=0?'#059669':'#dc2626'};font-size:15px;">${fmtN(d.totals.net_profit)}</span>`],
-      ], true)}
-    </div>
-
-    <div class="footer">
-      This report is auto-generated · ${new Date().toLocaleDateString('en-AE')}
-    </div>
-
-    <script>window.onload = () => window.print();</script>
-    </body></html>`);
-    win.document.close();
-  } catch (err) {
-    toast.error('Failed to generate report');
-    console.error(err);
-  }
-};
-
-// ── ADD THIS BUTTON to the page-header div in Reports.js ─────────────────────
-// Find this in your return():
-//   <div className="page-title">📊 Reports</div>
-//   <div className="page-subtitle">Business performance & analytics</div>
-// 
-// Change the page-header to:
-//
-// <div className="page-header">
-//   <div>
-//     <div className="page-title">📊 Reports</div>
-//     <div className="page-subtitle">Business performance & analytics</div>
-//   </div>
-//   <button className="btn btn-primary" onClick={printReport}>
-//     🖨️ Print Report
-//   </button>
-// </div>
-
+  const payStatus = s => ({ paid:'badge-green', partial:'badge-yellow', unpaid:'badge-red', returned:'badge-gray' }[s]||'badge-gray');
 
   return (
     <div>
+      <style>{`
+        .report-selector { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:10px; margin-bottom:20px; }
+        .report-card { background:#fff; border:1.5px solid #e2e8f0; border-radius:10px; padding:14px 16px; cursor:pointer; transition:all .15s; }
+        .report-card:hover { border-color:#6366f1; box-shadow:0 4px 12px rgba(99,102,241,.1); transform:translateY(-1px); }
+        .report-card.selected { border-color:#6366f1; background:#eef2ff; }
+        .report-card-label { font-size:13px; font-weight:700; color:#0f172a; margin-bottom:3px; }
+        .report-card-desc { font-size:11px; color:#94a3b8; }
+        .r-table { width:100%; border-collapse:collapse; font-size:13px; }
+        .r-table th { padding:9px 14px; text-align:left; font-size:11px; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:.5px; background:#f8fafc; border-bottom:1px solid #e2e8f0; white-space:nowrap; }
+        .r-table td { padding:10px 14px; border-bottom:1px solid #f8fafc; vertical-align:middle; }
+        .r-table tr:hover td { background:#f8fafc; }
+        .r-table tr:last-child td { border-bottom:none; }
+        .grand-row td { background:#0f172a!important; color:#fff; font-weight:800; }
+        .cat-row td { background:#f8fafc!important; font-weight:700; }
+      `}</style>
+
+      {/* Page header */}
       <div className="page-header">
-  <div>
-    <div className="page-title">📊 Reports</div>
-    <div className="page-subtitle">Business performance & analytics</div>
-  </div>
-  <button className="btn btn-primary" onClick={printReport}>
-    🖨️ Print Report
-  </button>
-</div>
+        <div>
+          <div className="page-title">📊 Reports</div>
+          <div className="page-subtitle">Business analytics and performance reports</div>
+        </div>
+        <button className="btn btn-ghost" onClick={printReport}>🖨️ Print Summary</button>
+      </div>
 
       {/* Filters */}
-      <div className="card" style={{padding:'1rem',marginBottom:'1rem'}}>
-        <div style={{display:'flex',gap:'12px',alignItems:'flex-end',flexWrap:'wrap'}}>
-          <div className="form-group" style={{marginBottom:0}}>
-            <label className="form-label">From</label>
-            <input type="date" className="form-control" value={from} onChange={e => setFrom(e.target.value)} style={{width:'160px'}} />
+      <div className="card" style={{ padding:'1rem', marginBottom:'16px' }}>
+        <div style={{ display:'flex', gap:'10px', alignItems:'flex-end', flexWrap:'wrap' }}>
+          <div>
+            <label style={{ fontSize:'.78rem', color:'var(--text-muted)', display:'block', marginBottom:'4px' }}>From</label>
+            <input type="date" className="form-control" style={{ width:'auto' }} value={from} onChange={e => setFrom(e.target.value)} />
           </div>
-          <div className="form-group" style={{marginBottom:0}}>
-            <label className="form-label">To</label>
-            <input type="date" className="form-control" value={to} onChange={e => setTo(e.target.value)} style={{width:'160px'}} />
+          <div>
+            <label style={{ fontSize:'.78rem', color:'var(--text-muted)', display:'block', marginBottom:'4px' }}>To</label>
+            <input type="date" className="form-control" style={{ width:'auto' }} value={to} onChange={e => setTo(e.target.value)} />
           </div>
-          <div className="form-group" style={{marginBottom:0}}>
-            <label className="form-label">Shop</label>
-            <select className="form-control" value={shopId} onChange={e => setShopId(e.target.value)} style={{width:'140px'}}>
+          <div>
+            <label style={{ fontSize:'.78rem', color:'var(--text-muted)', display:'block', marginBottom:'4px' }}>Shop</label>
+            <select className="form-control" style={{ width:'auto' }} value={shopId} onChange={e => setShopId(e.target.value)}>
               <option value="">All Shops</option>
               {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
             </select>
           </div>
-          {[
-            { label: 'Today',        f: today,        t: today },
-            { label: 'This Month',   f: firstOfMonth, t: today },
-            { label: 'Last 7 Days',  f: new Date(Date.now()-7*86400000).toISOString().split('T')[0],  t: today },
-            { label: 'Last 30 Days', f: new Date(Date.now()-30*86400000).toISOString().split('T')[0], t: today },
-          ].map(r => (
-            <button key={r.label} className="btn btn-ghost btn-sm"
-              onClick={() => { setFrom(r.f); setTo(r.t); }} style={{marginBottom:'2px'}}>
-              {r.label}
-            </button>
-          ))}
-          <button className="btn btn-primary" onClick={() => load(tab)} style={{marginBottom:'2px'}}>
-            Generate Report
+          <div style={{ display:'flex', gap:'6px', paddingBottom:'2px' }}>
+            {['today','month','7days','30days'].map(q => (
+              <button key={q} className="btn btn-ghost btn-sm" onClick={() => setQuick(q)}>
+                {q==='today'?'Today':q==='month'?'This Month':q==='7days'?'Last 7 Days':'Last 30 Days'}
+              </button>
+            ))}
+          </div>
+          <button className="btn btn-primary" style={{ paddingBottom:'8px' }} onClick={loadSummary}>
+            {summaryLoading ? 'Loading...' : '↻ Refresh Summary'}
           </button>
         </div>
       </div>
 
-      {/* Tabs */}
-      <div style={{display:'flex',gap:'4px',marginBottom:'16px',borderBottom:'2px solid var(--border)'}}>
-        {TABS.map(t => (
-          <button key={t} onClick={() => switchTab(t)}
-            style={{padding:'8px 16px',border:'none',background:'none',cursor:'pointer',
-              fontWeight: tab===t?700:400, color: tab===t?'var(--accent)':'var(--text-muted)',
-              borderBottom: tab===t?'2px solid var(--accent)':'2px solid transparent',
-              marginBottom:'-2px',fontSize:'.9rem'}}>
-            {t}
-          </button>
+      {/* Summary stat cards — always visible */}
+      {summary && (
+        <div className="stat-grid" style={{ marginBottom:'20px' }}>
+          <div className="stat-card green"><div className="label">Total Sales</div><div className="value">{fmt(summary.sales?.total)}</div><div className="sub">{summary.sales?.count} invoices</div></div>
+          <div className="stat-card blue"><div className="label">Collected</div><div className="value">{fmt(summary.sales?.collected)}</div><div className="sub">Cash received</div></div>
+          <div className="stat-card yellow"><div className="label">Outstanding</div><div className="value">{fmt(summary.sales?.due)}</div><div className="sub">Yet to collect</div></div>
+          <div className="stat-card red"><div className="label">Cost of Goods</div><div className="value">{fmt(summary.cogs)}</div><div className="sub">Actual unit cost</div></div>
+          <div className="stat-card red"><div className="label">Expenses</div><div className="value">{fmt(summary.expenses?.total)}</div><div className="sub">{summary.expenses?.count} entries</div></div>
+          <div className="stat-card blue"><div className="label">Purchases</div><div className="value">{fmt(summary.purchases?.total)}</div><div className="sub">{summary.purchases?.count} orders</div></div>
+          <div className="stat-card green">
+            <div className="label">Gross Profit</div>
+            <div className="value" style={{ color: summary.profit?.gross>=0?'var(--accent-green)':'var(--accent-red)' }}>{fmt(summary.profit?.gross)}</div>
+            <div className="sub">Sales - COGS</div>
+          </div>
+          <div className={`stat-card ${summary.profit?.net>=0?'green':'red'}`}>
+            <div className="label">Net Profit</div>
+            <div className="value" style={{ color: summary.profit?.net>=0?'var(--accent-green)':'var(--accent-red)' }}>{fmt(summary.profit?.net)}</div>
+            <div className="sub">After expenses</div>
+          </div>
+        </div>
+      )}
+
+      {/* Report selector */}
+      <div style={{ marginBottom:'12px', fontSize:'12px', fontWeight:700, color:'#94a3b8', textTransform:'uppercase', letterSpacing:'.8px' }}>
+        Select Report Type
+      </div>
+      <div className="report-selector">
+        {REPORT_TYPES.map(r => (
+          <div key={r.id} className={`report-card${reportType===r.id?' selected':''}`}
+            onClick={() => { setReportType(r.id); setReportData(null); }}>
+            <div className="report-card-label">{r.label}</div>
+            <div className="report-card-desc">{r.desc}</div>
+          </div>
         ))}
       </div>
 
-      {!data && !loading && (
-        <div className="card"><div className="empty-state" style={{padding:'48px'}}>
-          Select date range and click <strong>Generate Report</strong>
-        </div></div>
-      )}
-
-      {loading && <div className="loading" style={{padding:'48px',textAlign:'center'}}>Generating report...</div>}
-
-      {/* Summary */}
-      {data && tab === 'Summary' && (
-        <div>
-          <div className="stat-grid" style={{marginBottom:'24px'}}>
-            <div className="stat-card green"><div className="label">Total Sales</div><div className="value">{fmt(data.sales?.total)}</div><div className="sub">{data.sales?.count} invoices</div></div>
-            <div className="stat-card blue"><div className="label">Collected</div><div className="value">{fmt(data.sales?.collected)}</div><div className="sub">Cash received</div></div>
-            <div className="stat-card yellow"><div className="label">Outstanding</div><div className="value">{fmt(data.sales?.due)}</div><div className="sub">Yet to collect</div></div>
-            <div className="stat-card red"><div className="label">Cost of Goods Sold</div><div className="value">{fmt(data.cogs)}</div><div className="sub">Actual unit cost at sale</div></div>
-            <div className="stat-card red"><div className="label">Total Expenses</div><div className="value">{fmt(data.expenses?.total)}</div><div className="sub">{data.expenses?.count} entries</div></div>
-            <div className="stat-card blue"><div className="label">Total Purchases</div><div className="value">{fmt(data.purchases?.total)}</div><div className="sub">{data.purchases?.count} orders</div></div>
-            <div className="stat-card green">
-              <div className="label">Gross Profit</div>
-              <div className="value" style={{color:data.profit?.gross>=0?'var(--accent-green)':'var(--accent-red)'}}>{fmt(data.profit?.gross)}</div>
-              <div className="sub">Sales - COGS</div>
+      {/* Report-specific extra inputs */}
+      {reportType === 'purchase-invoice' && (
+        <div className="card" style={{ padding:'1rem', marginBottom:'12px' }}>
+          <div style={{ display:'flex', gap:'10px', alignItems:'flex-end' }}>
+            <div style={{ flex:1 }}>
+              <label style={{ fontSize:'.78rem', color:'var(--text-muted)', display:'block', marginBottom:'4px' }}>Purchase Invoice Number</label>
+              <input className="form-control" placeholder="e.g. PUR-001" value={invoiceSearch}
+                onChange={e => setInvoiceSearch(e.target.value)}
+                onKeyDown={e => e.key==='Enter' && loadReport()} />
             </div>
-            <div className={`stat-card ${data.profit?.net>=0?'green':'red'}`}>
-              <div className="label">Net Profit</div>
-              <div className="value" style={{color:data.profit?.net>=0?'var(--accent-green)':'var(--accent-red)'}}>{fmt(data.profit?.net)}</div>
-              <div className="sub">After expenses</div>
-            </div>
+            <button className="btn btn-primary" onClick={() => loadReport()}>Search</button>
           </div>
-          {data.sales?.total > 0 && (
-            <div className="card" style={{padding:'1rem'}}>
-              <div style={{marginBottom:'8px',fontWeight:600}}>Profit Margin</div>
-              <div style={{background:'#f1f2f6',borderRadius:'8px',height:'24px',overflow:'hidden'}}>
-                <div style={{height:'100%',
-                  width:`${Math.min(100,Math.max(0,(data.profit?.net/data.sales?.total)*100))}%`,
-                  background:data.profit?.net>=0?'var(--accent-green)':'var(--accent-red)',
-                  borderRadius:'8px',display:'flex',alignItems:'center',paddingLeft:'8px',
-                  color:'#fff',fontSize:'.8rem',fontWeight:600}}>
-                  {((data.profit?.net/data.sales?.total)*100).toFixed(1)}%
-                </div>
-              </div>
-            </div>
-          )}
         </div>
       )}
 
-      {/* Stock Value */}
-      {data && tab === 'Stock Value' && (() => {
-        const { rows, category_totals, grand_total, shops, as_of_date } = data;
-        const fmt2 = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
-        const fmtN = n => Math.round(parseFloat(n || 0)).toLocaleString();
+      {reportType === 'product-margin' && (
+        <div className="card" style={{ padding:'1rem', marginBottom:'12px' }}>
+          <div style={{ display:'flex', gap:'10px', alignItems:'flex-end' }}>
+            <div>
+              <label style={{ fontSize:'.78rem', color:'var(--text-muted)', display:'block', marginBottom:'4px' }}>Filter by Category</label>
+              <select className="form-control" style={{ width:'auto' }} value={marginCategory} onChange={e => setMarginCategory(e.target.value)}>
+                <option value="">All Categories</option>
+                {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+            <button className="btn btn-primary" onClick={() => loadReport()}>Generate</button>
+          </div>
+        </div>
+      )}
 
-        // Group rows by category → sub_category
+      {/* Generate button for other report types */}
+      {reportType && reportType !== 'purchase-invoice' && reportType !== 'product-margin' && (
+        <div style={{ marginBottom:'12px' }}>
+          <button className="btn btn-primary" onClick={() => loadReport()}>
+            {loading ? 'Loading...' : `Generate ${REPORT_TYPES.find(r=>r.id===reportType)?.label}`}
+          </button>
+        </div>
+      )}
+
+      {loading && (
+        <div className="card" style={{ padding:'3rem', textAlign:'center', color:'var(--text-muted)' }}>
+          <div style={{ fontSize:'1.5rem', marginBottom:'8px' }}>⏳</div>
+          <div>Generating report...</div>
+        </div>
+      )}
+
+      {/* ── REPORT OUTPUT ── */}
+
+      {/* Product Margin Report */}
+      {!loading && reportData && reportType === 'product-margin' && (() => {
+        const { rows, totals } = reportData;
+        return (
+          <div className="card" style={{ padding:0, overflow:'hidden' }}>
+            <div style={{ padding:'14px 20px', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between' }}>
+              <strong>Product Wise Margin Report</strong>
+              <span style={{ fontSize:'12px', color:'var(--text-muted)' }}>{fmtDate(from)} — {fmtDate(to)}</span>
+            </div>
+            <div className="table-wrapper">
+              <table className="r-table">
+                <thead>
+                  <tr>
+                    <th>#</th><th>Product</th><th>Brand</th><th>Category</th><th>Sub Category</th>
+                    <th style={{ textAlign:'right' }}>Qty Sold</th>
+                    <th style={{ textAlign:'right' }}>Revenue</th>
+                    <th style={{ textAlign:'right' }}>COGS</th>
+                    <th style={{ textAlign:'right' }}>Gross Profit</th>
+                    <th style={{ textAlign:'right' }}>Margin %</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((r, i) => (
+                    <tr key={i}>
+                      <td style={{ color:'#94a3b8' }}>{i+1}</td>
+                      <td><strong>{r.product_name}</strong></td>
+                      <td style={{ color:'#64748b' }}>{r.brand||'—'}</td>
+                      <td><span style={{ background:'#eef2ff', color:'#6366f1', padding:'2px 8px', borderRadius:'10px', fontSize:'11px', fontWeight:600 }}>{r.category}</span></td>
+                      <td style={{ color:'#64748b', fontSize:'12px' }}>{r.sub_category||'—'}</td>
+                      <td style={{ textAlign:'right' }}>{r.qty_sold}</td>
+                      <td style={{ textAlign:'right' }}>{fmt(r.revenue)}</td>
+                      <td style={{ textAlign:'right', color:'#92400e' }}>{fmt(r.cogs)}</td>
+                      <td style={{ textAlign:'right' }}>
+                        <strong style={{ color: parseFloat(r.gross_profit)>=0?'#059669':'#dc2626' }}>{fmt(r.gross_profit)}</strong>
+                      </td>
+                      <td style={{ textAlign:'right' }}>
+                        <span style={{ background: parseFloat(r.margin_pct)>=20?'#d1fae5':parseFloat(r.margin_pct)>=10?'#fef3c7':'#fee2e2',
+                          color: parseFloat(r.margin_pct)>=20?'#065f46':parseFloat(r.margin_pct)>=10?'#92400e':'#991b1b',
+                          padding:'2px 8px', borderRadius:'10px', fontSize:'12px', fontWeight:700 }}>
+                          {r.margin_pct}%
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                  <tr className="grand-row">
+                    <td colSpan={5}><strong>TOTAL</strong></td>
+                    <td style={{ textAlign:'right', color:'#fff' }}>{totals.qty_sold}</td>
+                    <td style={{ textAlign:'right', color:'#fff' }}>{fmt(totals.revenue)}</td>
+                    <td style={{ textAlign:'right', color:'#fbbf24' }}>{fmt(totals.cogs)}</td>
+                    <td style={{ textAlign:'right', color:'#4ade80' }}>{fmt(totals.gross_profit)}</td>
+                    <td style={{ textAlign:'right', color:'#4ade80' }}>{totals.margin_pct}%</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Purchase Invoice Report */}
+      {!loading && reportData && reportType === 'purchase-invoice' && (() => {
+        const { purchase, items, totals } = reportData;
+        return (
+          <div>
+            {/* Purchase header */}
+            <div className="card" style={{ marginBottom:'12px' }}>
+              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))', gap:'12px', fontSize:'13px' }}>
+                <div><div style={{ fontSize:'11px', color:'#94a3b8', marginBottom:'3px' }}>Purchase #</div><strong>{purchase.purchase_number}</strong></div>
+                <div><div style={{ fontSize:'11px', color:'#94a3b8', marginBottom:'3px' }}>Supplier</div>{purchase.supplier_name}</div>
+                <div><div style={{ fontSize:'11px', color:'#94a3b8', marginBottom:'3px' }}>Date</div>{fmtDate(purchase.purchase_date)}</div>
+                <div><div style={{ fontSize:'11px', color:'#94a3b8', marginBottom:'3px' }}>Shop</div>{purchase.shop_name||'—'}</div>
+                <div><div style={{ fontSize:'11px', color:'#94a3b8', marginBottom:'3px' }}>Total Cost</div><strong style={{ color:'#dc2626' }}>{fmt(totals.totalCost)}</strong></div>
+                <div><div style={{ fontSize:'11px', color:'#94a3b8', marginBottom:'3px' }}>Revenue (sold)</div><strong style={{ color:'#059669' }}>{fmt(totals.totalRevenue)}</strong></div>
+                <div><div style={{ fontSize:'11px', color:'#94a3b8', marginBottom:'3px' }}>Gross Profit</div><strong style={{ color: totals.grossProfit>=0?'#059669':'#dc2626' }}>{fmt(totals.grossProfit)}</strong></div>
+                <div><div style={{ fontSize:'11px', color:'#94a3b8', marginBottom:'3px' }}>Margin</div><strong style={{ color:'#6366f1' }}>{totals.margin}%</strong></div>
+                <div><div style={{ fontSize:'11px', color:'#94a3b8', marginBottom:'3px' }}>In Stock</div><strong>{totals.qtyInStock} units</strong></div>
+                <div><div style={{ fontSize:'11px', color:'#94a3b8', marginBottom:'3px' }}>Stock Value</div><strong>{fmt(totals.stockValue)}</strong></div>
+              </div>
+            </div>
+            <div className="card" style={{ padding:0, overflow:'hidden' }}>
+              <div className="table-wrapper">
+                <table className="r-table">
+                  <thead>
+                    <tr>
+                      <th>Product</th><th>Serial</th><th>Category</th>
+                      <th style={{ textAlign:'right' }}>Qty Bought</th>
+                      <th style={{ textAlign:'right' }}>Qty Sold</th>
+                      <th style={{ textAlign:'right' }}>In Stock</th>
+                      <th style={{ textAlign:'right' }}>Unit Cost</th>
+                      <th style={{ textAlign:'right' }}>Revenue</th>
+                      <th style={{ textAlign:'right' }}>Profit</th>
+                      <th>Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map((item, i) => {
+                      const profit = parseFloat(item.revenue||0) - parseFloat(item.cogs||0);
+                      const status = item.qty_in_stock === 0 ? { label:'Sold Out', bg:'#d1fae5', color:'#065f46' }
+                        : parseInt(item.qty_sold||0) === 0   ? { label:'In Stock',  bg:'#dbeafe', color:'#1e40af' }
+                        : { label:'Partial', bg:'#fef3c7', color:'#92400e' };
+                      return (
+                        <tr key={i}>
+                          <td><strong>{item.brand} {item.product_name}</strong></td>
+                          <td style={{ fontFamily:'monospace', fontSize:'12px', color:'#64748b' }}>{item.serial_number||'—'}</td>
+                          <td><span style={{ background:'#eef2ff', color:'#6366f1', padding:'2px 8px', borderRadius:'10px', fontSize:'11px', fontWeight:600 }}>{item.category||'—'}</span></td>
+                          <td style={{ textAlign:'right' }}>{item.qty_purchased}</td>
+                          <td style={{ textAlign:'right', color:'#059669', fontWeight:600 }}>{item.qty_sold}</td>
+                          <td style={{ textAlign:'right', color: item.qty_in_stock===0?'#94a3b8':'#0f172a', fontWeight:700 }}>{item.qty_in_stock}</td>
+                          <td style={{ textAlign:'right', color:'#92400e' }}>{fmt(item.unit_cost)}</td>
+                          <td style={{ textAlign:'right', color:'#059669' }}>{fmt(item.revenue)}</td>
+                          <td style={{ textAlign:'right' }}><strong style={{ color: profit>=0?'#059669':'#dc2626' }}>{fmt(profit)}</strong></td>
+                          <td><span style={{ background:status.bg, color:status.color, padding:'2px 8px', borderRadius:'10px', fontSize:'11px', fontWeight:600 }}>{status.label}</span></td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Stock Value Report */}
+      {!loading && reportData && reportType === 'stock-value' && (() => {
+        const { rows, category_totals, grand_total, shops: repShops, as_of_date } = reportData;
+        const fmt2 = n => `AED ${Math.round(parseFloat(n||0)).toLocaleString()}`;
         const grouped = {};
         rows.forEach(r => {
           if (!grouped[r.category]) grouped[r.category] = {};
           if (!grouped[r.category][r.sub_category]) grouped[r.category][r.sub_category] = {};
           grouped[r.category][r.sub_category][r.shop_name] = r;
         });
-
         return (
           <div>
-            {/* Header info */}
             <div style={{ display:'flex', gap:'12px', marginBottom:'16px', flexWrap:'wrap' }}>
-              {shops.map(sh => {
-                const shopTotal = rows.filter(r => r.shop_id === sh.id).reduce((s,r) => s + parseFloat(r.cost_value||0), 0);
-                const shopRetail = rows.filter(r => r.shop_id === sh.id).reduce((s,r) => s + parseFloat(r.retail_value||0), 0);
+              {repShops.map(sh => {
+                const sv = rows.filter(r=>r.shop_id===sh.id).reduce((s,r)=>s+parseFloat(r.cost_value||0),0);
+                const rv = rows.filter(r=>r.shop_id===sh.id).reduce((s,r)=>s+parseFloat(r.retail_value||0),0);
                 return (
-                  <div key={sh.id} className="card" style={{ flex:1, minWidth:200, padding:'16px', borderTop:'3px solid #6366f1' }}>
-                    <div style={{ fontSize:'.75rem', fontWeight:700, color:'#6366f1', textTransform:'uppercase', letterSpacing:'.5px', marginBottom:'6px' }}>{sh.name}</div>
-                    <div style={{ fontSize:'18px', fontWeight:800, color:'#0f172a' }}>{fmt2(shopTotal)}</div>
-                    <div style={{ fontSize:'11px', color:'#64748b', marginTop:'3px' }}>Cost Value</div>
-                    <div style={{ fontSize:'13px', fontWeight:600, color:'#059669', marginTop:'4px' }}>{fmt2(shopRetail)}</div>
+                  <div key={sh.id} className="card" style={{ flex:1, minWidth:180, padding:'14px 16px', borderTop:'3px solid #6366f1' }}>
+                    <div style={{ fontSize:'11px', fontWeight:700, color:'#6366f1', textTransform:'uppercase', letterSpacing:'.5px', marginBottom:'6px' }}>{sh.name}</div>
+                    <div style={{ fontSize:'18px', fontWeight:800, color:'#0f172a' }}>{fmt2(sv)}</div>
+                    <div style={{ fontSize:'11px', color:'#64748b' }}>Cost Value</div>
+                    <div style={{ fontSize:'13px', fontWeight:600, color:'#059669', marginTop:'4px' }}>{fmt2(rv)}</div>
                     <div style={{ fontSize:'11px', color:'#64748b' }}>Retail Value</div>
                   </div>
                 );
               })}
-              <div className="card" style={{ flex:1, minWidth:200, padding:'16px', borderTop:'3px solid #0f172a' }}>
-                <div style={{ fontSize:'.75rem', fontWeight:700, color:'#0f172a', textTransform:'uppercase', letterSpacing:'.5px', marginBottom:'6px' }}>All Shops Total</div>
+              <div className="card" style={{ flex:1, minWidth:180, padding:'14px 16px', borderTop:'3px solid #0f172a' }}>
+                <div style={{ fontSize:'11px', fontWeight:700, color:'#0f172a', textTransform:'uppercase', letterSpacing:'.5px', marginBottom:'6px' }}>All Shops</div>
                 <div style={{ fontSize:'18px', fontWeight:800, color:'#0f172a' }}>{fmt2(grand_total?.cost_value)}</div>
-                <div style={{ fontSize:'11px', color:'#64748b', marginTop:'3px' }}>Cost Value</div>
+                <div style={{ fontSize:'11px', color:'#64748b' }}>Cost · {parseInt(grand_total?.total_units||0).toLocaleString()} units</div>
                 <div style={{ fontSize:'13px', fontWeight:600, color:'#059669', marginTop:'4px' }}>{fmt2(grand_total?.retail_value)}</div>
-                <div style={{ fontSize:'11px', color:'#64748b' }}>Retail Value · {fmtN(grand_total?.total_units)} units</div>
+                <div style={{ fontSize:'11px', color:'#64748b' }}>Retail Value</div>
               </div>
             </div>
-
-            {/* Category breakdown table */}
             <div className="card" style={{ padding:0, overflow:'hidden' }}>
-              <div style={{ padding:'14px 20px', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                <strong style={{ fontSize:'14px' }}>Category wise Stock Value</strong>
-                <span style={{ fontSize:'12px', color:'var(--text-muted)' }}>As of {as_of_date}</span>
+              <div style={{ padding:'14px 20px', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between' }}>
+                <strong>Category Wise Stock Value</strong>
+                <span style={{ fontSize:'12px', color:'var(--text-muted)' }}>As of {fmtDate(as_of_date)}</span>
               </div>
               <div className="table-wrapper">
-                <table>
+                <table className="r-table">
                   <thead>
                     <tr>
-                      <th>Category</th>
-                      <th>Sub Category</th>
-                      <th style={{ textAlign:'right' }}>Units</th>
-                      {shops.map(sh => (
-                        <th key={sh.id} style={{ textAlign:'right' }}>{sh.name} Cost</th>
-                      ))}
-                      {shops.map(sh => (
-                        <th key={sh.id+'r'} style={{ textAlign:'right' }}>{sh.name} Retail</th>
-                      ))}
+                      <th>Category</th><th>Sub Category</th><th style={{ textAlign:'right' }}>Units</th>
+                      {repShops.map(sh=><th key={sh.id} style={{ textAlign:'right' }}>{sh.name} Cost</th>)}
+                      {repShops.map(sh=><th key={sh.id+'r'} style={{ textAlign:'right' }}>{sh.name} Retail</th>)}
                       <th style={{ textAlign:'right' }}>Total Cost</th>
                       <th style={{ textAlign:'right' }}>Total Retail</th>
                     </tr>
                   </thead>
                   <tbody>
                     {Object.entries(grouped).map(([cat, subCats]) => {
-                      const catRows = rows.filter(r => r.category === cat);
-                      const catCost = catRows.reduce((s,r) => s + parseFloat(r.cost_value||0), 0);
-                      const catRetail = catRows.reduce((s,r) => s + parseFloat(r.retail_value||0), 0);
-                      const catUnits = catRows.reduce((s,r) => s + parseInt(r.total_units||0), 0);
-
+                      const catRows = rows.filter(r=>r.category===cat);
+                      const catCost = catRows.reduce((s,r)=>s+parseFloat(r.cost_value||0),0);
+                      const catRetail = catRows.reduce((s,r)=>s+parseFloat(r.retail_value||0),0);
+                      const catUnits = catRows.reduce((s,r)=>s+parseInt(r.total_units||0),0);
                       return [
-                        // Sub category rows
                         ...Object.entries(subCats).map(([subCat, shopData], si) => {
-                          const subUnits = Object.values(shopData).reduce((s,r) => s + parseInt(r.total_units||0), 0);
-                          const subCost  = Object.values(shopData).reduce((s,r) => s + parseFloat(r.cost_value||0), 0);
-                          const subRetail= Object.values(shopData).reduce((s,r) => s + parseFloat(r.retail_value||0), 0);
+                          const subUnits = Object.values(shopData).reduce((s,r)=>s+parseInt(r.total_units||0),0);
+                          const subCost  = Object.values(shopData).reduce((s,r)=>s+parseFloat(r.cost_value||0),0);
+                          const subRetail= Object.values(shopData).reduce((s,r)=>s+parseFloat(r.retail_value||0),0);
                           return (
                             <tr key={`${cat}-${subCat}`}>
-                              <td style={{ color: si === 0 ? '#0f172a' : 'transparent', fontWeight: si === 0 ? 600 : 400 }}>
-                                {si === 0 ? (
-                                  <span style={{ display:'inline-flex', alignItems:'center', gap:'6px' }}>
-                                    <span style={{ background:'#eef2ff', color:'#6366f1', padding:'2px 8px', borderRadius:'10px', fontSize:'.75rem', fontWeight:700 }}>{cat}</span>
-                                  </span>
-                                ) : ''}
+                              <td style={{ color:si===0?'#0f172a':'transparent' }}>
+                                {si===0&&<span style={{ background:'#eef2ff', color:'#6366f1', padding:'2px 8px', borderRadius:'10px', fontSize:'12px', fontWeight:700 }}>{cat}</span>}
                               </td>
-                              <td style={{ color:'#475569', paddingLeft:'16px' }}>{subCat}</td>
-                              <td style={{ textAlign:'right', color:'#64748b' }}>{fmtN(subUnits)}</td>
-                              {shops.map(sh => (
-                                <td key={sh.id} style={{ textAlign:'right', color:'#92400e' }}>
-                                  {shopData[sh.name] ? fmt2(shopData[sh.name].cost_value) : '—'}
-                                </td>
-                              ))}
-                              {shops.map(sh => (
-                                <td key={sh.id+'r'} style={{ textAlign:'right', color:'#059669' }}>
-                                  {shopData[sh.name] ? fmt2(shopData[sh.name].retail_value) : '—'}
-                                </td>
-                              ))}
+                              <td style={{ color:'#475569', paddingLeft:'20px' }}>{subCat}</td>
+                              <td style={{ textAlign:'right', color:'#64748b' }}>{subUnits}</td>
+                              {repShops.map(sh=><td key={sh.id} style={{ textAlign:'right', color:'#92400e' }}>{shopData[sh.name]?fmt2(shopData[sh.name].cost_value):'—'}</td>)}
+                              {repShops.map(sh=><td key={sh.id+'r'} style={{ textAlign:'right', color:'#059669' }}>{shopData[sh.name]?fmt2(shopData[sh.name].retail_value):'—'}</td>)}
                               <td style={{ textAlign:'right', fontWeight:600 }}>{fmt2(subCost)}</td>
                               <td style={{ textAlign:'right', fontWeight:600, color:'#059669' }}>{fmt2(subRetail)}</td>
                             </tr>
                           );
                         }),
-                        // Category total row
-                        <tr key={`${cat}-TOTAL`} style={{ background:'#f8fafc', borderTop:'1px solid #e2e8f0' }}>
-                          <td colSpan={2} style={{ fontWeight:700, color:'#0f172a', fontSize:'13px' }}>
-                            {cat} Total
-                          </td>
-                          <td style={{ textAlign:'right', fontWeight:700 }}>{fmtN(catUnits)}</td>
-                          {shops.map(sh => {
-                            const v = catRows.filter(r => r.shop_name === sh.name).reduce((s,r) => s+parseFloat(r.cost_value||0),0);
-                            return <td key={sh.id} style={{ textAlign:'right', fontWeight:700, color:'#92400e' }}>{fmt2(v)}</td>;
-                          })}
-                          {shops.map(sh => {
-                            const v = catRows.filter(r => r.shop_name === sh.name).reduce((s,r) => s+parseFloat(r.retail_value||0),0);
-                            return <td key={sh.id+'r'} style={{ textAlign:'right', fontWeight:700, color:'#059669' }}>{fmt2(v)}</td>;
-                          })}
+                        <tr key={`${cat}-total`} className="cat-row">
+                          <td colSpan={2} style={{ fontWeight:700 }}>{cat} Total</td>
+                          <td style={{ textAlign:'right', fontWeight:700 }}>{catUnits}</td>
+                          {repShops.map(sh=>{ const v=catRows.filter(r=>r.shop_name===sh.name).reduce((s,r)=>s+parseFloat(r.cost_value||0),0); return <td key={sh.id} style={{ textAlign:'right', fontWeight:700, color:'#92400e' }}>{fmt2(v)}</td>; })}
+                          {repShops.map(sh=>{ const v=catRows.filter(r=>r.shop_name===sh.name).reduce((s,r)=>s+parseFloat(r.retail_value||0),0); return <td key={sh.id+'r'} style={{ textAlign:'right', fontWeight:700, color:'#059669' }}>{fmt2(v)}</td>; })}
                           <td style={{ textAlign:'right', fontWeight:700, color:'#6366f1' }}>{fmt2(catCost)}</td>
                           <td style={{ textAlign:'right', fontWeight:700, color:'#059669' }}>{fmt2(catRetail)}</td>
                         </tr>
                       ];
                     })}
-
-                    {/* Grand Total */}
-                    <tr style={{ background:'#0f172a' }}>
-                      <td colSpan={2} style={{ fontWeight:800, color:'#fff', fontSize:'13px' }}>GRAND TOTAL</td>
-                      <td style={{ textAlign:'right', fontWeight:800, color:'#fff' }}>{fmtN(grand_total?.total_units)}</td>
-                      {shops.map(sh => {
-                        const v = rows.filter(r => r.shop_name === sh.name).reduce((s,r) => s+parseFloat(r.cost_value||0),0);
-                        return <td key={sh.id} style={{ textAlign:'right', fontWeight:800, color:'#fbbf24' }}>{fmt2(v)}</td>;
-                      })}
-                      {shops.map(sh => {
-                        const v = rows.filter(r => r.shop_name === sh.name).reduce((s,r) => s+parseFloat(r.retail_value||0),0);
-                        return <td key={sh.id+'r'} style={{ textAlign:'right', fontWeight:800, color:'#4ade80' }}>{fmt2(v)}</td>;
-                      })}
-                      <td style={{ textAlign:'right', fontWeight:800, color:'#fbbf24' }}>{fmt2(grand_total?.cost_value)}</td>
-                      <td style={{ textAlign:'right', fontWeight:800, color:'#4ade80' }}>{fmt2(grand_total?.retail_value)}</td>
+                    <tr className="grand-row">
+                      <td colSpan={2}>GRAND TOTAL</td>
+                      <td style={{ textAlign:'right', color:'#fff' }}>{parseInt(grand_total?.total_units||0).toLocaleString()}</td>
+                      {repShops.map(sh=>{ const v=rows.filter(r=>r.shop_name===sh.name).reduce((s,r)=>s+parseFloat(r.cost_value||0),0); return <td key={sh.id} style={{ textAlign:'right', color:'#fbbf24' }}>{fmt2(v)}</td>; })}
+                      {repShops.map(sh=>{ const v=rows.filter(r=>r.shop_name===sh.name).reduce((s,r)=>s+parseFloat(r.retail_value||0),0); return <td key={sh.id+'r'} style={{ textAlign:'right', color:'#4ade80' }}>{fmt2(v)}</td>; })}
+                      <td style={{ textAlign:'right', color:'#fbbf24' }}>{fmt2(grand_total?.cost_value)}</td>
+                      <td style={{ textAlign:'right', color:'#4ade80' }}>{fmt2(grand_total?.retail_value)}</td>
                     </tr>
                   </tbody>
                 </table>
@@ -490,27 +520,58 @@ const printReport = async () => {
         );
       })()}
 
-      {/* Sales */}
-      {data && tab === 'Sales' && (
-        <div className="card">
-          <div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between'}}>
-            <strong>{Array.isArray(data)?data.length:0} invoices</strong>
-            <strong>Total: {fmt(Array.isArray(data)?data.reduce((s,r)=>s+parseFloat(r.total_amount||0),0):0)}</strong>
+      {/* Daily Inventory Value */}
+      {!loading && reportData && reportType === 'daily-inventory' && (() => {
+        const { rows, shops: invShops } = reportData;
+        return (
+          <div className="card" style={{ padding:0, overflow:'hidden' }}>
+            <div style={{ padding:'14px 20px', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+              <strong>Daily Inventory Value</strong>
+              <span style={{ fontSize:'12px', color:'#94a3b8', background:'#fef3c7', padding:'4px 10px', borderRadius:'6px' }}>
+                ⚠️ Approximate — calculated backwards from current inventory
+              </span>
+            </div>
+            <div className="table-wrapper">
+              <table className="r-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    {invShops.map(sh=><th key={sh.id} style={{ textAlign:'right' }}>{sh.name}</th>)}
+                    <th style={{ textAlign:'right' }}>Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, i) => (
+                    <tr key={i}>
+                      <td>{fmtDate(row.date)}</td>
+                      {invShops.map(sh=><td key={sh.id} style={{ textAlign:'right', color:'#334155' }}>{fmt(row.shops[sh.id]?.cost_value||0)}</td>)}
+                      <td style={{ textAlign:'right', fontWeight:700, color:'#6366f1' }}>{fmt(row.total)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
+        );
+      })()}
+
+      {/* Sales Detail */}
+      {!loading && reportData && reportType === 'sales' && (
+        <div className="card" style={{ padding:0, overflow:'hidden' }}>
           <div className="table-wrapper">
-            <table>
-              <thead><tr><th>Invoice #</th><th>Customer</th><th>Shop</th><th>Sold By</th><th>Date</th><th>Total</th><th>Paid</th><th>Due</th><th>Status</th></tr></thead>
+            <table className="r-table">
+              <thead><tr><th>Invoice #</th><th>Customer</th><th>Shop</th><th>Date</th><th style={{ textAlign:'right' }}>Total</th><th style={{ textAlign:'right' }}>Paid</th><th style={{ textAlign:'right' }}>Due</th><th>Method</th><th>Status</th></tr></thead>
               <tbody>
-                {(Array.isArray(data)?data:[]).map(s => (
-                  <tr key={s.id}>
+                {(Array.isArray(reportData)?reportData:[]).map((s,i) => (
+                  <tr key={i}>
                     <td><span className="badge badge-blue">{s.invoice_number}</span></td>
-                    <td>{s.customer_name||'Walk-in'}</td>
-                    <td>{s.shop_name||'—'}</td>
-                    <td>{s.sold_by||'—'}</td>
+                    <td>{s.customer_name||<span style={{ color:'#94a3b8' }}>Walk-in</span>}</td>
+                    <td><span className="badge badge-gray">{s.shop_name}</span></td>
                     <td>{fmtDate(s.sale_date)}</td>
-                    <td><strong>{fmt(s.total_amount)}</strong></td>
-                    <td style={{color:'var(--accent-green)'}}>{fmt(s.amount_paid)}</td>
-                    <td style={{color:s.amount_due>0?'var(--accent-red)':'var(--accent-green)'}}>{fmt(s.amount_due)}</td>
+                    <td style={{ textAlign:'right', fontWeight:600 }}>{fmt(s.total_amount)}</td>
+                    <td style={{ textAlign:'right', color:'#059669' }}>{fmt(s.amount_paid)}</td>
+                    <td style={{ textAlign:'right', color:s.amount_due>0?'#dc2626':'#059669' }}>{fmt(s.amount_due)}</td>
+                    <td style={{ fontSize:'12px', fontWeight:600, textTransform:'uppercase' }}>{s.payment_method}</td>
                     <td><span className={`badge ${payStatus(s.payment_status)}`}>{s.payment_status}</span></td>
                   </tr>
                 ))}
@@ -520,27 +581,22 @@ const printReport = async () => {
         </div>
       )}
 
-      {/* Purchases */}
-      {data && tab === 'Purchases' && (
-        <div className="card">
-          <div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between'}}>
-            <strong>{Array.isArray(data)?data.length:0} purchases</strong>
-            <strong>Total: {fmt(Array.isArray(data)?data.reduce((s,r)=>s+parseFloat(r.total_amount||0),0):0)}</strong>
-          </div>
+      {/* Purchases Detail */}
+      {!loading && reportData && reportType === 'purchases' && (
+        <div className="card" style={{ padding:0, overflow:'hidden' }}>
           <div className="table-wrapper">
-            <table>
-              <thead><tr><th>Purchase #</th><th>Supplier</th><th>Shop</th><th>Date</th><th>Total</th><th>Paid</th><th>Due</th><th>Status</th></tr></thead>
+            <table className="r-table">
+              <thead><tr><th>Purchase #</th><th>Supplier</th><th>Date</th><th style={{ textAlign:'right' }}>Total</th><th style={{ textAlign:'right' }}>Paid</th><th style={{ textAlign:'right' }}>Due</th><th>Status</th></tr></thead>
               <tbody>
-                {(Array.isArray(data)?data:[]).map(p => (
-                  <tr key={p.id}>
+                {(Array.isArray(reportData)?reportData:[]).map((p,i) => (
+                  <tr key={i}>
                     <td><span className="badge badge-blue">{p.purchase_number}</span></td>
                     <td>{p.supplier_name}</td>
-                    <td>{p.shop_name||'—'}</td>
                     <td>{fmtDate(p.purchase_date)}</td>
-                    <td><strong>{fmt(p.total_amount)}</strong></td>
-                    <td style={{color:'var(--accent-green)'}}>{fmt(p.amount_paid)}</td>
-                    <td style={{color:p.amount_due>0?'var(--accent-red)':'var(--accent-green)'}}>{fmt(p.amount_due)}</td>
-                    <td><span className={`badge ${({paid:'badge-green',partial:'badge-yellow',unpaid:'badge-red'}[p.payment_status]||'badge-gray')}`}>{p.payment_status}</span></td>
+                    <td style={{ textAlign:'right', fontWeight:600 }}>{fmt(p.total_amount)}</td>
+                    <td style={{ textAlign:'right', color:'#059669' }}>{fmt(p.amount_paid)}</td>
+                    <td style={{ textAlign:'right', color:p.amount_due>0?'#dc2626':'#059669' }}>{fmt(p.amount_due)}</td>
+                    <td><span className={`badge ${payStatus(p.payment_status)}`}>{p.payment_status}</span></td>
                   </tr>
                 ))}
               </tbody>
@@ -549,25 +605,21 @@ const printReport = async () => {
         </div>
       )}
 
-      {/* Expenses */}
-      {data && tab === 'Expenses' && (
-        <div className="card">
-          <div style={{padding:'12px 16px',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between'}}>
-            <strong>{Array.isArray(data)?data.length:0} expenses</strong>
-            <strong>Total: {fmt(Array.isArray(data)?data.reduce((s,r)=>s+parseFloat(r.amount||0),0):0)}</strong>
-          </div>
+      {/* Expenses Detail */}
+      {!loading && reportData && reportType === 'expenses' && (
+        <div className="card" style={{ padding:0, overflow:'hidden' }}>
           <div className="table-wrapper">
-            <table>
-              <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Payee</th><th>Method</th><th>Amount</th></tr></thead>
+            <table className="r-table">
+              <thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Shop</th><th style={{ textAlign:'right' }}>Amount</th><th>Method</th></tr></thead>
               <tbody>
-                {(Array.isArray(data)?data:[]).map(e => (
-                  <tr key={e.id}>
+                {(Array.isArray(reportData)?reportData:[]).map((e,i) => (
+                  <tr key={i}>
                     <td>{fmtDate(e.expense_date)}</td>
-                    <td><span className="badge badge-yellow">{e.category}</span></td>
-                    <td>{e.description||'—'}</td>
-                    <td>{e.payee||'—'}</td>
-                    <td>{e.payment_method}</td>
-                    <td><strong style={{color:'var(--accent-red)'}}>{fmt(e.amount)}</strong></td>
+                    <td><span className="badge badge-purple">{e.category_name||e.category}</span></td>
+                    <td>{e.description}</td>
+                    <td><span className="badge badge-gray">{e.shop_name||'—'}</span></td>
+                    <td style={{ textAlign:'right', fontWeight:600, color:'#dc2626' }}>{fmt(e.amount)}</td>
+                    <td style={{ fontSize:'12px', textTransform:'uppercase', color:'#64748b' }}>{e.payment_method}</td>
                   </tr>
                 ))}
               </tbody>
@@ -577,23 +629,21 @@ const printReport = async () => {
       )}
 
       {/* Top Products */}
-      {data && tab === 'Top Products' && (
-        <div className="card">
+      {!loading && reportData && reportType === 'top-products' && (
+        <div className="card" style={{ padding:0, overflow:'hidden' }}>
           <div className="table-wrapper">
-            <table>
-              <thead><tr><th>#</th><th>Product</th><th>Units Sold</th><th>Revenue</th><th>Cost</th><th>Profit</th><th>Margin</th></tr></thead>
+            <table className="r-table">
+              <thead><tr><th>#</th><th>Product</th><th style={{ textAlign:'right' }}>Units</th><th style={{ textAlign:'right' }}>Revenue</th><th style={{ textAlign:'right' }}>Cost</th><th style={{ textAlign:'right' }}>Profit</th><th style={{ textAlign:'right' }}>Margin</th></tr></thead>
               <tbody>
-                {(Array.isArray(data)?data:[]).map((p,i) => (
+                {(Array.isArray(reportData)?reportData:[]).map((p,i) => (
                   <tr key={i}>
-                    <td><span className="badge badge-blue">{i+1}</span></td>
+                    <td><span className={`badge ${i<3?'badge-yellow':'badge-gray'}`}>{i+1}</span></td>
                     <td><strong>{p.brand}</strong> {p.name}</td>
-                    <td>{p.units_sold}</td>
-                    <td>{fmt(p.revenue)}</td>
-                    <td>{fmt(p.cost)}</td>
-                    <td style={{color:p.profit>=0?'var(--accent-green)':'var(--accent-red)'}}><strong>{fmt(p.profit)}</strong></td>
-                    <td style={{color:p.profit>=0?'var(--accent-green)':'var(--accent-red)'}}>
-                      {p.revenue>0?((p.profit/p.revenue)*100).toFixed(1):0}%
-                    </td>
+                    <td style={{ textAlign:'right' }}>{p.units_sold}</td>
+                    <td style={{ textAlign:'right' }}>{fmt(p.revenue)}</td>
+                    <td style={{ textAlign:'right', color:'#92400e' }}>{fmt(p.cost)}</td>
+                    <td style={{ textAlign:'right' }}><strong style={{ color:p.profit>=0?'#059669':'#dc2626' }}>{fmt(p.profit)}</strong></td>
+                    <td style={{ textAlign:'right' }}>{p.revenue>0?((p.profit/p.revenue)*100).toFixed(1):0}%</td>
                   </tr>
                 ))}
               </tbody>
@@ -603,38 +653,44 @@ const printReport = async () => {
       )}
 
       {/* Salesperson */}
-      {data && tab === 'Salesperson' && (
-        <div className="card">
+      {!loading && reportData && reportType === 'salesperson' && (
+        <div className="card" style={{ padding:0, overflow:'hidden' }}>
           <div className="table-wrapper">
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th><th>Salesperson</th><th>Invoices</th><th>Items Sold</th>
-                  <th>Revenue</th><th>Collected</th><th>Outstanding</th><th>Discounts Given</th><th>Customers</th>
-                </tr>
-              </thead>
+            <table className="r-table">
+              <thead><tr><th>#</th><th>Salesperson</th><th style={{ textAlign:'right' }}>Invoices</th><th style={{ textAlign:'right' }}>Items</th><th style={{ textAlign:'right' }}>Revenue</th><th style={{ textAlign:'right' }}>Collected</th><th style={{ textAlign:'right' }}>Outstanding</th><th style={{ textAlign:'right' }}>Discounts</th></tr></thead>
               <tbody>
-                {(Array.isArray(data)?data:[]).filter(s=>s.invoice_count>0).map((s,i) => (
+                {(Array.isArray(reportData)?reportData:[]).filter(s=>s.invoice_count>0).map((s,i) => (
                   <tr key={s.id}>
                     <td><span className="badge badge-blue">{i+1}</span></td>
                     <td><strong>{s.salesperson}</strong></td>
-                    <td>{s.invoice_count}</td>
-                    <td>{s.total_items_sold}</td>
-                    <td><strong style={{color:'var(--accent-green)'}}>{fmt(s.total_revenue)}</strong></td>
-                    <td style={{color:'var(--accent-green)'}}>{fmt(s.total_collected)}</td>
-                    <td style={{color:s.total_due>0?'var(--accent-red)':'var(--accent-green)'}}>{fmt(s.total_due)}</td>
-                    <td style={{color:'var(--accent-red)'}}>{fmt(s.total_discount)}</td>
-                    <td>{s.unique_customers}</td>
+                    <td style={{ textAlign:'right' }}>{s.invoice_count}</td>
+                    <td style={{ textAlign:'right' }}>{s.total_items_sold}</td>
+                    <td style={{ textAlign:'right' }}><strong style={{ color:'#059669' }}>{fmt(s.total_revenue)}</strong></td>
+                    <td style={{ textAlign:'right', color:'#059669' }}>{fmt(s.total_collected)}</td>
+                    <td style={{ textAlign:'right', color:s.total_due>0?'#dc2626':'#059669' }}>{fmt(s.total_due)}</td>
+                    <td style={{ textAlign:'right', color:'#dc2626' }}>{fmt(s.total_discount)}</td>
                   </tr>
                 ))}
-                {(Array.isArray(data)?data:[]).filter(s=>s.invoice_count>0).length === 0 && (
-                  <tr><td colSpan={9}><div className="empty-state">No sales data for this period</div></td></tr>
-                )}
               </tbody>
             </table>
           </div>
         </div>
       )}
+
+      {/* Summary report output */}
+      {!loading && reportData && reportType === 'summary' && (() => {
+        const d = reportData;
+        return (
+          <div className="stat-grid">
+            <div className="stat-card green"><div className="label">Total Sales</div><div className="value">{fmt(d.sales?.total)}</div><div className="sub">{d.sales?.count} invoices</div></div>
+            <div className="stat-card red"><div className="label">COGS</div><div className="value">{fmt(d.cogs)}</div><div className="sub">Actual unit cost</div></div>
+            <div className="stat-card green"><div className="label">Gross Profit</div><div className="value" style={{ color:d.profit?.gross>=0?'var(--accent-green)':'var(--accent-red)' }}>{fmt(d.profit?.gross)}</div><div className="sub">Sales - COGS</div></div>
+            <div className="stat-card red"><div className="label">Expenses</div><div className="value">{fmt(d.expenses?.total)}</div><div className="sub">{d.expenses?.count} entries</div></div>
+            <div className={`stat-card ${d.profit?.net>=0?'green':'red'}`}><div className="label">Net Profit</div><div className="value" style={{ color:d.profit?.net>=0?'var(--accent-green)':'var(--accent-red)' }}>{fmt(d.profit?.net)}</div><div className="sub">After expenses</div></div>
+          </div>
+        );
+      })()}
+
     </div>
   );
 }
