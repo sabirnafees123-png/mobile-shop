@@ -10,23 +10,32 @@ app.use(helmet({
   crossOriginResourcePolicy: false
 }));
 app.use(cors({
-  origin: [
-    'https://mobile-shop-ttur.vercel.app',
-    'https://frontend-chi-jet-38.vercel.app',
-    'http://localhost:3000'
-  ],
+  origin: function(origin, callback) {
+    const allowed = [
+      'https://mobile-shop-ttur.vercel.app',
+      'https://frontend-chi-jet-38.vercel.app',
+      'http://localhost:3000',
+      'http://localhost:3001',
+    ];
+    // Allow requests with no origin (mobile apps, curl, etc)
+    if (!origin) return callback(null, true);
+    // Allow any vercel.app subdomain
+    if (origin.endsWith('.vercel.app') || allowed.includes(origin)) {
+      return callback(null, true);
+    }
+    return callback(null, false);
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.options('*', cors({
-  origin: [
-    'https://mobile-shop-ttur.vercel.app',
-    'https://frontend-chi-jet-38.vercel.app',
-    'http://localhost:3000'
-  ],
+  origin: function(origin, callback) {
+    if (!origin || origin.endsWith('.vercel.app')) return callback(null, true);
+    return callback(null, true); // allow all preflight
+  },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
