@@ -303,30 +303,32 @@ router.get('/top-products', async (req, res) => {
 router.get('/salesperson', async (req, res) => {
   try {
     const { from, to, shop_id } = req.query;
-    let sql = `
+    const params = [];
+    let where = `WHERE si.payment_status != 'returned'`;
+    if (from)    { params.push(from);    where += ` AND si.sale_date >= $${params.length}`; }
+    if (to)      { params.push(to);      where += ` AND si.sale_date <= $${params.length}`; }
+    if (shop_id) { params.push(shop_id); where += ` AND si.shop_id = $${params.length}`; }
+    const result = await query(`
       SELECT u.id, u.name as salesperson,
-             COUNT(DISTINCT si.id)        as invoice_count,
-             SUM(sli.qty)                 as total_items_sold,
-             SUM(si.total_amount)         as total_revenue,
-             SUM(si.amount_paid)          as total_collected,
-             SUM(si.amount_due)           as total_due,
-             SUM(si.discount)             as total_discount,
-             COUNT(DISTINCT si.customer_id) as unique_customers
+        COUNT(DISTINCT si.id) as invoice_count,
+        SUM(sli.qty) as total_items_sold,
+        SUM(si.total_amount) as total_revenue,
+        SUM(si.amount_paid) as total_collected,
+        SUM(si.amount_due) as total_due,
+        SUM(si.discount) as total_discount,
+        COUNT(DISTINCT si.customer_id) as unique_customers
       FROM users u
       LEFT JOIN sales_invoices si ON si.user_id = u.id
-        AND si.payment_status != 'returned'
-        ${from ? `AND si.sale_date >= '${from}'` : ''}
-        ${to   ? `AND si.sale_date <= '${to}'`   : ''}
-        ${shop_id ? `AND si.shop_id = '${shop_id}'` : ''}
       LEFT JOIN sale_items sli ON sli.invoice_id = si.id
+      ${where.replace('WHERE', 'AND')}
       WHERE u.is_active = true
       GROUP BY u.id, u.name
       ORDER BY total_revenue DESC NULLS LAST
-    `;
-    const result = await query(sql);
+    `, params);
     res.json({ success: true, data: result.rows });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
+
 
 // ── GET /api/v1/reports/print-summary ────────────────────────────────────────
       LEFT JOIN shops sh ON sh.id = si.shop_id
