@@ -303,47 +303,31 @@ router.get('/top-products', async (req, res) => {
 router.get('/salesperson', async (req, res) => {
   try {
     const { from, to, shop_id } = req.query;
-    const params = [];
-    let where = `WHERE si.payment_status != 'returned'`;
-    if (from)    { params.push(from);    where += ` AND si.sale_date >= $${params.length}`; }
-    if (to)      { params.push(to);      where += ` AND si.sale_date <= $${params.length}`; }
-    if (shop_id) { params.push(shop_id); where += ` AND si.shop_id = $${params.length}`; }
-    const result = await query(`
+    let sql = `
       SELECT u.id, u.name as salesperson,
-        COUNT(DISTINCT si.id) as invoice_count,
-        SUM(sli.qty) as total_items_sold,
-        SUM(si.total_amount) as total_revenue,
-        SUM(si.amount_paid) as total_collected,
-        SUM(si.amount_due) as total_due,
-        SUM(si.discount) as total_discount,
-        COUNT(DISTINCT si.customer_id) as unique_customers
+             COUNT(DISTINCT si.id)        as invoice_count,
+             SUM(sli.qty)                 as total_items_sold,
+             SUM(si.total_amount)         as total_revenue,
+             SUM(si.amount_paid)          as total_collected,
+             SUM(si.amount_due)           as total_due,
+             SUM(si.discount)             as total_discount,
+             COUNT(DISTINCT si.customer_id) as unique_customers
       FROM users u
       LEFT JOIN sales_invoices si ON si.user_id = u.id
+        AND si.payment_status != 'returned'
+        ${from ? `AND si.sale_date >= '${from}'` : ''}
+        ${to   ? `AND si.sale_date <= '${to}'`   : ''}
+        ${shop_id ? `AND si.shop_id = '${shop_id}'` : ''}
       LEFT JOIN sale_items sli ON sli.invoice_id = si.id
-      ${where.replace('WHERE', 'AND')}
       WHERE u.is_active = true
       GROUP BY u.id, u.name
       ORDER BY total_revenue DESC NULLS LAST
-    `, params);
-    res.json({ success: true, data: result.rows });
-  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
-});
-
-
-// ── GET /api/v1/reports/print-summary ────────────────────────────────────────
-      LEFT JOIN shops sh ON sh.id = si.shop_id
-      WHERE u.is_active = true
-      GROUP BY u.id, u.name, sh.name
-      ORDER BY total_sales DESC
     `;
     const result = await query(sql);
     res.json({ success: true, data: result.rows });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
-// ── GET /api/v1/reports/print-summary ────────────────────────────────────────
-// Add this route to backend/src/routes/reports.js
-// Paste it just before the last line: module.exports = router;
 
 router.get('/print-summary', async (req, res) => {
   try {
@@ -475,6 +459,22 @@ router.get('/print-summary', async (req, res) => {
         from, to,
         sales_by_shop:    salesByShop.rows,
         payment_by_shop:  paymentByShop.rows,
+        expenses_by_shop: expRows,
+        purchases_by_shop: purchRows,
+        totals: {
+          net_sales:       totalNetSales,
+          cost_of_goods:   totalCOGS,
+          gross_profit:    totalGrossProfit,
+          gross_margin:    totalNetSales > 0 ? ((totalGrossProfit / totalNetSales) * 100).toFixed(1) : '0.0',
+          total_expenses:  totalExpenses,
+          net_profit:      totalNetProfit,
+          net_margin:      totalNetSales > 0 ? ((totalNetProfit / totalNetSales) * 100).toFixed(1) : '0.0',
+          total_purchased: totalPurchased,
+        },
+      },
+    });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
 
 // ── GET /api/v1/reports/purchase-invoice ─────────────────────────────────────
 router.get('/purchase-invoice', async (req, res) => {
