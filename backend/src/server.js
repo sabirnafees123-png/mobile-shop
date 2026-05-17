@@ -6,25 +6,21 @@ require('dotenv').config();
 
 const app = express();
 
-// ── CORS must be first — before helmet and everything else ────────────────────
+// ── CORS first — before everything including helmet ───────────────────────────
 const corsOptions = {
   origin: function(origin, callback) {
-    // Allow no-origin requests (server-to-server, curl, mobile)
     if (!origin) return callback(null, true);
-    // Allow localhost
     if (origin.startsWith('http://localhost')) return callback(null, true);
-    // Allow any vercel.app subdomain
     if (origin.endsWith('.vercel.app')) return callback(null, true);
-    return callback(null, false);
+    callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 200, // some browsers (IE11) choke on 204
+  optionsSuccessStatus: 200,
 };
-
 app.use(cors(corsOptions));
-app.options('*', cors(corsOptions)); // handle preflight for all routes
+app.options('*', cors(corsOptions));
 
 app.use(helmet({ crossOriginResourcePolicy: false }));
 app.use(morgan('dev'));
@@ -37,7 +33,10 @@ app.use('/api/v1/auth', authRoutes);
 
 // ─── Protected middleware ────────────────────────────────────────────────────
 const { protect } = require('./middleware/authMiddleware');
-app.use('/api/v1', protect);
+app.use('/api/v1', (req, res, next) => {
+  if (req.method === 'OPTIONS') return next(); // allow preflight through
+  return protect(req, res, next);
+});
 
 // ─── All protected routes ────────────────────────────────────────────────────
 const dashboardRoutes    = require('./routes/dashboard');
