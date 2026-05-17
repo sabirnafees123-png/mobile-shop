@@ -93,7 +93,150 @@ export default function Reports() {
     }
   };
 
-  const printReport = async () => {
+  const printFullReport = async () => {
+    if (!from || !to) return toast.error('Select a date range first');
+    try {
+      const res = await api.get('/reports/full-business-report', { params: { from, to } });
+      const d = res.data?.data;
+      if (!d) return toast.error('No data');
+      const fmtN = n => `AED ${Math.round(parseFloat(n||0)).toLocaleString()}`;
+      const fmtDt = s => { try { return new Date(s).toLocaleDateString('en-AE'); } catch { return s; } };
+      const shopNames = d.sales_by_shop.map(r => r.shop_name);
+
+      // Sales rows
+      const salesRows = [
+        ['Invoices',      ...d.sales_by_shop.map(r=>r.invoice_count),  d.sales_by_shop.reduce((s,r)=>s+parseInt(r.invoice_count||0),0)],
+        ['Net Sales',     ...d.sales_by_shop.map(r=>fmtN(r.net_sales)), fmtN(d.totals.totalSales)],
+        ['Collected',     ...d.sales_by_shop.map(r=>fmtN(r.collected)), fmtN(d.sales_by_shop.reduce((s,r)=>s+parseFloat(r.collected||0),0))],
+        ['COGS',          ...d.sales_by_shop.map(r=>fmtN(r.cogs)),      fmtN(d.totals.totalCOGS)],
+        ['Gross Profit',  ...d.sales_by_shop.map(r=>fmtN(parseFloat(r.net_sales||0)-parseFloat(r.cogs||0))), fmtN(d.totals.grossProfit)],
+      ];
+
+      // Expense rows by category
+      const expCats = [...new Set(d.expenses.filter(e=>parseFloat(e.total)>0).map(e=>e.category))];
+      const expRows = expCats.map(cat => {
+        const vals = shopNames.map(sh => {
+          const found = d.expenses.find(e=>e.shop_name===sh&&e.category===cat);
+          return fmtN(found?.total||0);
+        });
+        const total = d.expenses.filter(e=>e.category===cat).reduce((s,e)=>s+parseFloat(e.total||0),0);
+        return [cat, ...vals, fmtN(total)];
+      });
+
+      // Stock table
+      const stockRows = [];
+      Object.entries(d.stock_by_shop).forEach(([shop, data]) => {
+        data.categories.forEach((cat, i) => {
+          stockRows.push([i===0?shop:'', cat.category, parseInt(cat.units).toLocaleString(), fmtN(cat.cost_value)]);
+        });
+        stockRows.push(['', `<strong>${shop} Total</strong>`, '', `<strong>${fmtN(data.total)}</strong>`]);
+      });
+
+      const buildTbl = (headers, rows, boldLast=true) => `
+        <table style="width:100%;border-collapse:collapse;margin-bottom:4px">
+          <thead><tr style="background:#0f172a">${headers.map(h=>`<th style="padding:8px 12px;text-align:${h===headers[0]?'left':'right'};color:#fff;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px">${h}</th>`).join('')}</tr></thead>
+          <tbody>${rows.map(row=>`<tr style="border-bottom:1px solid #f1f5f9">${row.map((cell,ci)=>`<td style="padding:8px 12px;font-size:13px;text-align:${ci===0?'left':'right'};font-weight:${(boldLast&&ci===row.length-1)||String(cell).includes('<strong>')?'700':'400'};color:${ci===row.length-1?'#6366f1':'#334155'}">${cell}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table>`;
+
+      const section = (icon, title, content) => `
+        <div style="margin-bottom:24px">
+          <div style="font-size:14px;font-weight:700;color:#0f172a;padding:10px 0;border-bottom:2px solid #6366f1;margin-bottom:12px">${icon} ${title}</div>
+          ${content}
+        </div>`;
+
+      const win = window.open('','_blank');
+      win.document.write(`<!DOCTYPE html><html><head><title>Full Business Report</title>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+      <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Inter',sans-serif;color:#0f172a}
+      @media print{@page{margin:10mm;size:A4}}</style></head><body>
+      <div style="padding:28px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #6366f1">
+          <div>
+            <div style="font-size:22px;font-weight:800">Full Business Report</div>
+            <div style="font-size:12px;color:#64748b;margin-top:3px">${fmtDt(d.period.from)} — ${fmtDt(d.period.to)}</div>
+          </div>
+          <div style="display:flex;gap:12px">
+            ${[['Net Sales',fmtN(d.totals.totalSales),'#6366f1'],['Gross Profit',fmtN(d.totals.grossProfit),'#059669'],['Net Profit',fmtN(d.totals.netProfit),d.totals.netProfit>=0?'#059669':'#dc2626'],['Expenses',fmtN(d.totals.totalExp),'#dc2626']]
+              .map(([l,v,c])=>`<div style="text-align:center;background:#f8fafc;border:1px solid #e2e8f0;border-top:3px solid ${c};border-radius:8px;padding:10px 14px"><div style="font-size:10px;font-weight:700;color:#94a3b8;text-transform:uppercase">${l}</div><div style="font-size:16px;font-weight:800;color:${c};margin-top:3px">${v}</div></div>`).join('')}
+          </div>
+        </div>
+
+        ${section('📊','Sales Summary by Shop', buildTbl(['Metric',...shopNames,'Total'], salesRows))}
+        ${expRows.length > 0 ? section('💸','Expenses by Category', buildTbl(['Category',...shopNames,'Total'], expRows)) : ''}
+
+        ${section('🏪','Stock Value by Shop (Cost)',`
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:#0f172a">
+              <th style="padding:8px 12px;text-align:left;color:#fff;font-size:11px;font-weight:600;text-transform:uppercase">Shop</th>
+              <th style="padding:8px 12px;text-align:left;color:#fff;font-size:11px;font-weight:600;text-transform:uppercase">Category</th>
+              <th style="padding:8px 12px;text-align:right;color:#fff;font-size:11px;font-weight:600;text-transform:uppercase">Units</th>
+              <th style="padding:8px 12px;text-align:right;color:#fff;font-size:11px;font-weight:600;text-transform:uppercase">Cost Value</th>
+            </tr></thead>
+            <tbody>
+              ${stockRows.map(r=>`<tr style="border-bottom:1px solid #f1f5f9;background:${r[1].includes('Total')?'#f8fafc':'#fff'}">
+                ${r.map((cell,ci)=>`<td style="padding:8px 12px;font-size:12px;text-align:${ci>=2?'right':'left'};color:${ci===3?'#6366f1':'#334155'}">${cell}</td>`).join('')}
+              </tr>`).join('')}
+              <tr style="background:#0f172a">
+                <td colspan="3" style="padding:8px 12px;font-size:13px;font-weight:800;color:#fff">GRAND TOTAL</td>
+                <td style="padding:8px 12px;font-size:13px;font-weight:800;color:#4ade80;text-align:right">${fmtN(d.stock_grand_total)}</td>
+              </tr>
+            </tbody>
+          </table>
+        `)}
+
+        ${d.obligations_60.length > 0 ? section('📅',`Pending Obligations — Next 60 Days (${d.obligations_60.length})`,`
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:#0f172a">
+              <th style="padding:8px 12px;text-align:left;color:#fff;font-size:11px;font-weight:600;text-transform:uppercase">Description</th>
+              <th style="padding:8px 12px;text-align:left;color:#fff;font-size:11px;font-weight:600;text-transform:uppercase">Shop</th>
+              <th style="padding:8px 12px;text-align:left;color:#fff;font-size:11px;font-weight:600;text-transform:uppercase">Due Date</th>
+              <th style="padding:8px 12px;text-align:right;color:#fff;font-size:11px;font-weight:600;text-transform:uppercase">Amount</th>
+            </tr></thead>
+            <tbody>
+              ${d.obligations_60.map(o=>`<tr style="border-bottom:1px solid #f1f5f9">
+                <td style="padding:8px 12px;font-size:12px">${o.description||o.obligation_model||'—'}</td>
+                <td style="padding:8px 12px;font-size:12px;color:#64748b">${o.shop_name||'—'}</td>
+                <td style="padding:8px 12px;font-size:12px;color:${new Date(o.due_date)<=new Date(d.next30)?'#dc2626':'#d97706'};font-weight:600">${fmtDt(o.due_date)}</td>
+                <td style="padding:8px 12px;font-size:12px;font-weight:700;text-align:right;color:#dc2626">${fmtN(o.amount)}</td>
+              </tr>`).join('')}
+              <tr style="background:#fef2f2"><td colspan="3" style="padding:8px 12px;font-size:12px;font-weight:700;color:#dc2626">Total Obligations</td>
+              <td style="padding:8px 12px;font-size:13px;font-weight:800;text-align:right;color:#dc2626">${fmtN(d.obligations_60.reduce((s,o)=>s+parseFloat(o.amount||0),0))}</td></tr>
+            </tbody>
+          </table>
+        `) : ''}
+
+        ${d.cheques_60.length > 0 ? section('🏦',`Cheques to Pay — Next 60 Days (${d.cheques_60.length})`,`
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr style="background:#0f172a">
+              <th style="padding:8px 12px;text-align:left;color:#fff;font-size:11px;font-weight:600;text-transform:uppercase">Cheque #</th>
+              <th style="padding:8px 12px;text-align:left;color:#fff;font-size:11px;font-weight:600;text-transform:uppercase">Bank / Payee</th>
+              <th style="padding:8px 12px;text-align:left;color:#fff;font-size:11px;font-weight:600;text-transform:uppercase">Shop</th>
+              <th style="padding:8px 12px;text-align:left;color:#fff;font-size:11px;font-weight:600;text-transform:uppercase">Due Date</th>
+              <th style="padding:8px 12px;text-align:right;color:#fff;font-size:11px;font-weight:600;text-transform:uppercase">Amount</th>
+            </tr></thead>
+            <tbody>
+              ${d.cheques_60.map(c=>`<tr style="border-bottom:1px solid #f1f5f9">
+                <td style="padding:8px 12px;font-size:12px;font-family:monospace">${c.cheque_number||'—'}</td>
+                <td style="padding:8px 12px;font-size:12px">${c.bank||''} ${c.payee_payer?'/ '+c.payee_payer:''}</td>
+                <td style="padding:8px 12px;font-size:12px;color:#64748b">${c.shop_name||'—'}</td>
+                <td style="padding:8px 12px;font-size:12px;color:${new Date(c.due_date)<=new Date(d.next30)?'#dc2626':'#d97706'};font-weight:600">${fmtDt(c.due_date)}</td>
+                <td style="padding:8px 12px;font-size:12px;font-weight:700;text-align:right;color:#dc2626">${fmtN(c.amount)}</td>
+              </tr>`).join('')}
+              <tr style="background:#fef2f2"><td colspan="4" style="padding:8px 12px;font-size:12px;font-weight:700;color:#dc2626">Total Cheques</td>
+              <td style="padding:8px 12px;font-size:13px;font-weight:800;text-align:right;color:#dc2626">${fmtN(d.cheques_60.reduce((s,c)=>s+parseFloat(c.amount||0),0))}</td></tr>
+            </tbody>
+          </table>
+        `) : ''}
+
+        <div style="margin-top:20px;padding-top:12px;border-top:1px solid #e2e8f0;text-align:center;font-size:11px;color:#94a3b8">
+          Generated: ${new Date().toLocaleString('en-AE')} &nbsp;|&nbsp; Red = due within 30 days · Orange = due within 60 days
+        </div>
+      </div>
+      <script>window.onload=()=>setTimeout(()=>window.print(),500)</script>
+      </body></html>`);
+      win.document.close();
+    } catch (err) { toast.error('Failed to generate report'); console.error(err); }
+  };
     if (!from || !to) return toast.error('Select a date range first');
     try {
       const res = await api.get('/reports/print-summary', { params: { from, to } });
@@ -178,7 +321,7 @@ export default function Reports() {
           <div className="page-title">📊 Reports</div>
           <div className="page-subtitle">Business analytics and performance reports</div>
         </div>
-        <button className="btn btn-ghost" onClick={printReport}>🖨️ Print Summary</button>
+        <button className="btn btn-ghost" onClick={printFullReport}>🖨️ Full Business Report</button>
       </div>
 
       {/* Filters */}
