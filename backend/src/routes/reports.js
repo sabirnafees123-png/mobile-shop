@@ -32,7 +32,7 @@ router.get('/summary', async (req, res) => {
     const dateE = from && to ? `AND expense_date BETWEEN '${from}' AND '${to}'`
       : from ? `AND expense_date >= '${from}'` : to ? `AND expense_date <= '${to}'` : '';
 
-    const [sales, expenses, purchases, byShop] = await Promise.all([
+    const [sales, expenses, purchases, byShop, cogs] = await Promise.all([
       query(`SELECT COALESCE(SUM(total_amount),0) as total_sales,
                COALESCE(SUM(amount_paid),0) as total_collected,
                COALESCE(SUM(amount_due),0)  as total_due,
@@ -56,11 +56,20 @@ router.get('/summary', async (req, res) => {
         GROUP BY sh.id, sh.name
         ORDER BY sh.name
       `),
+      // COGS — actual unit_cost * qty from sale_items (correct method)
+      query(`
+        SELECT COALESCE(SUM(sli.unit_cost * sli.qty), 0) as total_cogs
+        FROM sale_items sli
+        JOIN sales_invoices si ON si.id = sli.invoice_id
+        WHERE si.payment_status != 'returned' ${dateS} ${shopSales}
+      `),
     ]);
 
     const totalSales     = parseFloat(sales.rows[0].total_sales);
     const totalExpenses  = parseFloat(expenses.rows[0].total_expenses);
     const totalPurchases = parseFloat(purchases.rows[0].total_purchases);
+    const totalCOGS      = parseFloat(cogs.rows[0].total_cogs);
+    const grossProfit    = totalSales - totalCOGS;
 
     res.json({
       success: true,
@@ -68,7 +77,8 @@ router.get('/summary', async (req, res) => {
         sales:     { total: totalSales, collected: parseFloat(sales.rows[0].total_collected), due: parseFloat(sales.rows[0].total_due), count: parseInt(sales.rows[0].invoice_count) },
         expenses:  { total: totalExpenses, count: parseInt(expenses.rows[0].expense_count) },
         purchases: { total: totalPurchases, count: parseInt(purchases.rows[0].purchase_count) },
-        profit:    { gross: totalSales - totalPurchases, net: totalSales - totalPurchases - totalExpenses },
+        cogs:      totalCOGS,
+        profit:    { gross: grossProfit, net: grossProfit - totalExpenses },
         by_shop:   byShop.rows,
       },
     });

@@ -314,12 +314,13 @@ const printReport = async () => {
             <div className="stat-card green"><div className="label">Total Sales</div><div className="value">{fmt(data.sales?.total)}</div><div className="sub">{data.sales?.count} invoices</div></div>
             <div className="stat-card blue"><div className="label">Collected</div><div className="value">{fmt(data.sales?.collected)}</div><div className="sub">Cash received</div></div>
             <div className="stat-card yellow"><div className="label">Outstanding</div><div className="value">{fmt(data.sales?.due)}</div><div className="sub">Yet to collect</div></div>
+            <div className="stat-card red"><div className="label">Cost of Goods Sold</div><div className="value">{fmt(data.cogs)}</div><div className="sub">Actual unit cost at sale</div></div>
             <div className="stat-card red"><div className="label">Total Expenses</div><div className="value">{fmt(data.expenses?.total)}</div><div className="sub">{data.expenses?.count} entries</div></div>
             <div className="stat-card blue"><div className="label">Total Purchases</div><div className="value">{fmt(data.purchases?.total)}</div><div className="sub">{data.purchases?.count} orders</div></div>
             <div className="stat-card green">
               <div className="label">Gross Profit</div>
               <div className="value" style={{color:data.profit?.gross>=0?'var(--accent-green)':'var(--accent-red)'}}>{fmt(data.profit?.gross)}</div>
-              <div className="sub">Sales - Purchases</div>
+              <div className="sub">Sales - COGS</div>
             </div>
             <div className={`stat-card ${data.profit?.net>=0?'green':'red'}`}>
               <div className="label">Net Profit</div>
