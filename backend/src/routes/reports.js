@@ -315,19 +315,24 @@ router.get('/print-summary', async (req, res) => {
       : from ? `AND e.expense_date >= '${from}'` : to ? `AND e.expense_date <= '${to}'` : '';
 
     // ── 1. Sales per shop (with cost of goods from sale_items) ───────────────
+    const dateFilterS = from && to
+      ? `si.sale_date BETWEEN '${from}' AND '${to}'`
+      : from ? `si.sale_date >= '${from}'`
+      : to   ? `si.sale_date <= '${to}'`
+      : `1=1`;
+
     const salesByShop = await query(`
       SELECT
         sh.id   AS shop_id,
         sh.name AS shop_name,
-        COUNT(DISTINCT si.id) FILTER (WHERE si.payment_status != 'returned')               AS invoice_count,
-        COUNT(DISTINCT si.id) FILTER (WHERE si.payment_status  = 'returned')               AS returned_count,
-        COALESCE(SUM(si.total_amount)  FILTER (WHERE si.payment_status != 'returned'), 0)  AS net_sales,
-        COALESCE(SUM(si.amount_paid)   FILTER (WHERE si.payment_status != 'returned'), 0)  AS cash_collected,
-        COALESCE(SUM(si.amount_due)    FILTER (WHERE si.payment_status != 'returned'), 0)  AS pending_amount,
-        -- Cost of goods: sum unit_cost * qty from sale_items
-        COALESCE(SUM(sli.unit_cost * sli.qty) FILTER (WHERE si.payment_status != 'returned'), 0) AS cost_of_goods
+        COUNT(DISTINCT si.id) FILTER (WHERE si.payment_status != 'returned' AND ${dateFilterS})               AS invoice_count,
+        COUNT(DISTINCT si.id) FILTER (WHERE si.payment_status  = 'returned' AND ${dateFilterS})               AS returned_count,
+        COALESCE(SUM(si.total_amount)  FILTER (WHERE si.payment_status != 'returned' AND ${dateFilterS}), 0)  AS net_sales,
+        COALESCE(SUM(si.amount_paid)   FILTER (WHERE si.payment_status != 'returned' AND ${dateFilterS}), 0)  AS cash_collected,
+        COALESCE(SUM(si.amount_due)    FILTER (WHERE si.payment_status != 'returned' AND ${dateFilterS}), 0)  AS pending_amount,
+        COALESCE(SUM(sli.unit_cost * sli.qty) FILTER (WHERE si.payment_status != 'returned' AND ${dateFilterS}), 0) AS cost_of_goods
       FROM shops sh
-      LEFT JOIN sales_invoices si  ON si.shop_id = sh.id ${dateS}
+      LEFT JOIN sales_invoices si  ON si.shop_id = sh.id
       LEFT JOIN sale_items     sli ON sli.invoice_id = si.id
       WHERE sh.is_active = true
       GROUP BY sh.id, sh.name
