@@ -6,25 +6,29 @@ require('dotenv').config();
 
 const app = express();
 
-// ── CORS first — before everything including helmet ───────────────────────────
-const corsOptions = {
-  origin: function(origin, callback) {
-    if (!origin) return callback(null, true);
-    if (origin.startsWith('http://localhost')) return callback(null, true);
-    if (origin.endsWith('.vercel.app')) return callback(null, true);
-    callback(null, false);
-  },
+app.use(helmet({
+  crossOriginResourcePolicy: false
+}));
+app.use(cors({
+  origin: [
+    'https://mobile-shop-ttur.vercel.app',
+    'https://frontend-chi-jet-38.vercel.app',
+    'http://localhost:3000'
+  ],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 200,
-};
-app.use(cors(corsOptions));
-app.options('*', cors(corsOptions));
-
-app.use(helmet({ crossOriginResourcePolicy: false }));
-app.use(morgan('dev'));
-app.use(express.json({ limit: '10mb' }));
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
+app.options('*', cors({
+  origin: [
+    'https://mobile-shop-ttur.vercel.app',
+    'https://frontend-chi-jet-38.vercel.app',
+    'http://localhost:3000'
+  ],
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // ─── Auth routes (PUBLIC) ────────────────────────────────────────────────────
@@ -33,10 +37,7 @@ app.use('/api/v1/auth', authRoutes);
 
 // ─── Protected middleware ────────────────────────────────────────────────────
 const { protect } = require('./middleware/authMiddleware');
-app.use('/api/v1', (req, res, next) => {
-  if (req.method === 'OPTIONS') return next(); // allow preflight through
-  return protect(req, res, next);
-});
+app.use('/api/v1', protect);
 
 // ─── All protected routes ────────────────────────────────────────────────────
 const dashboardRoutes    = require('./routes/dashboard');
