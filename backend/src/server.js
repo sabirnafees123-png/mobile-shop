@@ -6,38 +6,28 @@ require('dotenv').config();
 
 const app = express();
 
-app.use(helmet({
-  crossOriginResourcePolicy: false
-}));
-app.use(cors({
+// ── CORS must be first — before helmet and everything else ────────────────────
+const corsOptions = {
   origin: function(origin, callback) {
-    const allowed = [
-      'https://mobile-shop-ttur.vercel.app',
-      'https://frontend-chi-jet-38.vercel.app',
-      'http://localhost:3000',
-      'http://localhost:3001',
-    ];
-    // Allow requests with no origin (mobile apps, curl, etc)
+    // Allow no-origin requests (server-to-server, curl, mobile)
     if (!origin) return callback(null, true);
+    // Allow localhost
+    if (origin.startsWith('http://localhost')) return callback(null, true);
     // Allow any vercel.app subdomain
-    if (origin.endsWith('.vercel.app') || allowed.includes(origin)) {
-      return callback(null, true);
-    }
+    if (origin.endsWith('.vercel.app')) return callback(null, true);
     return callback(null, false);
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
-app.options('*', cors({
-  origin: function(origin, callback) {
-    if (!origin || origin.endsWith('.vercel.app')) return callback(null, true);
-    return callback(null, true); // allow all preflight
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));app.use(morgan('dev'));
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  optionsSuccessStatus: 200, // some browsers (IE11) choke on 204
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // handle preflight for all routes
+
+app.use(helmet({ crossOriginResourcePolicy: false }));
+app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
