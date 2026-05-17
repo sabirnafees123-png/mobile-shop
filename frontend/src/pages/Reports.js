@@ -6,7 +6,7 @@ import toast from 'react-hot-toast';
 const fmt = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
 const fmtDate = d => new Date(d).toLocaleDateString('en-AE');
 
-const TABS = ['Summary', 'Sales', 'Purchases', 'Expenses', 'Top Products', 'Salesperson'];
+const TABS = ['Summary', 'Stock Value', 'Sales', 'Purchases', 'Expenses', 'Top Products', 'Salesperson'];
 
 export default function Reports() {
   const today         = new Date().toISOString().split('T')[0];
@@ -32,6 +32,7 @@ export default function Reports() {
       if (shopId) params.shop_id = shopId;
       let res;
       if (activeTab === 'Summary')       res = await api.get('/reports/summary',      { params });
+      else if (activeTab === 'Stock Value') res = await api.get('/reports/stock-value', { params: { as_of_date: to } });
       else if (activeTab === 'Sales')    res = await api.get('/reports/sales',         { params });
       else if (activeTab === 'Purchases') res = await api.get('/reports/purchases',   { params });
       else if (activeTab === 'Expenses')  res = await api.get('/reports/expenses',    { params });
@@ -342,6 +343,151 @@ const printReport = async () => {
           )}
         </div>
       )}
+
+      {/* Stock Value */}
+      {data && tab === 'Stock Value' && (() => {
+        const { rows, category_totals, grand_total, shops, as_of_date } = data;
+        const fmt2 = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
+        const fmtN = n => Math.round(parseFloat(n || 0)).toLocaleString();
+
+        // Group rows by category → sub_category
+        const grouped = {};
+        rows.forEach(r => {
+          if (!grouped[r.category]) grouped[r.category] = {};
+          if (!grouped[r.category][r.sub_category]) grouped[r.category][r.sub_category] = {};
+          grouped[r.category][r.sub_category][r.shop_name] = r;
+        });
+
+        return (
+          <div>
+            {/* Header info */}
+            <div style={{ display:'flex', gap:'12px', marginBottom:'16px', flexWrap:'wrap' }}>
+              {shops.map(sh => {
+                const shopTotal = rows.filter(r => r.shop_id === sh.id).reduce((s,r) => s + parseFloat(r.cost_value||0), 0);
+                const shopRetail = rows.filter(r => r.shop_id === sh.id).reduce((s,r) => s + parseFloat(r.retail_value||0), 0);
+                return (
+                  <div key={sh.id} className="card" style={{ flex:1, minWidth:200, padding:'16px', borderTop:'3px solid #6366f1' }}>
+                    <div style={{ fontSize:'.75rem', fontWeight:700, color:'#6366f1', textTransform:'uppercase', letterSpacing:'.5px', marginBottom:'6px' }}>{sh.name}</div>
+                    <div style={{ fontSize:'18px', fontWeight:800, color:'#0f172a' }}>{fmt2(shopTotal)}</div>
+                    <div style={{ fontSize:'11px', color:'#64748b', marginTop:'3px' }}>Cost Value</div>
+                    <div style={{ fontSize:'13px', fontWeight:600, color:'#059669', marginTop:'4px' }}>{fmt2(shopRetail)}</div>
+                    <div style={{ fontSize:'11px', color:'#64748b' }}>Retail Value</div>
+                  </div>
+                );
+              })}
+              <div className="card" style={{ flex:1, minWidth:200, padding:'16px', borderTop:'3px solid #0f172a' }}>
+                <div style={{ fontSize:'.75rem', fontWeight:700, color:'#0f172a', textTransform:'uppercase', letterSpacing:'.5px', marginBottom:'6px' }}>All Shops Total</div>
+                <div style={{ fontSize:'18px', fontWeight:800, color:'#0f172a' }}>{fmt2(grand_total?.cost_value)}</div>
+                <div style={{ fontSize:'11px', color:'#64748b', marginTop:'3px' }}>Cost Value</div>
+                <div style={{ fontSize:'13px', fontWeight:600, color:'#059669', marginTop:'4px' }}>{fmt2(grand_total?.retail_value)}</div>
+                <div style={{ fontSize:'11px', color:'#64748b' }}>Retail Value · {fmtN(grand_total?.total_units)} units</div>
+              </div>
+            </div>
+
+            {/* Category breakdown table */}
+            <div className="card" style={{ padding:0, overflow:'hidden' }}>
+              <div style={{ padding:'14px 20px', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <strong style={{ fontSize:'14px' }}>Category wise Stock Value</strong>
+                <span style={{ fontSize:'12px', color:'var(--text-muted)' }}>As of {as_of_date}</span>
+              </div>
+              <div className="table-wrapper">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Category</th>
+                      <th>Sub Category</th>
+                      <th style={{ textAlign:'right' }}>Units</th>
+                      {shops.map(sh => (
+                        <th key={sh.id} style={{ textAlign:'right' }}>{sh.name} Cost</th>
+                      ))}
+                      {shops.map(sh => (
+                        <th key={sh.id+'r'} style={{ textAlign:'right' }}>{sh.name} Retail</th>
+                      ))}
+                      <th style={{ textAlign:'right' }}>Total Cost</th>
+                      <th style={{ textAlign:'right' }}>Total Retail</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {Object.entries(grouped).map(([cat, subCats]) => {
+                      const catRows = rows.filter(r => r.category === cat);
+                      const catCost = catRows.reduce((s,r) => s + parseFloat(r.cost_value||0), 0);
+                      const catRetail = catRows.reduce((s,r) => s + parseFloat(r.retail_value||0), 0);
+                      const catUnits = catRows.reduce((s,r) => s + parseInt(r.total_units||0), 0);
+
+                      return [
+                        // Sub category rows
+                        ...Object.entries(subCats).map(([subCat, shopData], si) => {
+                          const subUnits = Object.values(shopData).reduce((s,r) => s + parseInt(r.total_units||0), 0);
+                          const subCost  = Object.values(shopData).reduce((s,r) => s + parseFloat(r.cost_value||0), 0);
+                          const subRetail= Object.values(shopData).reduce((s,r) => s + parseFloat(r.retail_value||0), 0);
+                          return (
+                            <tr key={`${cat}-${subCat}`}>
+                              <td style={{ color: si === 0 ? '#0f172a' : 'transparent', fontWeight: si === 0 ? 600 : 400 }}>
+                                {si === 0 ? (
+                                  <span style={{ display:'inline-flex', alignItems:'center', gap:'6px' }}>
+                                    <span style={{ background:'#eef2ff', color:'#6366f1', padding:'2px 8px', borderRadius:'10px', fontSize:'.75rem', fontWeight:700 }}>{cat}</span>
+                                  </span>
+                                ) : ''}
+                              </td>
+                              <td style={{ color:'#475569', paddingLeft:'16px' }}>{subCat}</td>
+                              <td style={{ textAlign:'right', color:'#64748b' }}>{fmtN(subUnits)}</td>
+                              {shops.map(sh => (
+                                <td key={sh.id} style={{ textAlign:'right', color:'#92400e' }}>
+                                  {shopData[sh.name] ? fmt2(shopData[sh.name].cost_value) : '—'}
+                                </td>
+                              ))}
+                              {shops.map(sh => (
+                                <td key={sh.id+'r'} style={{ textAlign:'right', color:'#059669' }}>
+                                  {shopData[sh.name] ? fmt2(shopData[sh.name].retail_value) : '—'}
+                                </td>
+                              ))}
+                              <td style={{ textAlign:'right', fontWeight:600 }}>{fmt2(subCost)}</td>
+                              <td style={{ textAlign:'right', fontWeight:600, color:'#059669' }}>{fmt2(subRetail)}</td>
+                            </tr>
+                          );
+                        }),
+                        // Category total row
+                        <tr key={`${cat}-TOTAL`} style={{ background:'#f8fafc', borderTop:'1px solid #e2e8f0' }}>
+                          <td colSpan={2} style={{ fontWeight:700, color:'#0f172a', fontSize:'13px' }}>
+                            {cat} Total
+                          </td>
+                          <td style={{ textAlign:'right', fontWeight:700 }}>{fmtN(catUnits)}</td>
+                          {shops.map(sh => {
+                            const v = catRows.filter(r => r.shop_name === sh.name).reduce((s,r) => s+parseFloat(r.cost_value||0),0);
+                            return <td key={sh.id} style={{ textAlign:'right', fontWeight:700, color:'#92400e' }}>{fmt2(v)}</td>;
+                          })}
+                          {shops.map(sh => {
+                            const v = catRows.filter(r => r.shop_name === sh.name).reduce((s,r) => s+parseFloat(r.retail_value||0),0);
+                            return <td key={sh.id+'r'} style={{ textAlign:'right', fontWeight:700, color:'#059669' }}>{fmt2(v)}</td>;
+                          })}
+                          <td style={{ textAlign:'right', fontWeight:700, color:'#6366f1' }}>{fmt2(catCost)}</td>
+                          <td style={{ textAlign:'right', fontWeight:700, color:'#059669' }}>{fmt2(catRetail)}</td>
+                        </tr>
+                      ];
+                    })}
+
+                    {/* Grand Total */}
+                    <tr style={{ background:'#0f172a' }}>
+                      <td colSpan={2} style={{ fontWeight:800, color:'#fff', fontSize:'13px' }}>GRAND TOTAL</td>
+                      <td style={{ textAlign:'right', fontWeight:800, color:'#fff' }}>{fmtN(grand_total?.total_units)}</td>
+                      {shops.map(sh => {
+                        const v = rows.filter(r => r.shop_name === sh.name).reduce((s,r) => s+parseFloat(r.cost_value||0),0);
+                        return <td key={sh.id} style={{ textAlign:'right', fontWeight:800, color:'#fbbf24' }}>{fmt2(v)}</td>;
+                      })}
+                      {shops.map(sh => {
+                        const v = rows.filter(r => r.shop_name === sh.name).reduce((s,r) => s+parseFloat(r.retail_value||0),0);
+                        return <td key={sh.id+'r'} style={{ textAlign:'right', fontWeight:800, color:'#4ade80' }}>{fmt2(v)}</td>;
+                      })}
+                      <td style={{ textAlign:'right', fontWeight:800, color:'#fbbf24' }}>{fmt2(grand_total?.cost_value)}</td>
+                      <td style={{ textAlign:'right', fontWeight:800, color:'#4ade80' }}>{fmt2(grand_total?.retail_value)}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Sales */}
       {data && tab === 'Sales' && (

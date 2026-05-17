@@ -191,6 +191,77 @@ router.get('/inventory', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
+// ── GET /api/v1/reports/stock-value ──────────────────────────
+router.get('/stock-value', async (req, res) => {
+  try {
+    const { as_of_date } = req.query;
+
+    // Get all shops first
+    const shopsResult = await query(`SELECT id, name FROM shops WHERE is_active = true ORDER BY name`);
+    const shops = shopsResult.rows;
+
+    // Get stock value grouped by category, sub_category, shop
+    const dateFilter = as_of_date
+      ? `AND (is.received_at::date <= '${as_of_date}' OR is.received_at IS NULL)`
+      : '';
+
+    const result = await query(`
+      SELECT
+        COALESCE(p.category, 'Uncategorized')     as category,
+        COALESCE(p.sub_category, 'Uncategorized') as sub_category,
+        sh.name                                    as shop_name,
+        sh.id                                      as shop_id,
+        COUNT(DISTINCT p.id)                       as product_count,
+        SUM(i.quantity)                            as total_units,
+        SUM(i.quantity * p.base_cost)              as cost_value,
+        SUM(i.quantity * p.selling_price)          as retail_value
+      FROM inventory i
+      JOIN products p    ON p.id  = i.product_id
+      LEFT JOIN shops sh ON sh.id = i.shop_id
+      WHERE p.is_active = true
+        AND i.quantity > 0
+      GROUP BY p.category, p.sub_category, sh.name, sh.id
+      ORDER BY p.category, p.sub_category, sh.name
+    `);
+
+    // Also get category totals across all shops
+    const categoryTotals = await query(`
+      SELECT
+        COALESCE(p.category, 'Uncategorized') as category,
+        SUM(i.quantity)                        as total_units,
+        SUM(i.quantity * p.base_cost)          as cost_value,
+        SUM(i.quantity * p.selling_price)      as retail_value
+      FROM inventory i
+      JOIN products p ON p.id = i.product_id
+      WHERE p.is_active = true AND i.quantity > 0
+      GROUP BY p.category
+      ORDER BY cost_value DESC
+    `);
+
+    // Grand total
+    const grandTotal = await query(`
+      SELECT
+        SUM(i.quantity)                        as total_units,
+        SUM(i.quantity * p.base_cost)          as cost_value,
+        SUM(i.quantity * p.selling_price)      as retail_value
+      FROM inventory i
+      JOIN products p ON p.id = i.product_id
+      WHERE p.is_active = true AND i.quantity > 0
+    `);
+
+    res.json({
+      success: true,
+      data: {
+        rows: result.rows,
+        category_totals: categoryTotals.rows,
+        grand_total: grandTotal.rows[0],
+        shops,
+        as_of_date: as_of_date || new Date().toISOString().split('T')[0],
+      }
+    });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
 // ── GET /api/v1/reports/salesperson ──────────────────────────
 router.get('/salesperson', async (req, res) => {
   try {
