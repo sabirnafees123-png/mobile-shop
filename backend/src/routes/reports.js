@@ -450,5 +450,117 @@ router.get('/print-summary', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
+// ── GET /api/v1/reports/purchase-invoice ─────────────────────────────────────
+router.get('/purchase-invoice', async (req, res) => {
+  try {
+    const { invoice_number } = req.query;
+    if (!invoice_number) return res.status(400).json({ success: false, message: 'Invoice number required' });
+    const purchase = await query(`
+      SELECT p.*, s.name as supplier_name, sh.name as shop_name
+      FROM purchases p
+      LEFT JOIN suppliers s ON s.id = p.supplier_id
+      LEFT JOIN shops sh ON sh.id = p.shop_id
+      WHERE p.purchase_number ILIKE $1 LIMIT 1
+    `, [`%${invoice_number}%`]);
+    if (!purchase.rows.length) return res.status(404).json({ success: false, message: 'Purchase invoice not found' });
+    const purch = purchase.rows[0];
+    const items = await query(`
+      SELECT pi.id, pi.serial_number, pi.qty as qty_purchased, pi.unit_cost, pi.recommended_selling_price,
+        p2.name as product_name, p2.brand, p2.category, p2.sub_category,
+        COALESCE(ist.qty_remaining, 0) as qty_in_stock,
+        COALESCE(ist.qty_sold, 0) as qty_sold,
+        COALESCE((SELECT SUM(si.unit_price * si.qty) FROM sale_items si WHERE si.inventory_stock_id = ist.id), 0) as revenue,
+        COALESCE((SELECT SUM(si.unit_cost * si.qty)  FROM sale_items si WHERE si.inventory_stock_id = ist.id), 0) as cogs
+      FROM purchase_items pi
+      LEFT JOIN products p2 ON p2.id = pi.product_id
+      LEFT JOIN inventory_stock ist ON ist.purchase_item_id = pi.id
+      WHERE pi.purchase_id = $1
+      ORDER BY p2.category, p2.name
+    `, [purch.id]);
+    const totalCost    = items.rows.reduce((s,r) => s + parseFloat(r.unit_cost||0)*parseInt(r.qty_purchased||0), 0);
+    const totalRevenue = items.rows.reduce((s,r) => s + parseFloat(r.revenue||0), 0);
+    const totalCOGS    = items.rows.reduce((s,r) => s + parseFloat(r.cogs||0), 0);
+    const grossProfit  = totalRevenue - totalCOGS;
+    const qtyInStock   = items.rows.reduce((s,r) => s + parseInt(r.qty_in_stock||0), 0);
+    const qtySold      = items.rows.reduce((s,r) => s + parseInt(r.qty_sold||0), 0);
+    const stockValue   = items.rows.reduce((s,r) => s + parseFloat(r.unit_cost||0)*parseInt(r.qty_in_stock||0), 0);
+    res.json({ success: true, data: { purchase: purch, items: items.rows,
+      totals: { totalCost, totalRevenue, totalCOGS, grossProfit, qtyInStock, qtySold, stockValue,
+        margin: totalRevenue > 0 ? ((grossProfit/totalRevenue)*100).toFixed(1) : '0.0' } } });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+// ── GET /api/v1/reports/product-margin ───────────────────────────────────────
+router.get('/product-margin', async (req, res) => {
+  try {
+    const { from, to, shop_id, category } = req.query;
+    const params = [];
+    let where = `WHERE si.payment_status != 'returned'`;
+    if (from)     { params.push(from);     where += ` AND si.sale_date >= $${params.length}`; }
+    if (to)       { params.push(to);       where += ` AND si.sale_date <= $${params.length}`; }
+    if (shop_id)  { params.push(shop_id);  where += ` AND si.shop_id = $${params.length}`; }
+    if (category) { params.push(category); where += ` AND p.category = $${params.length}`; }
+    const result = await query(`
+      SELECT p.name as product_name, p.brand,
+        COALESCE(p.category,'Uncategorized') as category,
+        COALESCE(p.sub_category,'') as sub_category,
+        SUM(sli.qty) as qty_sold,
+        SUM(sli.unit_price * sli.qty) as revenue,
+        SUM(sli.unit_cost  * sli.qty) as cogs,
+        SUM((sli.unit_price - sli.unit_cost) * sli.qty) as gross_profit,
+        CASE WHEN SUM(sli.unit_price * sli.qty) > 0
+          THEN ROUND((SUM((sli.unit_price - sli.unit_cost) * sli.qty) / SUM(sli.unit_price * sli.qty) * 100)::numeric, 1)
+          ELSE 0 END as margin_pct
+      FROM sale_items sli
+      JOIN sales_invoices si ON si.id = sli.invoice_id
+      JOIN products p ON p.id = sli.product_id
+      ${where}
+      GROUP BY p.id, p.name, p.brand, p.category, p.sub_category
+      ORDER BY gross_profit DESC
+    `, params);
+    const totals = result.rows.reduce((acc, r) => ({
+      qty_sold: acc.qty_sold + parseInt(r.qty_sold||0),
+      revenue:  acc.revenue  + parseFloat(r.revenue||0),
+      cogs:     acc.cogs     + parseFloat(r.cogs||0),
+      gross_profit: acc.gross_profit + parseFloat(r.gross_profit||0),
+    }), { qty_sold:0, revenue:0, cogs:0, gross_profit:0 });
+    totals.margin_pct = totals.revenue > 0 ? ((totals.gross_profit/totals.revenue)*100).toFixed(1) : '0.0';
+    res.json({ success: true, data: { rows: result.rows, totals } });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
+// ── GET /api/v1/reports/daily-inventory ──────────────────────────────────────
+router.get('/daily-inventory', async (req, res) => {
+  try {
+    const { from, to } = req.query;
+    if (!from || !to) return res.status(400).json({ success: false, message: 'Date range required' });
+    const currentValue = await query(`
+      SELECT i.shop_id, sh.name as shop_name, SUM(i.quantity * p.base_cost) as cost_value
+      FROM inventory i JOIN products p ON p.id = i.product_id
+      LEFT JOIN shops sh ON sh.id = i.shop_id
+      WHERE p.is_active = true AND i.quantity > 0
+      GROUP BY i.shop_id, sh.name
+    `);
+    const shops = currentValue.rows;
+    const dates = [];
+    const d = new Date(from); const end = new Date(to);
+    while (d <= end) { dates.push(d.toISOString().split('T')[0]); d.setDate(d.getDate()+1); }
+    const rows = await Promise.all(dates.map(async (date) => {
+      const shopValues = {};
+      for (const shop of shops) {
+        const sa = await query(`SELECT COALESCE(SUM(sli.unit_cost * sli.qty), 0) as value
+          FROM sale_items sli JOIN sales_invoices si ON si.id = sli.invoice_id
+          WHERE si.shop_id = $1 AND si.sale_date > $2 AND si.payment_status != 'returned'`, [shop.shop_id, date]);
+        const pa = await query(`SELECT COALESCE(SUM(pi.unit_cost * pi.qty), 0) as value
+          FROM purchase_items pi JOIN purchases p ON p.id = pi.purchase_id
+          WHERE pi.shop_id = $1 AND p.purchase_date > $2`, [shop.shop_id, date]);
+        const val = parseFloat(shop.cost_value||0) + parseFloat(sa.rows[0].value||0) - parseFloat(pa.rows[0].value||0);
+        shopValues[shop.shop_id] = { shop_name: shop.shop_name, cost_value: Math.max(0, val) };
+      }
+      return { date, shops: shopValues, total: Object.values(shopValues).reduce((s,v) => s+v.cost_value, 0) };
+    }));
+    res.json({ success: true, data: { rows, shops: shops.map(s => ({ id: s.shop_id, name: s.shop_name })) } });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
 
 module.exports = router;
