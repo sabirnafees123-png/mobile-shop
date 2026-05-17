@@ -1,37 +1,53 @@
 import React, { useEffect, useState } from 'react';
-import { TableSkeleton, EmptyProducts, ErrorState } from '../components/UI';
+import { TableSkeleton, EmptyProducts } from '../components/UI';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 
 const TYPES = ['New (Box Pack)', 'Used', 'Refurbished', 'Parts', 'Accessories', 'Wholesale'];
 
+const CATEGORIES = ['Mobile', 'Laptop', 'Tab', 'Accessories', 'Ipad'];
+
+const SUB_CATEGORIES = {
+  Mobile:      ['Mobile'],
+  Laptop:      ['Laptop', 'Macbook', 'Surface', 'Chromebook'],
+  Tab:         ['Tab', 'Ipad'],
+  Ipad:        ['Ipad'],
+  Accessories: ['Earbuds', 'Smartwatch', 'Charger', 'keyboard', 'Strip', 'Cable', 'PowerBank', 'Controller', 'Pen', 'Belkin'],
+};
+
+const ALL_SUB = ['Mobile','Ipad','Tab','Laptop','Earbuds','Smartwatch','Celender','Macbook','Charger','keyboard','Strip','Surface','Belkin','Cable','Controller','Pen','PowerBank'];
+
 const EMPTY = {
   serial_number: '', name: '', brand: '', color: '',
   type: 'Used', description: '',
   base_cost: '', selling_price: '', is_active: true,
+  category: '', sub_category: '',
 };
 
 const LIMIT = 50;
 
 export default function Products() {
-  const [products, setProducts]     = useState([]);
-  const [loading, setLoading]       = useState(true);
-  const [showModal, setShowModal]   = useState(false);
-  const [editing, setEditing]       = useState(null);
-  const [form, setForm]             = useState(EMPTY);
-  const [search, setSearch]         = useState('');
-  const [filterType, setFilterType] = useState('');
+  const [products, setProducts]         = useState([]);
+  const [loading, setLoading]           = useState(true);
+  const [showModal, setShowModal]       = useState(false);
+  const [editing, setEditing]           = useState(null);
+  const [form, setForm]                 = useState(EMPTY);
+  const [search, setSearch]             = useState('');
+  const [filterType, setFilterType]     = useState('');
+  const [filterCat, setFilterCat]       = useState('');
+  const [filterSubCat, setFilterSubCat] = useState('');
 
-  // Pagination state
-  const [page, setPage]           = useState(1);
+  const [page, setPage]             = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
 
   const load = () => {
     setLoading(true);
     const params = { page, limit: LIMIT };
-    if (search)     params.search = search;
-    if (filterType) params.type   = filterType;
+    if (search)       params.search      = search;
+    if (filterType)   params.type        = filterType;
+    if (filterCat)    params.category    = filterCat;
+    if (filterSubCat) params.sub_category = filterSubCat;
     api.get('/products', { params })
       .then(r => {
         setProducts(r.data?.data || []);
@@ -42,11 +58,8 @@ export default function Products() {
       .finally(() => setLoading(false));
   };
 
-  // Reset to page 1 when filters change
-  useEffect(() => { setPage(1); }, [search, filterType]);
-
-  // Fetch whenever page, search, or filterType changes
-  useEffect(() => { load(); }, [page, search, filterType]);
+  useEffect(() => { setPage(1); }, [search, filterType, filterCat, filterSubCat]);
+  useEffect(() => { load(); }, [page, search, filterType, filterCat, filterSubCat]);
 
   const openAdd  = () => { setEditing(null); setForm(EMPTY); setShowModal(true); };
   const openEdit = (p) => { setEditing(p); setForm({ ...EMPTY, ...p }); setShowModal(true); };
@@ -78,6 +91,10 @@ export default function Products() {
     } catch { toast.error('Failed to delete'); }
   };
 
+  const clearFilters = () => {
+    setSearch(''); setFilterType(''); setFilterCat(''); setFilterSubCat('');
+  };
+
   const fmt = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
 
   const typeBadgeColor = (t) => ({
@@ -89,41 +106,57 @@ export default function Products() {
     'Wholesale':      { bg: '#e0f2fe', color: '#0369a1' },
   }[t] || { bg: '#f3f4f6', color: '#374151' });
 
+  // Sub categories to show in filter — depends on selected category
+  const subCatsForFilter = filterCat ? (SUB_CATEGORIES[filterCat] || ALL_SUB) : ALL_SUB;
+
   return (
     <div>
       <div className="page-header">
         <div>
           <div className="page-title">📦 Products</div>
-          <div className="page-subtitle">
-            Showing {products.length} of {totalCount} product(s)
-          </div>
+          <div className="page-subtitle">Showing {products.length} of {totalCount} product(s)</div>
         </div>
         <button className="btn btn-primary" onClick={openAdd}>+ Add Product</button>
       </div>
 
-      {/* Search + Filter */}
+      {/* Filters */}
       <div className="card" style={{ padding: '1rem', marginBottom: '1rem' }}>
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-          <input
-            className="form-control"
-            placeholder="🔍 Search name, brand, serial number..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            style={{ flex: 1, minWidth: '200px' }}
-          />
-          <select
-            className="form-control" style={{ width: 'auto' }}
-            value={filterType} onChange={e => setFilterType(e.target.value)}
-          >
-            <option value="">All Types</option>
-            {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
+        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr 1fr auto', gap: '10px', alignItems: 'end' }}>
+          <div>
+            <label style={{ fontSize: '.78rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Search</label>
+            <input className="form-control" placeholder="Name, brand, serial number..."
+              value={search} onChange={e => setSearch(e.target.value)} />
+          </div>
+          <div>
+            <label style={{ fontSize: '.78rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Category</label>
+            <select className="form-control" value={filterCat}
+              onChange={e => { setFilterCat(e.target.value); setFilterSubCat(''); }}>
+              <option value="">All Categories</option>
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: '.78rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Sub Category</label>
+            <select className="form-control" value={filterSubCat}
+              onChange={e => setFilterSubCat(e.target.value)}>
+              <option value="">All Sub Categories</option>
+              {subCatsForFilter.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+          <div>
+            <label style={{ fontSize: '.78rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Type</label>
+            <select className="form-control" value={filterType} onChange={e => setFilterType(e.target.value)}>
+              <option value="">All Types</option>
+              {TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+            </select>
+          </div>
+          <button className="btn btn-ghost btn-sm" style={{ marginBottom: '2px' }} onClick={clearFilters}>✕ Clear</button>
         </div>
       </div>
 
       {/* Table */}
       <div className="card">
-        {loading ? <TableSkeleton rows={8} cols={10} />  : (
+        {loading ? <TableSkeleton rows={8} cols={11} /> : (
           <div className="table-wrapper">
             <table>
               <thead>
@@ -132,7 +165,8 @@ export default function Products() {
                   <th>Serial No.</th>
                   <th>Product Name</th>
                   <th>Brand</th>
-                  <th>Color</th>
+                  <th>Category</th>
+                  <th>Sub Category</th>
                   <th>Type</th>
                   <th>Cost</th>
                   <th>Sell Price</th>
@@ -142,9 +176,7 @@ export default function Products() {
               </thead>
               <tbody>
                 {products.length === 0 ? (
-                  <tr><td colSpan={10}>
-                    <EmptyProducts onNew={openAdd} />
-                  </td></tr>
+                  <tr><td colSpan={11}><EmptyProducts onNew={openAdd} /></td></tr>
                 ) : products.map((p, i) => {
                   const tc = typeBadgeColor(p.type);
                   return (
@@ -156,11 +188,17 @@ export default function Products() {
                       <td><strong>{p.name}</strong></td>
                       <td>{p.brand || '—'}</td>
                       <td>
-                        {p.color ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                            <div style={{ width: '10px', height: '10px', borderRadius: '50%', background: p.color.toLowerCase(), border: '1px solid #ddd' }} />
-                            {p.color}
-                          </div>
+                        {p.category ? (
+                          <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '.75rem', fontWeight: 600, background: '#eef2ff', color: '#6366f1' }}>
+                            {p.category}
+                          </span>
+                        ) : '—'}
+                      </td>
+                      <td>
+                        {p.sub_category ? (
+                          <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '.75rem', fontWeight: 600, background: '#f1f5f9', color: '#475569' }}>
+                            {p.sub_category}
+                          </span>
                         ) : '—'}
                       </td>
                       <td>
@@ -185,49 +223,34 @@ export default function Products() {
               </tbody>
             </table>
 
-            {/* Pagination bar */}
             {totalPages > 1 && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '1rem', borderTop: '1px solid var(--border)' }}>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => setPage(p => p - 1)}
-                  disabled={page === 1}
-                >
-                  ← Prev
-                </button>
-                <span style={{ fontSize: '.9rem', color: 'var(--text-muted)' }}>
-                  Page {page} of {totalPages}
-                </span>
-                <button
-                  className="btn btn-ghost btn-sm"
-                  onClick={() => setPage(p => p + 1)}
-                  disabled={page === totalPages}
-                >
-                  Next →
-                </button>
+                <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => p - 1)} disabled={page === 1}>← Prev</button>
+                <span style={{ fontSize: '.9rem', color: 'var(--text-muted)' }}>Page {page} of {totalPages}</span>
+                <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => p + 1)} disabled={page === totalPages}>Next →</button>
               </div>
             )}
           </div>
         )}
       </div>
 
-      {/* Modal — unchanged */}
+      {/* Modal */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" style={{ maxWidth: '560px' }} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: '580px' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <strong>{editing ? 'Edit Product' : 'Add Product'}</strong>
               <button className="modal-close" onClick={() => setShowModal(false)}>✕</button>
             </div>
             <div className="modal-body">
+              {/* Type selector */}
               <div className="form-group" style={{ marginBottom: '16px' }}>
                 <label className="form-label">Type *</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
                   {TYPES.map(t => {
                     const tc = typeBadgeColor(t);
                     return (
-                      <button key={t}
-                        onClick={() => setForm({ ...form, type: t })}
+                      <button key={t} onClick={() => setForm({ ...form, type: t })}
                         style={{
                           padding: '8px 4px', borderRadius: '8px', fontSize: '.82rem', fontWeight: 600,
                           border: `2px solid ${form.type === t ? tc.color : 'var(--border)'}`,
@@ -241,60 +264,62 @@ export default function Products() {
                   })}
                 </div>
               </div>
+
               <div className="form-grid">
                 <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                  <label className="form-label">Serial / IMEI Number
-                    <span style={{ fontSize: '.75rem', color: 'var(--text-muted)', marginLeft: '8px' }}>
-                      (scan barcode or type manually)
-                    </span>
-                  </label>
-                  <input
-                    className="form-control"
-                    placeholder="Scan or type serial number..."
-                    value={form.serial_number}
-                    onChange={e => setForm({ ...form, serial_number: e.target.value })}
-                    autoComplete="off"
-                  />
+                  <label className="form-label">Serial / IMEI Number</label>
+                  <input className="form-control" placeholder="Scan or type serial number..."
+                    value={form.serial_number} onChange={e => setForm({ ...form, serial_number: e.target.value })} autoComplete="off" />
                 </div>
                 <div className="form-group" style={{ gridColumn: 'span 2' }}>
                   <label className="form-label">Product Name *</label>
-                  <input className="form-control"
-                    placeholder="e.g. iPhone 14 Pro Max 256GB"
-                    value={form.name}
-                    onChange={e => setForm({ ...form, name: e.target.value })} />
+                  <input className="form-control" placeholder="e.g. iPhone 14 Pro Max 256GB"
+                    value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Brand *</label>
-                  <input className="form-control"
-                    placeholder="Apple, Samsung..."
-                    value={form.brand}
-                    onChange={e => setForm({ ...form, brand: e.target.value })} />
+                  <input className="form-control" placeholder="Apple, Samsung..."
+                    value={form.brand} onChange={e => setForm({ ...form, brand: e.target.value })} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Color</label>
-                  <input className="form-control"
-                    placeholder="Black, White, Gold..."
-                    value={form.color}
-                    onChange={e => setForm({ ...form, color: e.target.value })} />
+                  <input className="form-control" placeholder="Black, White, Gold..."
+                    value={form.color} onChange={e => setForm({ ...form, color: e.target.value })} />
+                </div>
+
+                {/* Category + Sub Category */}
+                <div className="form-group">
+                  <label className="form-label">Category</label>
+                  <select className="form-control" value={form.category}
+                    onChange={e => setForm({ ...form, category: e.target.value, sub_category: '' })}>
+                    <option value="">— Select Category —</option>
+                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
                 </div>
                 <div className="form-group">
+                  <label className="form-label">Sub Category</label>
+                  <select className="form-control" value={form.sub_category}
+                    onChange={e => setForm({ ...form, sub_category: e.target.value })}>
+                    <option value="">— Select Sub Category —</option>
+                    {(form.category ? (SUB_CATEGORIES[form.category] || ALL_SUB) : ALL_SUB).map(s => (
+                      <option key={s} value={s}>{s}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
                   <label className="form-label">Base Cost (AED)</label>
-                  <input type="number" className="form-control"
-                    value={form.base_cost}
-                    onChange={e => setForm({ ...form, base_cost: e.target.value })}
-                    placeholder="0" />
+                  <input type="number" className="form-control" value={form.base_cost}
+                    onChange={e => setForm({ ...form, base_cost: e.target.value })} placeholder="0" />
                 </div>
                 <div className="form-group">
                   <label className="form-label">Selling Price (AED)</label>
-                  <input type="number" className="form-control"
-                    value={form.selling_price}
-                    onChange={e => setForm({ ...form, selling_price: e.target.value })}
-                    placeholder="0" />
+                  <input type="number" className="form-control" value={form.selling_price}
+                    onChange={e => setForm({ ...form, selling_price: e.target.value })} placeholder="0" />
                 </div>
                 <div className="form-group" style={{ gridColumn: 'span 2' }}>
                   <label className="form-label">Description / Notes</label>
-                  <input className="form-control"
-                    value={form.description}
+                  <input className="form-control" value={form.description}
                     onChange={e => setForm({ ...form, description: e.target.value })}
                     placeholder="Optional — deal details, specs, etc." />
                 </div>

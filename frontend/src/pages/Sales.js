@@ -284,24 +284,25 @@ useEffect(() => {
 
 
   // Serial search
-  const searchSerial = async (idx, val) => {
-    setSerialSearches(prev => ({ ...prev, [idx]: val }));
-    if (val.length < 2) { setSerialResults(prev => ({ ...prev, [idx]: [] })); return; }
-    try {
-      const res = await api.get(`/products/serial/${val}`);
-      setSerialResults(prev => ({ ...prev, [idx]: res.data?.data || [] }));
-    } catch { setSerialResults(prev => ({ ...prev, [idx]: [] })); }
-  };
+const searchSerial = async (idx, val) => {
+  setSerialSearches(prev => ({ ...prev, [idx]: val }));
+  if (val.length < 2) { setSerialResults(prev => ({ ...prev, [idx]: [] })); return; }
+  try {
+    const res = await api.get(`/products/serial/${val}`);
+    setSerialResults(prev => ({ ...prev, [idx]: res.data?.data || [] }));
+    //                                          ^^^^^^^^^^^ ✅ FIXED
+  } catch { setSerialResults(prev => ({ ...prev, [idx]: [] })); }
+};
 
-  const searchByName = async (idx, val) => {
+const searchByName = async (idx, val) => {
   setNameSearches(prev => ({ ...prev, [idx]: val }));
   if (val.length < 1) { setNameResults(prev => ({ ...prev, [idx]: [] })); return; }
   try {
     const res = await api.get(`/products?search=${encodeURIComponent(val)}&limit=15`);
     setNameResults(prev => ({ ...prev, [idx]: res.data?.data || [] }));
+    //                                        ^^^^^^^^^^^ ✅ FIXED
   } catch { setNameResults(prev => ({ ...prev, [idx]: [] })); }
 };
-
 
   const selectSerialProduct = (idx, product) => {
     const items = [...form.items];

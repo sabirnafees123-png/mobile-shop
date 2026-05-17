@@ -24,6 +24,7 @@ const getProducts = async (req, res) => {
                        OR color ILIKE $${params.length})`;
     }
     if (category) { params.push(category); whereClause += ` AND category = $${params.length}`; }
+    if (req.query.sub_category) { params.push(req.query.sub_category); whereClause += ` AND sub_category = $${params.length}`; }
     if (type)     { params.push(type);     whereClause += ` AND type = $${params.length}`; }
     if (is_active !== undefined && is_active !== '') {
       params.push(is_active === 'true');
@@ -91,14 +92,13 @@ const createProduct = async (req, res) => {
     const {
       name, brand, color, serial_number,
       type = 'Used',
-      // keep old fields for backward compat
       model, category, storage, condition, description,
-      base_cost, selling_price, barcode, is_active = true
+      base_cost, selling_price, barcode, is_active = true,
+      sub_category,
     } = req.body;
 
     if (!name) return res.status(400).json({ success: false, message: 'Product name is required' });
 
-    // Check duplicate serial number
     if (serial_number) {
       const dup = await pool.query('SELECT 1 FROM products WHERE serial_number = $1', [serial_number]);
       if (dup.rows.length > 0)
@@ -108,11 +108,11 @@ const createProduct = async (req, res) => {
     const result = await pool.query(
       `INSERT INTO products
         (name, brand, color, serial_number, type,
-         model, category, storage, condition, description,
+         model, category, sub_category, storage, condition, description,
          base_cost, selling_price, barcode, is_active)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) RETURNING *`,
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
       [name, brand, color, serial_number || null, type,
-       model, category || 'Mobile Phone', storage, condition || type,
+       model, category || 'Mobile Phone', sub_category || null, storage, condition || type,
        description, base_cost || 0, selling_price || 0, barcode, is_active]
     );
     res.status(201).json({ success: true, data: result.rows[0], message: 'Product created' });
@@ -128,7 +128,8 @@ const updateProduct = async (req, res) => {
     const {
       name, brand, color, serial_number, type,
       model, category, storage, condition, description,
-      base_cost, selling_price, barcode, is_active
+      base_cost, selling_price, barcode, is_active,
+      sub_category,
     } = req.body;
 
     const existing = await pool.query('SELECT * FROM products WHERE id = $1', [id]);
@@ -157,11 +158,13 @@ const updateProduct = async (req, res) => {
         selling_price = COALESCE($12, selling_price),
         barcode       = COALESCE($13, barcode),
         is_active     = COALESCE($14, is_active),
+        sub_category  = $15,
         updated_at    = NOW()
-       WHERE id = $15 RETURNING *`,
+       WHERE id = $16 RETURNING *`,
       [name, brand, color, serial_number, type,
        model, category, storage, condition, description,
-       base_cost, selling_price, barcode, is_active, id]
+       base_cost, selling_price, barcode, is_active,
+       sub_category || null, id]
     );
     res.json({ success: true, data: result.rows[0], message: 'Product updated' });
   } catch (err) {
