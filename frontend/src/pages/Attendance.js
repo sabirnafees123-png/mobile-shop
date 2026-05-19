@@ -11,6 +11,22 @@ const STATUS_OPTIONS = [
   { value: 'wfh',          label: 'Work From Home',color: '#0369a1', bg: '#e0f2fe' },
 ];
 
+// Generate time options in 15-min increments (06:00 to 23:45)
+const TIME_OPTIONS = (() => {
+  const opts = [{ value: '', label: '— Time —' }];
+  for (let h = 6; h <= 23; h++) {
+    for (let m = 0; m < 60; m += 15) {
+      const hh = String(h).padStart(2, '0');
+      const mm = String(m).padStart(2, '0');
+      const val = `${hh}:${mm}`;
+      const hour12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
+      const ampm = h < 12 ? 'AM' : 'PM';
+      opts.push({ value: val, label: `${hour12}:${mm} ${ampm}` });
+    }
+  }
+  return opts;
+})();
+
 const calcHours = (clock_in, break_out, break_in, clock_out) => {
   if (!clock_in || !clock_out) return null;
   const toMins = t => { const [h, m] = t.split(':').map(Number); return h * 60 + m; };
@@ -20,6 +36,21 @@ const calcHours = (clock_in, break_out, break_in, clock_out) => {
 };
 
 const statusStyle = (val) => STATUS_OPTIONS.find(s => s.value === val) || STATUS_OPTIONS[0];
+
+function TimePicker({ value, onChange, disabled }) {
+  const allOpts = [...TIME_OPTIONS];
+  if (value && !allOpts.find(o => o.value === value)) {
+    const [h, m] = value.split(':').map(Number);
+    const hour12 = h > 12 ? h - 12 : h === 0 ? 12 : h;
+    const ampm = h < 12 ? 'AM' : 'PM';
+    allOpts.push({ value, label: `${hour12}:${String(m).padStart(2,'0')} ${ampm}` });
+  }
+  return (
+    <select className="time-select" value={value || ''} disabled={disabled} onChange={e => onChange(e.target.value)}>
+      {allOpts.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+    </select>
+  );
+}
 
 export default function Attendance({ user }) {
   const today = new Date().toISOString().split('T')[0];
@@ -34,22 +65,31 @@ export default function Attendance({ user }) {
   const [shops, setShops]       = useState([]);
   const [loading, setLoading]   = useState(false);
   const [saving, setSaving]     = useState(false);
-
-  // Leave form
   const [showLeaveForm, setShowLeaveForm] = useState(false);
   const [leaveForm, setLeaveForm] = useState({
     user_id: '', from_date: today, to_date: today, leave_type: 'annual_leave', reason: ''
   });
-  const [users, setUsers] = useState([]);
+  const [users, setUsers]       = useState([]);
+  const [usersLoading, setUsersLoading] = useState(false);
 
   useEffect(() => {
     api.get('/shops').then(r => setShops(r.data?.data || []));
-    api.get('/users').then(r => setUsers(r.data?.data || r.data || []));
+    loadUsers();
   }, []);
 
-  useEffect(() => { if (tab === 'daily') loadDaily(); }, [date, tab]);
+  const loadUsers = async () => {
+    setUsersLoading(true);
+    try {
+      const r = await api.get('/auth/users');
+      const data = r.data?.data || r.data || [];
+      setUsers(Array.isArray(data) ? data : []);
+    } catch { toast.error('Failed to load staff list'); }
+    finally { setUsersLoading(false); }
+  };
+
+  useEffect(() => { if (tab === 'daily')   loadDaily();   }, [date, tab]);
   useEffect(() => { if (tab === 'monthly') loadMonthly(); }, [month, tab]);
-  useEffect(() => { if (tab === 'leaves') loadLeaves(); }, [tab]);
+  useEffect(() => { if (tab === 'leaves')  loadLeaves();  }, [tab]);
 
   const loadDaily = async () => {
     setLoading(true);
@@ -114,9 +154,7 @@ export default function Attendance({ user }) {
   };
 
   const fmtDate = d => d ? new Date(d).toLocaleDateString('en-AE') : '—';
-  const fmtTime = t => t ? t.slice(0, 5) : '—';
 
-  // Group monthly data by user
   const monthlyByUser = {};
   monthly.forEach(r => {
     if (!monthlyByUser[r.user_name]) monthlyByUser[r.user_name] = { role: r.role, days: {} };
@@ -133,11 +171,14 @@ export default function Attendance({ user }) {
         .att-table th { padding:10px 12px; text-align:left; font-size:11px; font-weight:700; color:#94a3b8; text-transform:uppercase; letter-spacing:.5px; background:#f8fafc; border-bottom:1px solid #e2e8f0; }
         .att-table td { padding:10px 12px; border-bottom:1px solid #f8fafc; vertical-align:middle; }
         .att-table tr:hover td { background:#f8fafc; }
-        .time-input { padding:6px 8px; border:1.5px solid #e2e8f0; border-radius:6px; font-size:13px; width:110px; font-family:inherit; }
-        .time-input:focus { outline:none; border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.1); }
+        .time-select { padding:6px 8px; border:1.5px solid #e2e8f0; border-radius:6px; font-size:12px; width:110px; font-family:inherit; background:#fff; cursor:pointer; color:#0f172a; }
+        .time-select:focus { outline:none; border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.1); }
+        .time-select:disabled { background:#f8fafc; color:#cbd5e1; cursor:default; }
         .status-select { padding:5px 8px; border:1.5px solid #e2e8f0; border-radius:6px; font-size:12px; font-weight:600; cursor:pointer; font-family:inherit; }
         .hours-badge { background:#eef2ff; color:#6366f1; padding:3px 8px; border-radius:6px; font-size:12px; font-weight:700; font-family:monospace; }
         .leave-card { background:#fff; border:1px solid #e2e8f0; border-radius:10px; padding:14px 16px; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; }
+        .staff-select { width:100%; padding:10px 12px; border:1.5px solid #e2e8f0; border-radius:8px; font-size:14px; font-family:inherit; color:#0f172a; background:#fff; cursor:pointer; }
+        .staff-select:focus { outline:none; border-color:#6366f1; box-shadow:0 0 0 3px rgba(99,102,241,.12); }
       `}</style>
 
       <div className="page-header">
@@ -157,7 +198,6 @@ export default function Attendance({ user }) {
         </div>
       </div>
 
-      {/* Tabs */}
       <div className="att-tabs">
         {['daily', 'monthly', 'leaves'].map(t => (
           <button key={t} className={`att-tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
@@ -166,22 +206,18 @@ export default function Attendance({ user }) {
         ))}
       </div>
 
-      {/* ── DAILY TAB ── */}
+      {/* DAILY TAB */}
       {tab === 'daily' && (
         <div>
           <div className="card" style={{ padding:'1rem', marginBottom:'1rem' }}>
             <div style={{ display:'flex', gap:'12px', alignItems:'center', flexWrap:'wrap' }}>
               <div>
                 <label style={{ fontSize:'.78rem', color:'var(--text-muted)', display:'block', marginBottom:'4px' }}>Date</label>
-                <input type="date" className="form-control" style={{ width:'auto' }} value={date}
-                  onChange={e => setDate(e.target.value)} />
+                <input type="date" className="form-control" style={{ width:'auto' }} value={date} onChange={e => setDate(e.target.value)} />
               </div>
-              <div style={{ marginTop:'20px', color:'var(--text-muted)', fontSize:'13px' }}>
-                {records.length} staff members
-              </div>
+              <div style={{ marginTop:'20px', color:'var(--text-muted)', fontSize:'13px' }}>{records.length} staff members</div>
             </div>
           </div>
-
           <div className="card" style={{ padding:0, overflow:'hidden' }}>
             {loading ? (
               <div style={{ padding:'3rem', textAlign:'center', color:'var(--text-muted)' }}>Loading...</div>
@@ -190,16 +226,9 @@ export default function Attendance({ user }) {
                 <table className="att-table">
                   <thead>
                     <tr>
-                      <th>Staff Member</th>
-                      <th>Role</th>
-                      <th>Shop</th>
-                      <th>Clock In</th>
-                      <th>Break Out</th>
-                      <th>Break In</th>
-                      <th>Clock Out</th>
-                      <th>Hours</th>
-                      <th>Status</th>
-                      <th>Notes</th>
+                      <th>Staff Member</th><th>Role</th><th>Shop</th>
+                      <th>Clock In</th><th>Break Out</th><th>Break In</th><th>Clock Out</th>
+                      <th>Hours</th><th>Status</th><th>Notes</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -212,28 +241,24 @@ export default function Attendance({ user }) {
                           <td><strong>{r.user_name}</strong></td>
                           <td><span style={{ fontSize:'11px', fontWeight:600, color:'#64748b', textTransform:'uppercase' }}>{r.role}</span></td>
                           <td>
-                            <select className="status-select" value={r.shop_id || ''}
-                              onChange={e => updateRecord(i, 'shop_id', e.target.value)}
-                              disabled={isAbsent}>
+                            <select className="status-select" value={r.shop_id || ''} onChange={e => updateRecord(i, 'shop_id', e.target.value)} disabled={isAbsent}>
                               <option value="">— Shop —</option>
                               {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                             </select>
                           </td>
-                          <td><input type="time" className="time-input" value={r.clock_in || ''} disabled={isAbsent} onChange={e => updateRecord(i, 'clock_in', e.target.value)} /></td>
-                          <td><input type="time" className="time-input" value={r.break_out || ''} disabled={isAbsent} onChange={e => updateRecord(i, 'break_out', e.target.value)} /></td>
-                          <td><input type="time" className="time-input" value={r.break_in || ''} disabled={isAbsent} onChange={e => updateRecord(i, 'break_in', e.target.value)} /></td>
-                          <td><input type="time" className="time-input" value={r.clock_out || ''} disabled={isAbsent} onChange={e => updateRecord(i, 'clock_out', e.target.value)} /></td>
+                          <td><TimePicker value={r.clock_in || ''} disabled={isAbsent} onChange={v => updateRecord(i, 'clock_in', v)} /></td>
+                          <td><TimePicker value={r.break_out || ''} disabled={isAbsent} onChange={v => updateRecord(i, 'break_out', v)} /></td>
+                          <td><TimePicker value={r.break_in || ''} disabled={isAbsent} onChange={v => updateRecord(i, 'break_in', v)} /></td>
+                          <td><TimePicker value={r.clock_out || ''} disabled={isAbsent} onChange={v => updateRecord(i, 'clock_out', v)} /></td>
                           <td>{hours ? <span className="hours-badge">{hours}h</span> : <span style={{ color:'#cbd5e1' }}>—</span>}</td>
                           <td>
-                            <select className="status-select"
-                              style={{ background: ss.bg, color: ss.color, border:`1.5px solid ${ss.color}33` }}
-                              value={r.status || 'present'}
-                              onChange={e => updateRecord(i, 'status', e.target.value)}>
+                            <select className="status-select" style={{ background:ss.bg, color:ss.color, border:`1.5px solid ${ss.color}33` }}
+                              value={r.status || 'present'} onChange={e => updateRecord(i, 'status', e.target.value)}>
                               {STATUS_OPTIONS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
                             </select>
                           </td>
                           <td>
-                            <input className="time-input" style={{ width:'120px' }} placeholder="Notes..."
+                            <input className="time-select" style={{ width:'120px' }} placeholder="Notes..."
                               value={r.notes || ''} onChange={e => updateRecord(i, 'notes', e.target.value)} />
                           </td>
                         </tr>
@@ -247,41 +272,36 @@ export default function Attendance({ user }) {
         </div>
       )}
 
-      {/* ── MONTHLY TAB ── */}
+      {/* MONTHLY TAB */}
       {tab === 'monthly' && (
         <div>
           <div className="card" style={{ padding:'1rem', marginBottom:'1rem' }}>
             <div style={{ display:'flex', gap:'12px', alignItems:'center' }}>
               <div>
                 <label style={{ fontSize:'.78rem', color:'var(--text-muted)', display:'block', marginBottom:'4px' }}>Month</label>
-                <input type="month" className="form-control" style={{ width:'auto' }} value={month}
-                  onChange={e => setMonth(e.target.value)} />
+                <input type="month" className="form-control" style={{ width:'auto' }} value={month} onChange={e => setMonth(e.target.value)} />
               </div>
             </div>
           </div>
-
           <div className="card" style={{ padding:0, overflow:'hidden' }}>
             {loading ? <div style={{ padding:'3rem', textAlign:'center', color:'var(--text-muted)' }}>Loading...</div> : (
               <div className="table-wrapper">
                 <table className="att-table">
                   <thead>
                     <tr>
-                      <th>Staff</th>
-                      <th>Role</th>
-                      <th style={{ textAlign:'center' }}>Present</th>
-                      <th style={{ textAlign:'center' }}>Absent</th>
-                      <th style={{ textAlign:'center' }}>Leave</th>
-                      <th style={{ textAlign:'center' }}>Half Day</th>
+                      <th>Staff</th><th>Role</th>
+                      <th style={{ textAlign:'center' }}>Present</th><th style={{ textAlign:'center' }}>Absent</th>
+                      <th style={{ textAlign:'center' }}>Leave</th><th style={{ textAlign:'center' }}>Half Day</th>
                       <th style={{ textAlign:'right' }}>Total Hours</th>
                     </tr>
                   </thead>
                   <tbody>
                     {Object.entries(monthlyByUser).map(([name, info]) => {
                       const days = Object.values(info.days);
-                      const present  = days.filter(d => d.status === 'present').length;
-                      const absent   = days.filter(d => d.status === 'absent').length;
-                      const leave    = days.filter(d => d.status === 'annual_leave').length;
-                      const halfDay  = days.filter(d => d.status === 'half_day').length;
+                      const present = days.filter(d => d.status === 'present').length;
+                      const absent  = days.filter(d => d.status === 'absent').length;
+                      const leave   = days.filter(d => d.status === 'annual_leave').length;
+                      const halfDay = days.filter(d => d.status === 'half_day').length;
                       const totalHrs = days.reduce((s, d) => s + parseFloat(d.total_hours || 0), 0);
                       return (
                         <tr key={name}>
@@ -303,7 +323,7 @@ export default function Attendance({ user }) {
         </div>
       )}
 
-      {/* ── LEAVES TAB ── */}
+      {/* LEAVES TAB */}
       {tab === 'leaves' && (
         <div>
           {loading ? <div style={{ padding:'3rem', textAlign:'center', color:'var(--text-muted)' }}>Loading...</div> : (
@@ -318,9 +338,7 @@ export default function Attendance({ user }) {
               return (
                 <div key={l.id} className="leave-card">
                   <div style={{ display:'flex', gap:'16px', alignItems:'center' }}>
-                    <div style={{ width:42, height:42, borderRadius:10, background:lt.bg, color:lt.color, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'18px', flexShrink:0 }}>
-                      🏖️
-                    </div>
+                    <div style={{ width:42, height:42, borderRadius:10, background:lt.bg, color:lt.color, display:'flex', alignItems:'center', justifyContent:'center', fontSize:'18px', flexShrink:0 }}>🏖️</div>
                     <div>
                       <div style={{ fontWeight:700, fontSize:'14px' }}>{l.user_name}</div>
                       <div style={{ fontSize:'12px', color:'#64748b', marginTop:'2px' }}>
@@ -338,7 +356,7 @@ export default function Attendance({ user }) {
         </div>
       )}
 
-      {/* Leave Request Modal */}
+      {/* LEAVE REQUEST MODAL */}
       {showLeaveForm && (
         <div className="modal-overlay" onClick={() => setShowLeaveForm(false)}>
           <div className="modal" style={{ maxWidth:'480px' }} onClick={e => e.stopPropagation()}>
@@ -349,28 +367,45 @@ export default function Attendance({ user }) {
             <div className="modal-body">
               <div className="form-group">
                 <label className="form-label">Staff Member *</label>
-                <select className="form-control" value={leaveForm.user_id}
-                  onChange={e => setLeaveForm({ ...leaveForm, user_id: e.target.value })}>
-                  <option value="">— Select Staff —</option>
-                  {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                </select>
+                {usersLoading ? (
+                  <div style={{ padding:'10px 12px', background:'#f8fafc', borderRadius:'8px', fontSize:'13px', color:'#94a3b8' }}>Loading staff list...</div>
+                ) : users.length === 0 ? (
+                  <div style={{ padding:'10px 12px', background:'#fff5f5', borderRadius:'8px', fontSize:'13px', color:'#dc2626', border:'1px solid #fecaca' }}>
+                    ⚠️ No staff found.{' '}
+                    <button style={{ background:'none', border:'none', color:'#6366f1', cursor:'pointer', textDecoration:'underline', fontSize:'13px' }} onClick={loadUsers}>Retry</button>
+                  </div>
+                ) : (
+                  <>
+                    <select className="staff-select" value={leaveForm.user_id}
+                      onChange={e => setLeaveForm({ ...leaveForm, user_id: e.target.value })}>
+                      <option value="">— Select Staff Member —</option>
+                      {users.map(u => (
+                        <option key={u.id} value={String(u.id)}>
+                          {u.name}{u.role ? ` (${u.role})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {leaveForm.user_id && (
+                      <div style={{ marginTop:'6px', fontSize:'12px', color:'#059669', fontWeight:600 }}>
+                        ✓ {users.find(u => String(u.id) === String(leaveForm.user_id))?.name} selected
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
               <div className="form-grid">
                 <div className="form-group">
                   <label className="form-label">From Date *</label>
-                  <input type="date" className="form-control" value={leaveForm.from_date}
-                    onChange={e => setLeaveForm({ ...leaveForm, from_date: e.target.value })} />
+                  <input type="date" className="form-control" value={leaveForm.from_date} onChange={e => setLeaveForm({ ...leaveForm, from_date: e.target.value })} />
                 </div>
                 <div className="form-group">
                   <label className="form-label">To Date *</label>
-                  <input type="date" className="form-control" value={leaveForm.to_date}
-                    onChange={e => setLeaveForm({ ...leaveForm, to_date: e.target.value })} />
+                  <input type="date" className="form-control" value={leaveForm.to_date} onChange={e => setLeaveForm({ ...leaveForm, to_date: e.target.value })} />
                 </div>
               </div>
               <div className="form-group">
                 <label className="form-label">Leave Type</label>
-                <select className="form-control" value={leaveForm.leave_type}
-                  onChange={e => setLeaveForm({ ...leaveForm, leave_type: e.target.value })}>
+                <select className="form-control" value={leaveForm.leave_type} onChange={e => setLeaveForm({ ...leaveForm, leave_type: e.target.value })}>
                   <option value="annual_leave">Annual Leave</option>
                   <option value="sick_leave">Sick Leave</option>
                   <option value="emergency">Emergency</option>
@@ -379,13 +414,12 @@ export default function Attendance({ user }) {
               </div>
               <div className="form-group">
                 <label className="form-label">Reason</label>
-                <input className="form-control" placeholder="Optional reason..."
-                  value={leaveForm.reason} onChange={e => setLeaveForm({ ...leaveForm, reason: e.target.value })} />
+                <input className="form-control" placeholder="Optional reason..." value={leaveForm.reason} onChange={e => setLeaveForm({ ...leaveForm, reason: e.target.value })} />
               </div>
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setShowLeaveForm(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={submitLeave}>Submit Leave Request</button>
+              <button className="btn btn-primary" onClick={submitLeave} disabled={!leaveForm.user_id}>Submit Leave Request</button>
             </div>
           </div>
         </div>
