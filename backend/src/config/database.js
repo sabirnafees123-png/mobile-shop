@@ -9,10 +9,10 @@ const isProduction = process.env.NODE_ENV === 'production';
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }, // ✅ force SSL
-  max: 10,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 10000,
+  ssl: { rejectUnauthorized: false },
+  max: 5,                      // stay well under Supabase session limit of 15
+  idleTimeoutMillis: 10000,    // release idle connections faster
+  connectionTimeoutMillis: 8000,
 });
 
 // Log when pool connects

@@ -1,7 +1,7 @@
 // src/routes/cashRegister.js
 const express = require('express');
 const router  = express.Router();
-const { query, getClient } = require('../config/database');
+const { query } = require('../config/database');
 
 // ── GET /api/v1/cash-register/today?shop_id= ────────────────────────────────
 router.get('/today', async (req, res) => {
@@ -102,21 +102,6 @@ router.post('/manual-entry', async (req, res) => {
     const { shop_id, entry_type, amount, category, description, entry_date } = req.body;
     if (!shop_id || !entry_type || !amount) return res.status(400).json({ success: false, message: 'shop_id, entry_type, amount required' });
     if (!['in', 'out'].includes(entry_type)) return res.status(400).json({ success: false, message: 'entry_type must be in or out' });
-
-    // Create table if not exists (first time)
-    await query(`
-      CREATE TABLE IF NOT EXISTS cash_manual_entries (
-        id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-        shop_id INTEGER REFERENCES shops(id),
-        entry_date DATE NOT NULL DEFAULT CURRENT_DATE,
-        entry_type VARCHAR(3) NOT NULL CHECK (entry_type IN ('in','out')),
-        amount NUMERIC(12,2) NOT NULL,
-        category VARCHAR(100),
-        description TEXT,
-        created_by UUID REFERENCES users(id),
-        created_at TIMESTAMPTZ DEFAULT NOW()
-      )
-    `);
 
     const result = await query(
       `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description, created_by)

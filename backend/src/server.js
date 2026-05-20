@@ -32,6 +32,22 @@ app.options('*', cors({
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+// ─── Ensure runtime tables exist ─────────────────────────────────────────────
+const { query: dbQuery } = require('./config/database');
+dbQuery(`
+  CREATE TABLE IF NOT EXISTS cash_manual_entries (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    shop_id INTEGER REFERENCES shops(id),
+    entry_date DATE NOT NULL DEFAULT CURRENT_DATE,
+    entry_type VARCHAR(3) NOT NULL CHECK (entry_type IN ('in','out')),
+    amount NUMERIC(12,2) NOT NULL,
+    category VARCHAR(100),
+    description TEXT,
+    created_by UUID REFERENCES users(id),
+    created_at TIMESTAMPTZ DEFAULT NOW()
+  )
+`).catch(err => console.error('Migration error:', err.message));
+
 // ─── Auth routes (PUBLIC) ────────────────────────────────────────────────────
 const authRoutes = require('./routes/authRoutes');
 app.use('/api/v1/auth', authRoutes);
