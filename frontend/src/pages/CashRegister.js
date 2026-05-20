@@ -33,16 +33,26 @@ export default function CashRegister() {
     });
   }, []);
 
+  const [histFrom, setHistFrom] = useState('');
+  const [histTo, setHistTo]     = useState('');
+
+  const loadHistory = async (sid, from, to) => {
+    try {
+      let url = `/cash-register/history?shop_id=${sid}`;
+      if (from) url += `&from=${from}`;
+      if (to)   url += `&to=${to}`;
+      const hist = await api.get(url);
+      setHistory(hist.data?.data || []);
+    } catch {}
+  };
+
   const load = async (sid) => {
     if (!sid) return;
     setLoading(true); setData(null);
     try {
-      const [today, hist] = await Promise.all([
-        api.get(`/cash-register/today?shop_id=${sid}`),
-        api.get(`/cash-register/history?shop_id=${sid}`),
-      ]);
+      const today = await api.get(`/cash-register/today?shop_id=${sid}`);
       setData(today.data?.data);
-      setHistory(hist.data?.data || []);
+      await loadHistory(sid, histFrom, histTo);
     } catch { toast.error('Failed to load cash register'); }
     finally { setLoading(false); }
   };
@@ -268,7 +278,16 @@ export default function CashRegister() {
           </div>
 
           {/* History */}
-          <div className="cr-section-label">Register History — {shopName}</div>
+          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px',flexWrap:'wrap',gap:'8px'}}>
+            <div className="cr-section-label" style={{margin:0}}>Register History — {shopName}</div>
+            <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
+              <input type="date" className="form-control" style={{width:'auto'}} value={histFrom} onChange={e => setHistFrom(e.target.value)} />
+              <span style={{color:'#94a3b8',fontSize:'12px'}}>to</span>
+              <input type="date" className="form-control" style={{width:'auto'}} value={histTo} onChange={e => setHistTo(e.target.value)} />
+              <button className="btn btn-ghost btn-sm" onClick={() => loadHistory(shopId, histFrom, histTo)}>🔍 Filter</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => { setHistFrom(''); setHistTo(''); loadHistory(shopId,'',''); }}>✕ Clear</button>
+            </div>
+          </div>
           <div className="card">
             <div className="table-wrapper">
               <table>
