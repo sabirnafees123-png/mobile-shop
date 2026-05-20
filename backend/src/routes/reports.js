@@ -34,6 +34,8 @@ router.get('/summary', async (req, res) => {
 
     const [sales, expenses, purchases, byShop, cogs] = await Promise.all([
       query(`SELECT COALESCE(SUM(total_amount),0) as total_sales,
+               COALESCE(SUM(COALESCE(exchange_trade_in_value,0)),0) as total_trade_in,
+               COALESCE(SUM(total_amount - COALESCE(exchange_trade_in_value,0)),0) as net_sales,
                COALESCE(SUM(amount_paid),0) as total_collected,
                COALESCE(SUM(amount_due),0)  as total_due,
                COUNT(*) as invoice_count
@@ -74,7 +76,7 @@ router.get('/summary', async (req, res) => {
     res.json({
       success: true,
       data: {
-        sales:     { total: totalSales, collected: parseFloat(sales.rows[0].total_collected), due: parseFloat(sales.rows[0].total_due), count: parseInt(sales.rows[0].invoice_count) },
+        sales:     { total: totalSales, trade_in: parseFloat(sales.rows[0].total_trade_in), net: parseFloat(sales.rows[0].net_sales), collected: parseFloat(sales.rows[0].total_collected), due: parseFloat(sales.rows[0].total_due), count: parseInt(sales.rows[0].invoice_count) },
         expenses:  { total: totalExpenses, count: parseInt(expenses.rows[0].expense_count) },
         purchases: { total: totalPurchases, count: parseInt(purchases.rows[0].purchase_count) },
         cogs:      totalCOGS,
@@ -90,10 +92,14 @@ router.get('/sales', async (req, res) => {
   try {
     const { from, to, payment_status, shop_id } = req.query;
     let sql = `
-      SELECT si.*, c.name as customer_name,
+      SELECT si.*,
+             c.name as customer_name,
              COUNT(s.id) as item_count,
              sh.name as shop_name,
-             u.name  as sold_by
+             u.name  as sold_by,
+             COALESCE(si.exchange_trade_in_value, 0) as trade_in_value,
+             si.total_amount as gross_sales,
+             si.total_amount - COALESCE(si.exchange_trade_in_value, 0) as net_sales
       FROM sales_invoices si
       LEFT JOIN customers  c  ON c.id  = si.customer_id
       LEFT JOIN sale_items s  ON s.invoice_id = si.id

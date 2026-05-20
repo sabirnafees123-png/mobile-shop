@@ -164,9 +164,11 @@ exports.createSale = async (req, res) => {
 
     const subtotal    = items.reduce((sum, i) => sum + ((i.qty || 1) * i.unit_price), 0);
     const tradeIn     = is_exchange ? parseFloat(exchange_trade_in_value) : 0;
-    const totalAmount = subtotal - parseFloat(discount) - tradeIn;
+    // total_amount = gross sale (subtotal - discount), trade-in stored separately
+    const totalAmount = subtotal - parseFloat(discount);
+    // amount customer actually pays = totalAmount - tradeIn credit
     const paid        = parseFloat(amount_paid);
-    const amountDue   = totalAmount - paid;
+    const amountDue   = (totalAmount - tradeIn) - paid;
 
     let paymentStatus;
     if (payment_method === 'pending') {
@@ -218,34 +220,20 @@ exports.createSale = async (req, res) => {
       );
     }
 
-if (is_exchange && exchange_product_name) {
-      let exchangeProductId;
+    if (is_exchange && exchange_serial_number) {
       const exProd = await client.query(
-        `SELECT id FROM products WHERE serial_number = $1 LIMIT 1`, [exchange_serial_number || '']
+        `SELECT id FROM products WHERE serial_number = $1 LIMIT 1`, [exchange_serial_number]
       );
       if (exProd.rows.length) {
-        exchangeProductId = exProd.rows[0].id;
         await client.query(
-          `UPDATE products SET base_cost = $1, updated_at = NOW() WHERE id = $2`,
-          [parseFloat(exchange_trade_in_value) || 0, exchangeProductId]
+          `INSERT INTO inventory (product_id, shop_id, quantity, min_stock)
+           VALUES ($1, $2, 1, 0)
+           ON CONFLICT (product_id, shop_id)
+           DO UPDATE SET quantity = inventory.quantity + 1, last_updated = NOW()`,
+          [exProd.rows[0].id, parseInt(shop_id)]
         );
-      } else {
-        const newProd = await client.query(
-          `INSERT INTO products (name, serial_number, base_cost, category, created_at, updated_at)
-           VALUES ($1, $2, $3, 'Exchange', NOW(), NOW()) RETURNING id`,
-          [exchange_product_name, exchange_serial_number || null, parseFloat(exchange_trade_in_value) || 0]
-        );
-        exchangeProductId = newProd.rows[0].id;
       }
-      await client.query(
-        `INSERT INTO inventory (product_id, shop_id, quantity, min_stock)
-         VALUES ($1, $2, 1, 0)
-         ON CONFLICT (product_id, shop_id)
-         DO UPDATE SET quantity = inventory.quantity + 1, last_updated = NOW()`,
-        [exchangeProductId, parseInt(shop_id)]
-      );
     }
-
 
     if (finalCustomerId && amountDue > 0 && payment_method !== 'tabby' && payment_method !== 'tamara') {
       await client.query(

@@ -522,7 +522,7 @@ const searchByName = async (idx, val) => {
                 <tr>
                   <th style={{width:'32px'}}></th>
                   <th>Invoice #</th><th>Customer</th><th>Shop</th><th>Date</th>
-                  <th>Total</th><th>Paid</th><th>Due</th><th>Method</th><th>Status</th><th>Actions</th>
+                  <th>Gross Sales</th><th>Trade-in</th><th>Net Sale</th><th>Paid</th><th>Due</th><th>Method</th><th>Status</th><th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -553,6 +553,10 @@ const searchByName = async (idx, val) => {
                       <td><span className="badge badge-gray">{s.shop_name||'—'}</span></td>
                       <td>{fmtDate(s.sale_date)}</td>
                       <td><strong>{fmt(s.total_amount)}</strong></td>
+                      <td style={{color: s.exchange_trade_in_value > 0 ? '#f59e0b' : '#cbd5e1'}}>
+                        {s.exchange_trade_in_value > 0 ? `− ${fmt(s.exchange_trade_in_value)}` : '—'}
+                      </td>
+                      <td><strong style={{color:'#6366f1'}}>{fmt(s.total_amount - (s.exchange_trade_in_value||0))}</strong></td>
                       <td style={{color:'#059669'}}>{fmt(s.amount_paid)}</td>
                       <td style={{color:s.amount_due>0?'#dc2626':'#059669'}}>{fmt(s.amount_due)}</td>
                       <td><span style={{fontSize:'.78rem',fontWeight:600,color:paymentColor(s.payment_method),textTransform:'uppercase'}}>{s.payment_method}</span></td>
