@@ -301,7 +301,9 @@ export default function Reports() {
       {/* Summary stat cards — always visible */}
       {summary && (
         <div className="stat-grid" style={{ marginBottom:'20px' }}>
-          <div className="stat-card green"><div className="label">Total Sales</div><div className="value">{fmt(summary.sales?.total)}</div><div className="sub">{summary.sales?.count} invoices</div></div>
+          <div className="stat-card green"><div className="label">Gross Sales</div><div className="value">{fmt(summary.sales?.total)}</div><div className="sub">{summary.sales?.count} invoices</div></div>
+          <div className="stat-card yellow"><div className="label">Trade-in Value</div><div className="value">{fmt(summary.sales?.trade_in)}</div><div className="sub">Exchange deductions</div></div>
+          <div className="stat-card blue"><div className="label">Net Sales</div><div className="value">{fmt(summary.sales?.net)}</div><div className="sub">Gross − Trade-in</div></div>
           <div className="stat-card blue"><div className="label">Collected</div><div className="value">{fmt(summary.sales?.collected)}</div><div className="sub">Cash received</div></div>
           <div className="stat-card yellow"><div className="label">Outstanding</div><div className="value">{fmt(summary.sales?.due)}</div><div className="sub">Yet to collect</div></div>
           <div className="stat-card red"><div className="label">Cost of Goods</div><div className="value">{fmt(summary.cogs)}</div><div className="sub">Actual unit cost</div></div>
@@ -646,7 +648,7 @@ export default function Reports() {
         <div className="card" style={{ padding:0, overflow:'hidden' }}>
           <div className="table-wrapper">
             <table className="r-table">
-              <thead><tr><th>Invoice #</th><th>Customer</th><th>Shop</th><th>Date</th><th style={{ textAlign:'right' }}>Total</th><th style={{ textAlign:'right' }}>Paid</th><th style={{ textAlign:'right' }}>Due</th><th>Method</th><th>Status</th></tr></thead>
+              <thead><tr><th>Invoice #</th><th>Customer</th><th>Shop</th><th>Date</th><th style={{ textAlign:'right' }}>Gross Sales</th><th style={{ textAlign:'right' }}>Trade-in</th><th style={{ textAlign:'right' }}>Net Sale</th><th style={{ textAlign:'right' }}>Paid</th><th style={{ textAlign:'right' }}>Due</th><th>Method</th><th>Status</th></tr></thead>
               <tbody>
                 {(Array.isArray(reportData)?reportData:[]).map((s,i) => (
                   <tr key={i}>
@@ -655,6 +657,10 @@ export default function Reports() {
                     <td><span className="badge badge-gray">{s.shop_name}</span></td>
                     <td>{fmtDate(s.sale_date)}</td>
                     <td style={{ textAlign:'right', fontWeight:600 }}>{fmt(s.total_amount)}</td>
+                    <td style={{ textAlign:'right', color: s.exchange_trade_in_value>0?'#f59e0b':'#cbd5e1' }}>
+                      {s.exchange_trade_in_value>0 ? `− ${fmt(s.exchange_trade_in_value)}` : '—'}
+                    </td>
+                    <td style={{ textAlign:'right', fontWeight:700, color:'#6366f1' }}>{fmt(s.total_amount - (s.exchange_trade_in_value||0))}</td>
                     <td style={{ textAlign:'right', color:'#059669' }}>{fmt(s.amount_paid)}</td>
                     <td style={{ textAlign:'right', color:s.amount_due>0?'#dc2626':'#059669' }}>{fmt(s.amount_due)}</td>
                     <td style={{ fontSize:'12px', fontWeight:600, textTransform:'uppercase' }}>{s.payment_method}</td>
