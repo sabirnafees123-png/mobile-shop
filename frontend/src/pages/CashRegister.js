@@ -23,7 +23,7 @@ export default function CashRegister() {
   const [notes, setNotes]           = useState('');
   const [saving, setSaving]         = useState(false);
   const [variance, setVariance]     = useState(null);
-  const [manualForm, setManualForm] = useState({ entry_type: 'in', amount: '', category: '', description: '' });
+  const [manualForm, setManualForm] = useState({ entry_type: 'in', amount: '', category: '', description: '', entry_date: '' });
 
   useEffect(() => {
     api.get('/shops').then(r => {
@@ -86,10 +86,12 @@ export default function CashRegister() {
     if (!manualForm.amount) return toast.error('Enter amount');
     setSaving(true);
     try {
-      await api.post('/cash-register/manual-entry', { ...manualForm, shop_id: shopId });
+      const entryDate = manualForm.entry_date || new Date().toISOString().split('T')[0];
+      await api.post('/cash-register/manual-entry', { ...manualForm, entry_date: entryDate, shop_id: shopId });
+      await api.post('/cash-register/recalculate', { shop_id: shopId, date: entryDate }).catch(() => {});
       toast.success(`Cash ${manualForm.entry_type === 'in' ? 'IN' : 'OUT'} recorded!`);
       setShowManual(false);
-      setManualForm({ entry_type: 'in', amount: '', category: '', description: '' });
+      setManualForm({ entry_type: 'in', amount: '', category: '', description: '', entry_date: '' });
       load(shopId);
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
     finally { setSaving(false); }
@@ -288,30 +290,43 @@ export default function CashRegister() {
               <button className="btn btn-ghost btn-sm" onClick={() => { setHistFrom(''); setHistTo(''); loadHistory(shopId,'',''); }}>✕ Clear</button>
             </div>
           </div>
-          <div className="card">
+          <div className="card" style={{padding:0, overflow:'hidden'}}>
             <div className="table-wrapper">
               <table>
                 <thead>
-                  <tr><th>Date</th><th>Opening</th><th>Cash Sales</th><th>Expenses</th><th>Closing</th><th>Variance</th><th>Status</th></tr>
+                  <tr>
+                    <th>Date</th>
+                    <th style={{textAlign:'right'}}>Opening</th>
+                    <th style={{textAlign:'right',color:'#059669'}}>+ Cash Sales</th>
+                    <th style={{textAlign:'right',color:'#f59e0b'}}>+ Cash In</th>
+                    <th style={{textAlign:'right',color:'#dc2626'}}>− Purchases</th>
+                    <th style={{textAlign:'right',color:'#dc2626'}}>− Expenses</th>
+                    <th style={{textAlign:'right',color:'#dc2626'}}>− Cash Out</th>
+                    <th style={{textAlign:'right'}}>Closing</th>
+                    <th>Actions</th>
+                  </tr>
                 </thead>
                 <tbody>
                   {history.length === 0 ? (
-                    <tr><td colSpan={7}><div className="empty-state">No register history yet</div></td></tr>
+                    <tr><td colSpan={9}><div className="empty-state">No register history yet</div></td></tr>
                   ) : history.map(h => {
-                    const expected = parseFloat(h.opening_balance||0) + parseFloat(h.total_sales_cash||0) - parseFloat(h.total_expenses||0);
-                    const actual   = parseFloat(h.closing_balance||0);
-                    const vari     = h.closing_balance !== null ? actual - expected : null;
+                    const closing = parseFloat(h.opening_balance||0) + parseFloat(h.total_sales_cash||0) + parseFloat(h.manual_in||0) - parseFloat(h.total_purchases||0) - parseFloat(h.total_expenses||0) - parseFloat(h.manual_out||0);
                     return (
                       <tr key={h.id}>
-                        <td>{fmtDate(h.register_date)}</td>
-                        <td>{fmt(h.opening_balance)}</td>
-                        <td style={{color:'var(--accent-green)'}}>{fmt(h.total_sales_cash)}</td>
-                        <td style={{color:'var(--accent-red)'}}>{fmt(h.total_expenses)}</td>
-                        <td><strong>{fmt(h.closing_balance)}</strong></td>
-                        <td style={{color:vari===null?'var(--text-muted)':Math.abs(vari)<1?'var(--accent-green)':'var(--accent-red)',fontWeight:600}}>
-                          {vari===null?'—':`${vari>0?'+':''}${fmt(vari)}`}
+                        <td><strong>{fmtDate(h.register_date)}</strong></td>
+                        <td style={{textAlign:'right'}}>{fmt(h.opening_balance)}</td>
+                        <td style={{textAlign:'right',color:'#059669',fontWeight:600}}>{fmt(h.total_sales_cash)}</td>
+                        <td style={{textAlign:'right',color:'#f59e0b',fontWeight:600}}>{parseFloat(h.manual_in||0)>0?fmt(h.manual_in):'—'}</td>
+                        <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>{parseFloat(h.total_purchases||0)>0?`− ${fmt(h.total_purchases)}`:'—'}</td>
+                        <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>{parseFloat(h.total_expenses||0)>0?`− ${fmt(h.total_expenses)}`:'—'}</td>
+                        <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>{parseFloat(h.manual_out||0)>0?`− ${fmt(h.manual_out)}`:'—'}</td>
+                        <td style={{textAlign:'right'}}><strong style={{color:'#6366f1'}}>{fmt(closing)}</strong></td>
+                        <td>
+                          <button className="btn btn-ghost btn-sm" title="Add manual entry for this date"
+                            onClick={() => { setManualForm({entry_type:'in',amount:'',category:'',description:'',entry_date:h.register_date}); setShowManual(true); }}>
+                            + Entry
+                          </button>
                         </td>
-                        <td><span className={`badge ${h.status==='open'?'badge-green':'badge-gray'}`}>{h.status}</span></td>
                       </tr>
                     );
                   })}
@@ -413,6 +428,10 @@ export default function CashRegister() {
                     </button>
                   ))}
                 </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Date (leave blank for today)</label>
+                <input type="date" className="form-control" value={manualForm.entry_date} onChange={e => setManualForm({...manualForm, entry_date:e.target.value})} />
               </div>
               <div className="form-group">
                 <label className="form-label">Amount (AED) *</label>

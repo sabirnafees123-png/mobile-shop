@@ -82,15 +82,74 @@ router.get('/today', async (req, res) => {
 router.get('/history', async (req, res) => {
   try {
     const { from, to, shop_id } = req.query;
-    let sql = `SELECT cr.*, s.name as shop_name FROM cash_register cr LEFT JOIN shops s ON s.id = cr.shop_id WHERE 1=1`;
+    let sql = `
+      SELECT 
+        cr.*,
+        s.name as shop_name,
+        COALESCE((
+          SELECT SUM(ABS(sl.amount)) FROM supplier_ledger sl
+          WHERE sl.transaction_type = 'payment' AND sl.transaction_date = cr.register_date AND sl.amount < 0
+        ), 0) as total_purchases,
+        COALESCE((
+          SELECT SUM(cme.amount) FROM cash_manual_entries cme
+          WHERE cme.entry_date = cr.register_date AND cme.shop_id = cr.shop_id AND cme.entry_type = 'in'
+        ), 0) as manual_in,
+        COALESCE((
+          SELECT SUM(cme.amount) FROM cash_manual_entries cme
+          WHERE cme.entry_date = cr.register_date AND cme.shop_id = cr.shop_id AND cme.entry_type = 'out'
+        ), 0) as manual_out
+      FROM cash_register cr 
+      LEFT JOIN shops s ON s.id = cr.shop_id 
+      WHERE 1=1`;
     const params = [];
     let idx = 1;
     if (shop_id) { sql += ` AND cr.shop_id = $${idx++}`;       params.push(shop_id); }
     if (from)    { sql += ` AND cr.register_date >= $${idx++}`; params.push(from); }
     if (to)      { sql += ` AND cr.register_date <= $${idx++}`; params.push(to); }
-    sql += ` ORDER BY cr.register_date DESC LIMIT 30`;
+    sql += ` ORDER BY cr.register_date DESC LIMIT 60`;
     const result = await query(sql, params);
     res.json({ success: true, data: result.rows });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// ── POST /api/v1/cash-register/recalculate ───────────────────────────────────
+// Recalculates closing balance for a specific date based on actual transactions
+router.post('/recalculate', async (req, res) => {
+  try {
+    const { shop_id, date } = req.body;
+    if (!shop_id || !date) return res.status(400).json({ success: false, message: 'shop_id and date required' });
+
+    const [reg, sales, expenses, supplierPayments, manualEntries] = await Promise.all([
+      query(`SELECT * FROM cash_register WHERE register_date = $1 AND shop_id = $2 LIMIT 1`, [date, shop_id]),
+      query(`SELECT COALESCE(SUM(CASE WHEN payment_method='cash' THEN amount_paid ELSE 0 END),0) as cash_sales FROM sales_invoices WHERE sale_date=$1 AND payment_status!='returned' AND shop_id=$2`, [date, shop_id]),
+      query(`SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE expense_date=$1 AND shop_id=$2 AND payment_method='cash'`, [date, shop_id]),
+      query(`SELECT COALESCE(SUM(ABS(amount)),0) as total FROM supplier_ledger WHERE transaction_type='payment' AND transaction_date=$1 AND amount<0`, [date]),
+      query(`SELECT entry_type, COALESCE(SUM(amount),0) as total FROM cash_manual_entries WHERE entry_date=$1 AND shop_id=$2 GROUP BY entry_type`, [date, shop_id]).catch(() => ({ rows: [] })),
+    ]);
+
+    if (!reg.rows.length) return res.status(404).json({ success: false, message: 'No register entry for this date' });
+
+    const opening     = parseFloat(reg.rows[0].opening_balance);
+    const cashSales   = parseFloat(sales.rows[0].cash_sales);
+    const exps        = parseFloat(expenses.rows[0].total);
+    const purchases   = parseFloat(supplierPayments.rows[0].total);
+    const manualIn    = parseFloat(manualEntries.rows.find(r => r.entry_type==='in')?.total || 0);
+    const manualOut   = parseFloat(manualEntries.rows.find(r => r.entry_type==='out')?.total || 0);
+    const newClosing  = opening + cashSales + manualIn - exps - purchases - manualOut;
+
+    await query(`UPDATE cash_register SET closing_balance=$1, total_sales_cash=$2, total_expenses=$3, updated_at=NOW() WHERE register_date=$4 AND shop_id=$5`,
+      [newClosing, cashSales, exps, date, shop_id]);
+
+    // Update next day's opening balance
+    const nextDate = new Date(date);
+    nextDate.setDate(nextDate.getDate() + 1);
+    const nextDateStr = nextDate.toISOString().split('T')[0];
+    await query(`UPDATE cash_register SET opening_balance=$1 WHERE register_date=$2 AND shop_id=$3`,
+      [newClosing, nextDateStr, shop_id]);
+
+    res.json({ success: true, data: { opening, cash_sales: cashSales, expenses: exps, purchases, manual_in: manualIn, manual_out: manualOut, closing: newClosing } });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
