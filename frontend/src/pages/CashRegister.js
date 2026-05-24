@@ -115,6 +115,7 @@ export default function CashRegister() {
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
     finally { setSaving(false); }
   };
+  const deleteManualEntry = async (id) => {
     if (!window.confirm('Delete this entry?')) return;
     try {
       await api.delete(`/cash-register/manual-entry/${id}`);
