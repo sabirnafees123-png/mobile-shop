@@ -93,10 +93,22 @@ router.get('/history', async (req, res) => {
         COALESCE((
           SELECT SUM(cme.amount) FROM cash_manual_entries cme
           WHERE cme.entry_date = cr.register_date AND cme.shop_id = cr.shop_id AND cme.entry_type = 'in'
+          AND cme.category = 'Shop Transfer'
+        ), 0) as transfer_in,
+        COALESCE((
+          SELECT SUM(cme.amount) FROM cash_manual_entries cme
+          WHERE cme.entry_date = cr.register_date AND cme.shop_id = cr.shop_id AND cme.entry_type = 'out'
+          AND cme.category = 'Shop Transfer'
+        ), 0) as transfer_out,
+        COALESCE((
+          SELECT SUM(cme.amount) FROM cash_manual_entries cme
+          WHERE cme.entry_date = cr.register_date AND cme.shop_id = cr.shop_id AND cme.entry_type = 'in'
+          AND cme.category != 'Shop Transfer'
         ), 0) as manual_in,
         COALESCE((
           SELECT SUM(cme.amount) FROM cash_manual_entries cme
           WHERE cme.entry_date = cr.register_date AND cme.shop_id = cr.shop_id AND cme.entry_type = 'out'
+          AND cme.category != 'Shop Transfer'
         ), 0) as manual_out
       FROM cash_register cr 
       LEFT JOIN shops s ON s.id = cr.shop_id 
