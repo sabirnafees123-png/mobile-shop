@@ -244,4 +244,72 @@ router.post('/close', async (req, res) => {
   }
 });
 
+// ── POST /api/v1/cash-register/transfer ──────────────────────────────────────
+// Transfer cash from one shop to another (works for past dates too)
+router.post('/transfer', async (req, res) => {
+  try {
+    const { from_shop_id, to_shop_id, amount, date, description } = req.body;
+    if (!from_shop_id || !to_shop_id || !amount || !date)
+      return res.status(400).json({ success: false, message: 'from_shop_id, to_shop_id, amount, date required' });
+    if (from_shop_id === to_shop_id)
+      return res.status(400).json({ success: false, message: 'Cannot transfer to same shop' });
+
+    const transferAmt = parseFloat(amount);
+    const desc = description || `Cash transfer to shop`;
+
+    // Record as Cash OUT from source shop
+    await query(
+      `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description, created_by)
+       VALUES ($1, $2, 'out', $3, 'Shop Transfer', $4, $5)`,
+      [from_shop_id, date, transferAmt, `Transfer OUT → ${desc}`, req.user?.id]
+    );
+
+    // Record as Cash IN to destination shop
+    await query(
+      `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description, created_by)
+       VALUES ($1, $2, 'in', $3, 'Shop Transfer', $4, $5)`,
+      [to_shop_id, date, transferAmt, `Transfer IN ← ${desc}`, req.user?.id]
+    );
+
+    // Recalculate both shops from transfer date to today
+    const recalcShop = async (sid) => {
+      const rows = await query(
+        `SELECT register_date FROM cash_register WHERE shop_id=$1 AND register_date >= $2 ORDER BY register_date ASC`,
+        [sid, date]
+      );
+      for (const row of rows.rows) {
+        const d = row.register_date.toISOString ? row.register_date.toISOString().split('T')[0] : row.register_date;
+        const [reg, sales, expenses, supplierPayments, manualEntries] = await Promise.all([
+          query(`SELECT * FROM cash_register WHERE register_date=$1 AND shop_id=$2 LIMIT 1`, [d, sid]),
+          query(`SELECT COALESCE(SUM(CASE WHEN payment_method='cash' THEN amount_paid ELSE 0 END),0) as cash_sales FROM sales_invoices WHERE sale_date=$1 AND payment_status!='returned' AND shop_id=$2`, [d, sid]),
+          query(`SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE expense_date=$1 AND shop_id=$2 AND payment_method='cash'`, [d, sid]),
+          query(`SELECT COALESCE(SUM(ABS(amount)),0) as total FROM supplier_ledger WHERE transaction_type='payment' AND transaction_date=$1 AND amount<0`, [d]),
+          query(`SELECT entry_type, COALESCE(SUM(amount),0) as total FROM cash_manual_entries WHERE entry_date=$1 AND shop_id=$2 GROUP BY entry_type`, [d, sid]).catch(() => ({ rows: [] })),
+        ]);
+        if (!reg.rows.length) continue;
+        const opening   = parseFloat(reg.rows[0].opening_balance);
+        const cashSales = parseFloat(sales.rows[0].cash_sales);
+        const exps      = parseFloat(expenses.rows[0].total);
+        const purchases = parseFloat(supplierPayments.rows[0].total);
+        const manualIn  = parseFloat(manualEntries.rows.find(r => r.entry_type==='in')?.total || 0);
+        const manualOut = parseFloat(manualEntries.rows.find(r => r.entry_type==='out')?.total || 0);
+        const newClosing = opening + cashSales + manualIn - exps - purchases - manualOut;
+        await query(`UPDATE cash_register SET closing_balance=$1, total_sales_cash=$2, total_expenses=$3 WHERE register_date=$4 AND shop_id=$5`,
+          [newClosing, cashSales, exps, d, sid]);
+        // Update next day opening
+        const nextD = new Date(d); nextD.setDate(nextD.getDate()+1);
+        const nextStr = nextD.toISOString().split('T')[0];
+        await query(`UPDATE cash_register SET opening_balance=$1 WHERE register_date=$2 AND shop_id=$3`, [newClosing, nextStr, sid]);
+      }
+    };
+
+    await recalcShop(from_shop_id);
+    await recalcShop(to_shop_id);
+
+    res.json({ success: true, message: `AED ${transferAmt} transferred successfully` });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 module.exports = router;

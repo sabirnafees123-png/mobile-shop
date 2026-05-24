@@ -97,7 +97,24 @@ export default function CashRegister() {
     finally { setSaving(false); }
   };
 
-  const deleteManualEntry = async (id) => {
+  const [showTransfer, setShowTransfer] = useState(false);
+  const [transferForm, setTransferForm] = useState({ from_shop_id: '', to_shop_id: '', amount: '', date: '', description: '' });
+
+  const handleTransfer = async () => {
+    if (!transferForm.from_shop_id || !transferForm.to_shop_id || !transferForm.amount || !transferForm.date)
+      return toast.error('Fill all required fields');
+    if (transferForm.from_shop_id === transferForm.to_shop_id)
+      return toast.error('Cannot transfer to same shop');
+    setSaving(true);
+    try {
+      await api.post('/cash-register/transfer', transferForm);
+      toast.success('Cash transferred and register recalculated!');
+      setShowTransfer(false);
+      setTransferForm({ from_shop_id: '', to_shop_id: '', amount: '', date: '', description: '' });
+      load(shopId);
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
+    finally { setSaving(false); }
+  };
     if (!window.confirm('Delete this entry?')) return;
     try {
       await api.delete(`/cash-register/manual-entry/${id}`);
@@ -132,6 +149,9 @@ export default function CashRegister() {
           </select>
           {shopId && isOpen && (
             <button className="btn btn-ghost" onClick={() => setShowManual(true)}>+ Cash Entry</button>
+          )}
+          {shopId && (
+            <button className="btn btn-ghost" onClick={() => { setTransferForm({...transferForm, from_shop_id: shopId}); setShowTransfer(true); }}>🔄 Transfer Cash</button>
           )}
           {shopId && !register && (
             <button className="btn btn-primary" onClick={() => setShowOpen(true)}>🔓 Open Register</button>
@@ -455,6 +475,63 @@ export default function CashRegister() {
                 style={{background:manualForm.entry_type==='in'?'#059669':'#dc2626'}}
                 onClick={handleManualEntry} disabled={saving||!manualForm.amount}>
                 {saving?'Saving...':`Record Cash ${manualForm.entry_type==='in'?'IN':'OUT'}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Transfer Modal */}
+      {showTransfer && (
+        <div className="modal-overlay" onClick={() => setShowTransfer(false)}>
+          <div className="modal" style={{maxWidth:'440px'}} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <strong>🔄 Cash Transfer Between Shops</strong>
+              <button className="modal-close" onClick={() => setShowTransfer(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div style={{padding:'10px 14px',background:'#eef2ff',borderRadius:'8px',marginBottom:'16px',fontSize:'13px',color:'#6366f1'}}>
+                Records Cash OUT from source shop and Cash IN to destination shop, then recalculates both registers from that date forward.
+              </div>
+              <div className="form-grid">
+                <div className="form-group">
+                  <label className="form-label">From Shop *</label>
+                  <select className="form-control" value={transferForm.from_shop_id}
+                    onChange={e => setTransferForm({...transferForm, from_shop_id: e.target.value})}>
+                    <option value="">— Select —</option>
+                    {shops.map(s => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">To Shop *</label>
+                  <select className="form-control" value={transferForm.to_shop_id}
+                    onChange={e => setTransferForm({...transferForm, to_shop_id: e.target.value})}>
+                    <option value="">— Select —</option>
+                    {shops.filter(s => String(s.id) !== transferForm.from_shop_id).map(s => <option key={s.id} value={String(s.id)}>{s.name}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="form-grid">
+                <div className="form-group">
+                  <label className="form-label">Date *</label>
+                  <input type="date" className="form-control" value={transferForm.date}
+                    onChange={e => setTransferForm({...transferForm, date: e.target.value})} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">Amount (AED) *</label>
+                  <input type="number" className="form-control" value={transferForm.amount} placeholder="0.00"
+                    onChange={e => setTransferForm({...transferForm, amount: e.target.value})} />
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Description</label>
+                <input className="form-control" placeholder="e.g. End of day cash transfer"
+                  value={transferForm.description} onChange={e => setTransferForm({...transferForm, description: e.target.value})} />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setShowTransfer(false)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleTransfer} disabled={saving||!transferForm.amount||!transferForm.date||!transferForm.from_shop_id||!transferForm.to_shop_id}>
+                {saving ? 'Transferring...' : '🔄 Transfer & Recalculate'}
               </button>
             </div>
           </div>
