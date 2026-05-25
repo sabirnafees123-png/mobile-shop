@@ -6,8 +6,7 @@ import api from '../utils/api';
 const fmt = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
 const fmtDate = d => new Date(d).toLocaleDateString('en-AE');
 
-const INCOME_CATEGORIES  = ['Rent Received', 'Loan Received', 'Refund Received', 'Other Income'];
-const EXPENSE_CATEGORIES = ['Rent Paid', 'Utilities', 'Maintenance', 'Transport', 'Miscellaneous'];
+const INCOME_CATEGORIES  = ['Rent Received', 'Loan Received', 'Refund Received', 'Repairing', 'Other Income'];
 
 export default function CashRegister() {
   const [data, setData]             = useState(null);
@@ -25,12 +24,15 @@ export default function CashRegister() {
   const [variance, setVariance]     = useState(null);
   const [manualForm, setManualForm] = useState({ entry_type: 'in', amount: '', category: '', description: '', entry_date: '' });
 
+  const [expenseCategories, setExpenseCategories] = useState([]);
+
   useEffect(() => {
     api.get('/shops').then(r => {
       const list = r.data?.data || [];
       setShops(list);
       if (list.length === 1) setShopId(list[0].id.toString());
     });
+    api.get('/expenses/categories').then(r => setExpenseCategories(r.data?.data || [])).catch(() => {});
   }, []);
 
   const [histFrom, setHistFrom] = useState('');
@@ -319,6 +321,7 @@ export default function CashRegister() {
                     <th>Date</th>
                     <th style={{textAlign:'right'}}>Opening</th>
                     <th style={{textAlign:'right',color:'#059669'}}>+ Cash Sales</th>
+                    <th style={{textAlign:'right',color:'#dc2626'}}>− Returns</th>
                     <th style={{textAlign:'right',color:'#6366f1'}}>+ Transfer In</th>
                     <th style={{textAlign:'right',color:'#f59e0b'}}>+ Cash In</th>
                     <th style={{textAlign:'right',color:'#dc2626'}}>− Purchases</th>
@@ -333,19 +336,20 @@ export default function CashRegister() {
                   {history.length === 0 ? (
                     <tr><td colSpan={9}><div className="empty-state">No register history yet</div></td></tr>
                   ) : history.map(h => {
-                    const closing = parseFloat(h.opening_balance||0) + parseFloat(h.total_sales_cash||0) + parseFloat(h.transfer_in||0) + parseFloat(h.manual_in||0) - parseFloat(h.total_purchases||0) - parseFloat(h.total_expenses||0) - parseFloat(h.manual_out||0) - parseFloat(h.transfer_out||0);
+                    const closing = parseFloat(h.opening_balance||0) + parseFloat(h.total_sales_cash||0) - parseFloat(h.cash_returns||0) + parseFloat(h.transfer_in||0) + parseFloat(h.manual_in||0) - parseFloat(h.total_purchases||0) - parseFloat(h.total_expenses||0) - parseFloat(h.manual_out||0) - parseFloat(h.transfer_out||0);
                     return (
-                      <tr key={h.id}>
+                      <tr key={h.register_date}>
                         <td><strong>{fmtDate(h.register_date)}</strong></td>
                         <td style={{textAlign:'right'}}>{fmt(h.opening_balance)}</td>
                         <td style={{textAlign:'right',color:'#059669',fontWeight:600}}>{fmt(h.total_sales_cash)}</td>
+                        <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>{parseFloat(h.cash_returns||0)>0?`− ${fmt(h.cash_returns)}`:'—'}</td>
                         <td style={{textAlign:'right',color:'#6366f1',fontWeight:600}}>{parseFloat(h.transfer_in||0)>0?fmt(h.transfer_in):'—'}</td>
                         <td style={{textAlign:'right',color:'#f59e0b',fontWeight:600}}>{parseFloat(h.manual_in||0)>0?fmt(h.manual_in):'—'}</td>
                         <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>{parseFloat(h.total_purchases||0)>0?`− ${fmt(h.total_purchases)}`:'—'}</td>
                         <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>{parseFloat(h.total_expenses||0)>0?`− ${fmt(h.total_expenses)}`:'—'}</td>
                         <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>{parseFloat(h.manual_out||0)>0?`− ${fmt(h.manual_out)}`:'—'}</td>
                         <td style={{textAlign:'right',color:'#7c3aed',fontWeight:600}}>{parseFloat(h.transfer_out||0)>0?`− ${fmt(h.transfer_out)}`:'—'}</td>
-                        <td style={{textAlign:'right'}}><strong style={{color:'#6366f1'}}>{fmt(closing)}</strong></td>
+                        <td style={{textAlign:'right'}}><strong style={{color:'#6366f1'}}>{fmt(h.closing_balance ?? closing)}</strong></td>
                         <td>
                           <button className="btn btn-ghost btn-sm" title="Add manual entry for this date"
                             onClick={() => { setManualForm({entry_type:'in',amount:'',category:'',description:'',entry_date:h.register_date}); setShowManual(true); }}>
@@ -466,7 +470,11 @@ export default function CashRegister() {
                 <label className="form-label">Category</label>
                 <select className="form-control" value={manualForm.category} onChange={e => setManualForm({...manualForm, category:e.target.value})}>
                   <option value="">— Select Category —</option>
-                  {(manualForm.entry_type==='in'?INCOME_CATEGORIES:EXPENSE_CATEGORIES).map(c => <option key={c} value={c}>{c}</option>)}
+                  {manualForm.entry_type === 'in' ? (
+                    INCOME_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)
+                  ) : (
+                    expenseCategories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)
+                  )}
                 </select>
               </div>
               <div className="form-group">

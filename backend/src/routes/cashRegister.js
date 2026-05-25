@@ -82,45 +82,77 @@ router.get('/today', async (req, res) => {
 router.get('/history', async (req, res) => {
   try {
     const { from, to, shop_id } = req.query;
-    let sql = `
-      SELECT 
-        cr.*,
-        s.name as shop_name,
-        COALESCE((
-          SELECT SUM(ABS(sl.amount)) FROM supplier_ledger sl
-          WHERE sl.transaction_type = 'payment' AND sl.transaction_date = cr.register_date AND sl.amount < 0
-        ), 0) as total_purchases,
-        COALESCE((
-          SELECT SUM(cme.amount) FROM cash_manual_entries cme
-          WHERE cme.entry_date = cr.register_date AND cme.shop_id = cr.shop_id AND cme.entry_type = 'in'
-          AND cme.category = 'Shop Transfer'
-        ), 0) as transfer_in,
-        COALESCE((
-          SELECT SUM(cme.amount) FROM cash_manual_entries cme
-          WHERE cme.entry_date = cr.register_date AND cme.shop_id = cr.shop_id AND cme.entry_type = 'out'
-          AND cme.category = 'Shop Transfer'
-        ), 0) as transfer_out,
-        COALESCE((
-          SELECT SUM(cme.amount) FROM cash_manual_entries cme
-          WHERE cme.entry_date = cr.register_date AND cme.shop_id = cr.shop_id AND cme.entry_type = 'in'
-          AND cme.category != 'Shop Transfer'
-        ), 0) as manual_in,
-        COALESCE((
-          SELECT SUM(cme.amount) FROM cash_manual_entries cme
-          WHERE cme.entry_date = cr.register_date AND cme.shop_id = cr.shop_id AND cme.entry_type = 'out'
-          AND cme.category != 'Shop Transfer'
-        ), 0) as manual_out
-      FROM cash_register cr 
-      LEFT JOIN shops s ON s.id = cr.shop_id 
-      WHERE 1=1`;
-    const params = [];
-    let idx = 1;
-    if (shop_id) { sql += ` AND cr.shop_id = $${idx++}`;       params.push(shop_id); }
-    if (from)    { sql += ` AND cr.register_date >= $${idx++}`; params.push(from); }
-    if (to)      { sql += ` AND cr.register_date <= $${idx++}`; params.push(to); }
-    sql += ` ORDER BY cr.register_date DESC LIMIT 60`;
-    const result = await query(sql, params);
-    res.json({ success: true, data: result.rows });
+    if (!shop_id) return res.status(400).json({ success: false, message: 'shop_id required' });
+
+    const fromDate = from || '2026-05-01';
+    const toDate   = to   || new Date().toISOString().split('T')[0];
+
+    const regRows = await query(
+      `SELECT * FROM cash_register WHERE shop_id=$1 AND register_date BETWEEN $2 AND $3 ORDER BY register_date ASC`,
+      [shop_id, fromDate, toDate]
+    );
+    const regMap = {};
+    regRows.rows.forEach(r => {
+      const d = r.register_date.toISOString ? r.register_date.toISOString().split('T')[0] : String(r.register_date);
+      regMap[d] = r;
+    });
+
+    const [salesData, expensesData, purchasesData, manualData] = await Promise.all([
+      query(`SELECT sale_date::text as d, COALESCE(SUM(CASE WHEN payment_method='cash' AND payment_status!='returned' THEN amount_paid ELSE 0 END),0) as cash_sales, COALESCE(SUM(CASE WHEN payment_status='returned' AND payment_method='cash' THEN amount_paid ELSE 0 END),0) as cash_returns FROM sales_invoices WHERE shop_id=$1 AND sale_date BETWEEN $2 AND $3 GROUP BY sale_date`, [shop_id, fromDate, toDate]),
+      query(`SELECT expense_date::text as d, COALESCE(SUM(amount),0) as total FROM expenses WHERE shop_id=$1 AND expense_date BETWEEN $2 AND $3 AND payment_method='cash' GROUP BY expense_date`, [shop_id, fromDate, toDate]),
+      query(`SELECT transaction_date::text as d, COALESCE(SUM(ABS(amount)),0) as total FROM supplier_ledger WHERE transaction_type='payment' AND amount<0 AND transaction_date BETWEEN $1 AND $2 GROUP BY transaction_date`, [fromDate, toDate]),
+      query(`SELECT entry_date::text as d, entry_type, category, COALESCE(SUM(amount),0) as total FROM cash_manual_entries WHERE shop_id=$1 AND entry_date BETWEEN $2 AND $3 GROUP BY entry_date, entry_type, category`, [shop_id, fromDate, toDate]),
+    ]);
+
+    const salesMap = {}; salesData.rows.forEach(r => salesMap[r.d] = r);
+    const expMap   = {}; expensesData.rows.forEach(r => expMap[r.d] = r);
+    const purMap   = {}; purchasesData.rows.forEach(r => purMap[r.d] = r);
+    const manMap   = {};
+    manualData.rows.forEach(r => {
+      if (!manMap[r.d]) manMap[r.d] = { transfer_in:0, transfer_out:0, manual_in:0, manual_out:0 };
+      if (r.entry_type==='in'  && r.category==='Shop Transfer') manMap[r.d].transfer_in  += parseFloat(r.total);
+      if (r.entry_type==='out' && r.category==='Shop Transfer') manMap[r.d].transfer_out += parseFloat(r.total);
+      if (r.entry_type==='in'  && r.category!=='Shop Transfer') manMap[r.d].manual_in    += parseFloat(r.total);
+      if (r.entry_type==='out' && r.category!=='Shop Transfer') manMap[r.d].manual_out   += parseFloat(r.total);
+    });
+
+    const result = [];
+    let prevClosing = null;
+    const cur = new Date(fromDate);
+    const end = new Date(toDate);
+
+    while (cur <= end) {
+      const d = cur.toISOString().split('T')[0];
+      const reg       = regMap[d];
+      const opening   = reg ? parseFloat(reg.opening_balance) : (prevClosing ?? 0);
+      const cashSales = parseFloat(salesMap[d]?.cash_sales || 0);
+      const returns   = parseFloat(salesMap[d]?.cash_returns || 0);
+      const expenses  = parseFloat(expMap[d]?.total || 0);
+      const purchases = parseFloat(purMap[d]?.total || 0);
+      const man       = manMap[d] || { transfer_in:0, transfer_out:0, manual_in:0, manual_out:0 };
+      const closing   = opening + cashSales - returns + man.transfer_in + man.manual_in - expenses - purchases - man.transfer_out - man.manual_out;
+
+      result.push({
+        register_date:    d,
+        shop_id:          parseInt(shop_id),
+        opening_balance:  opening,
+        total_sales_cash: cashSales,
+        cash_returns:     returns,
+        total_expenses:   expenses,
+        total_purchases:  purchases,
+        transfer_in:      man.transfer_in,
+        transfer_out:     man.transfer_out,
+        manual_in:        man.manual_in,
+        manual_out:       man.manual_out,
+        closing_balance:  closing,
+        status:           reg?.status || 'auto',
+      });
+
+      prevClosing = closing;
+      cur.setDate(cur.getDate() + 1);
+    }
+
+    res.json({ success: true, data: result.reverse() });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
