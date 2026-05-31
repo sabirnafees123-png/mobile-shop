@@ -59,29 +59,17 @@ router.get('/today', async (req, res) => {
       if (r.entry_type==='out' && r.category!=='Shop Transfer') mm[r.d].mo += parseFloat(r.total);
     });
 
-    // Get all anchor openings from May 1st
-    const anchorRows2 = await query(
-      `SELECT register_date::text as d, opening_balance FROM cash_register WHERE shop_id=$1 AND register_date >= '2026-05-01' ORDER BY register_date ASC`,
-      [shop_id]
-    );
-    const anchorMap2 = {};
-    anchorRows2.rows.forEach(r => { anchorMap2[r.d] = parseFloat(r.opening_balance); });
-    const firstAnchor2 = anchorMap2['2026-05-01'] ?? 0;
-
-    let runningBal = firstAnchor2;
+    let runningBal = anchorOpening;
     const cur = new Date('2026-05-01');
     const todayD = new Date(today);
     while (cur <= todayD) {
       const d = cur.toISOString().split('T')[0];
       if (d === today) break;
-      // Reset to anchor if set for this date
-      if (anchorMap2[d] !== undefined) runningBal = anchorMap2[d];
       const s = sm[d] || {}; const e = em[d] || {}; const p = pm[d] || {}; const m = mm[d] || {ti:0,to:0,mi:0,mo:0};
       runningBal = runningBal + parseFloat(s.cs||0) - parseFloat(s.cr||0) + m.ti + m.mi - parseFloat(e.total||0) - parseFloat(p.total||0) - m.to - m.mo;
       cur.setDate(cur.getDate() + 1);
     }
-    // For today, check if there's a manual anchor
-    const openingBalance = (anchorMap2[today] !== undefined) ? anchorMap2[today] : runningBal;
+    const openingBalance = anchorOpening === 0 ? 0 : runningBal;
     const todayCashSales    = parseFloat(sales.rows[0].cash_sales);
     const todayExpenses     = parseFloat(expenses.rows[0].total_expenses);
     const todaySupplierPaid = parseFloat(supplierPayments.rows[0].total_paid);
@@ -128,22 +116,16 @@ router.get('/history', async (req, res) => {
     if (!shop_id) return res.status(400).json({ success: false, message: 'shop_id required' });
 
     const toDate = to || new Date().toISOString().split('T')[0];
+
+    // Always calculate from May 1st to get correct opening chain
     const calcFrom = '2026-05-01';
 
-    // Get ALL manually set opening balances — these are anchor points
-    // A date is an anchor if opening_balance is explicitly set in cash_register
-    const anchorRows = await query(
-      `SELECT register_date::text as d, opening_balance 
-       FROM cash_register WHERE shop_id=$1 AND register_date >= $2 
-       ORDER BY register_date ASC`,
+    // Get anchor opening balance for May 1st
+    const anchorRow = await query(
+      `SELECT opening_balance FROM cash_register WHERE shop_id=$1 AND register_date=$2 LIMIT 1`,
       [shop_id, calcFrom]
     );
-    // Build anchor map: date -> opening_balance
-    const anchorMap = {};
-    anchorRows.rows.forEach(r => { anchorMap[r.d] = parseFloat(r.opening_balance); });
-
-    // Get first anchor opening
-    const firstAnchor = anchorMap[calcFrom] ?? 0;
+    const anchorOpening = anchorRow.rows.length ? parseFloat(anchorRow.rows[0].opening_balance) : 0;
 
     // Get all transaction data from May 1st to toDate in bulk
     const [salesData, expensesData, purchasesData, manualData] = await Promise.all([
@@ -179,16 +161,16 @@ router.get('/history', async (req, res) => {
       if (r.entry_type==='out' && r.category!=='Shop Transfer') manMap[r.d].manual_out   += parseFloat(r.total);
     });
 
-    // Calculate day by day — if a day has a manual anchor, reset to that value
+    // Calculate day by day from May 1st — fully dynamic, no stored values
     const allResult = [];
-    let prevClosing = firstAnchor;
+    let prevClosing = anchorOpening;
+    const zeroMode = anchorOpening === 0; // each day independent if anchor = 0
     const cur = new Date(calcFrom);
     const end = new Date(toDate);
 
     while (cur <= end) {
       const d = cur.toISOString().split('T')[0];
-      // If this date has a manual anchor set, use it as opening (overrides chain)
-      const opening = (anchorMap[d] !== undefined) ? anchorMap[d] : prevClosing;
+      const opening   = zeroMode ? 0 : prevClosing;
       const cashSales = parseFloat(salesMap[d]?.cash_sales || 0);
       const returns   = parseFloat(salesMap[d]?.cash_returns || 0);
       const expenses  = parseFloat(expMap[d]?.total || 0);
