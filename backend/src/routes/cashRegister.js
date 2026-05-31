@@ -35,10 +35,41 @@ router.get('/today', async (req, res) => {
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - 1);
     const yDate = yesterday.toISOString().split('T')[0];
-    const prevRegister = await query(`SELECT closing_balance FROM cash_register WHERE register_date = $1 AND shop_id = $2 LIMIT 1`, [yDate, shop_id]);
 
-    const yesterdayClosing  = prevRegister.rows.length ? parseFloat(prevRegister.rows[0].closing_balance) : 0;
-    const openingBalance    = register.rows[0] ? parseFloat(register.rows[0].opening_balance) : yesterdayClosing;
+    // Get yesterday's live closing by calculating from May 1st anchor
+    const anchorRow = await query(`SELECT opening_balance FROM cash_register WHERE shop_id=$1 AND register_date='2026-05-01' LIMIT 1`, [shop_id]);
+    const anchorOpening = anchorRow.rows.length ? parseFloat(anchorRow.rows[0].opening_balance) : 0;
+
+    const [allSales, allExp, allPur, allMan] = await Promise.all([
+      query(`SELECT sale_date::text as d, COALESCE(SUM(CASE WHEN payment_method='cash' AND payment_status!='returned' THEN amount_paid ELSE 0 END),0) as cs, COALESCE(SUM(CASE WHEN payment_status='returned' AND payment_method='cash' THEN amount_paid ELSE 0 END),0) as cr FROM sales_invoices WHERE shop_id=$1 AND sale_date BETWEEN '2026-05-01' AND $2 GROUP BY sale_date`, [shop_id, today]),
+      query(`SELECT expense_date::text as d, COALESCE(SUM(amount),0) as total FROM expenses WHERE shop_id=$1 AND expense_date BETWEEN '2026-05-01' AND $2 AND payment_method='cash' GROUP BY expense_date`, [shop_id, today]),
+      query(`SELECT transaction_date::text as d, COALESCE(SUM(ABS(amount)),0) as total FROM supplier_ledger WHERE transaction_type='payment' AND amount<0 AND transaction_date BETWEEN '2026-05-01' AND $1 GROUP BY transaction_date`, [today]),
+      query(`SELECT entry_date::text as d, entry_type, category, COALESCE(SUM(amount),0) as total FROM cash_manual_entries WHERE shop_id=$1 AND entry_date BETWEEN '2026-05-01' AND $2 GROUP BY entry_date, entry_type, category`, [shop_id, today]),
+    ]);
+
+    const sm = {}; allSales.rows.forEach(r => sm[r.d] = r);
+    const em = {}; allExp.rows.forEach(r => em[r.d] = r);
+    const pm = {}; allPur.rows.forEach(r => pm[r.d] = r);
+    const mm = {};
+    allMan.rows.forEach(r => {
+      if (!mm[r.d]) mm[r.d] = { ti:0, to:0, mi:0, mo:0 };
+      if (r.entry_type==='in'  && r.category==='Shop Transfer') mm[r.d].ti += parseFloat(r.total);
+      if (r.entry_type==='out' && r.category==='Shop Transfer') mm[r.d].to += parseFloat(r.total);
+      if (r.entry_type==='in'  && r.category!=='Shop Transfer') mm[r.d].mi += parseFloat(r.total);
+      if (r.entry_type==='out' && r.category!=='Shop Transfer') mm[r.d].mo += parseFloat(r.total);
+    });
+
+    let runningBal = anchorOpening;
+    const cur = new Date('2026-05-01');
+    const todayD = new Date(today);
+    while (cur <= todayD) {
+      const d = cur.toISOString().split('T')[0];
+      if (d === today) break;
+      const s = sm[d] || {}; const e = em[d] || {}; const p = pm[d] || {}; const m = mm[d] || {ti:0,to:0,mi:0,mo:0};
+      runningBal = runningBal + parseFloat(s.cs||0) - parseFloat(s.cr||0) + m.ti + m.mi - parseFloat(e.total||0) - parseFloat(p.total||0) - m.to - m.mo;
+      cur.setDate(cur.getDate() + 1);
+    }
+    const openingBalance = runningBal;
     const todayCashSales    = parseFloat(sales.rows[0].cash_sales);
     const todayExpenses     = parseFloat(expenses.rows[0].total_expenses);
     const todaySupplierPaid = parseFloat(supplierPayments.rows[0].total_paid);
@@ -50,7 +81,7 @@ router.get('/today', async (req, res) => {
       success: true,
       data: {
         register:          register.rows[0] || null,
-        yesterday_closing: yesterdayClosing,
+        yesterday_closing: openingBalance,
         today: {
           cash_sales:      todayCashSales,
           gross_sales:     parseFloat(sales.rows[0].gross_sales),
@@ -84,24 +115,38 @@ router.get('/history', async (req, res) => {
     const { from, to, shop_id } = req.query;
     if (!shop_id) return res.status(400).json({ success: false, message: 'shop_id required' });
 
-    const fromDate = from || '2026-05-01';
-    const toDate   = to   || new Date().toISOString().split('T')[0];
+    const toDate = to || new Date().toISOString().split('T')[0];
 
-    const regRows = await query(
-      `SELECT * FROM cash_register WHERE shop_id=$1 AND register_date BETWEEN $2 AND $3 ORDER BY register_date ASC`,
-      [shop_id, fromDate, toDate]
+    // Always calculate from May 1st to get correct opening chain
+    const calcFrom = '2026-05-01';
+
+    // Get anchor opening balance for May 1st
+    const anchorRow = await query(
+      `SELECT opening_balance FROM cash_register WHERE shop_id=$1 AND register_date=$2 LIMIT 1`,
+      [shop_id, calcFrom]
     );
-    const regMap = {};
-    regRows.rows.forEach(r => {
-      const d = r.register_date.toISOString ? r.register_date.toISOString().split('T')[0] : String(r.register_date);
-      regMap[d] = r;
-    });
+    const anchorOpening = anchorRow.rows.length ? parseFloat(anchorRow.rows[0].opening_balance) : 0;
 
+    // Get all transaction data from May 1st to toDate in bulk
     const [salesData, expensesData, purchasesData, manualData] = await Promise.all([
-      query(`SELECT sale_date::text as d, COALESCE(SUM(CASE WHEN payment_method='cash' AND payment_status!='returned' THEN amount_paid ELSE 0 END),0) as cash_sales, COALESCE(SUM(CASE WHEN payment_status='returned' AND payment_method='cash' THEN amount_paid ELSE 0 END),0) as cash_returns FROM sales_invoices WHERE shop_id=$1 AND sale_date BETWEEN $2 AND $3 GROUP BY sale_date`, [shop_id, fromDate, toDate]),
-      query(`SELECT expense_date::text as d, COALESCE(SUM(amount),0) as total FROM expenses WHERE shop_id=$1 AND expense_date BETWEEN $2 AND $3 AND payment_method='cash' GROUP BY expense_date`, [shop_id, fromDate, toDate]),
-      query(`SELECT transaction_date::text as d, COALESCE(SUM(ABS(amount)),0) as total FROM supplier_ledger WHERE transaction_type='payment' AND amount<0 AND transaction_date BETWEEN $1 AND $2 GROUP BY transaction_date`, [fromDate, toDate]),
-      query(`SELECT entry_date::text as d, entry_type, category, COALESCE(SUM(amount),0) as total FROM cash_manual_entries WHERE shop_id=$1 AND entry_date BETWEEN $2 AND $3 GROUP BY entry_date, entry_type, category`, [shop_id, fromDate, toDate]),
+      query(`
+        SELECT sale_date::text as d,
+          COALESCE(SUM(CASE WHEN payment_method='cash' AND payment_status!='returned' THEN amount_paid ELSE 0 END),0) as cash_sales,
+          COALESCE(SUM(CASE WHEN payment_status='returned' AND payment_method='cash' THEN amount_paid ELSE 0 END),0) as cash_returns
+        FROM sales_invoices WHERE shop_id=$1 AND sale_date BETWEEN $2 AND $3 GROUP BY sale_date`,
+        [shop_id, calcFrom, toDate]),
+      query(`
+        SELECT expense_date::text as d, COALESCE(SUM(amount),0) as total
+        FROM expenses WHERE shop_id=$1 AND expense_date BETWEEN $2 AND $3 AND payment_method='cash' GROUP BY expense_date`,
+        [shop_id, calcFrom, toDate]),
+      query(`
+        SELECT transaction_date::text as d, COALESCE(SUM(ABS(amount)),0) as total
+        FROM supplier_ledger WHERE transaction_type='payment' AND amount<0 AND transaction_date BETWEEN $1 AND $2 GROUP BY transaction_date`,
+        [calcFrom, toDate]),
+      query(`
+        SELECT entry_date::text as d, entry_type, category, COALESCE(SUM(amount),0) as total
+        FROM cash_manual_entries WHERE shop_id=$1 AND entry_date BETWEEN $2 AND $3 GROUP BY entry_date, entry_type, category`,
+        [shop_id, calcFrom, toDate]),
     ]);
 
     const salesMap = {}; salesData.rows.forEach(r => salesMap[r.d] = r);
@@ -116,15 +161,15 @@ router.get('/history', async (req, res) => {
       if (r.entry_type==='out' && r.category!=='Shop Transfer') manMap[r.d].manual_out   += parseFloat(r.total);
     });
 
-    const result = [];
-    let prevClosing = null;
-    const cur = new Date(fromDate);
+    // Calculate day by day from May 1st — fully dynamic, no stored values
+    const allResult = [];
+    let prevClosing = anchorOpening;
+    const cur = new Date(calcFrom);
     const end = new Date(toDate);
 
     while (cur <= end) {
       const d = cur.toISOString().split('T')[0];
-      const reg       = regMap[d];
-      const opening   = reg ? parseFloat(reg.opening_balance) : (prevClosing ?? 0);
+      const opening   = prevClosing;
       const cashSales = parseFloat(salesMap[d]?.cash_sales || 0);
       const returns   = parseFloat(salesMap[d]?.cash_returns || 0);
       const expenses  = parseFloat(expMap[d]?.total || 0);
@@ -132,7 +177,7 @@ router.get('/history', async (req, res) => {
       const man       = manMap[d] || { transfer_in:0, transfer_out:0, manual_in:0, manual_out:0 };
       const closing   = opening + cashSales - returns + man.transfer_in + man.manual_in - expenses - purchases - man.transfer_out - man.manual_out;
 
-      result.push({
+      allResult.push({
         register_date:    d,
         shop_id:          parseInt(shop_id),
         opening_balance:  opening,
@@ -145,14 +190,17 @@ router.get('/history', async (req, res) => {
         manual_in:        man.manual_in,
         manual_out:       man.manual_out,
         closing_balance:  closing,
-        status:           reg?.status || 'auto',
       });
 
       prevClosing = closing;
       cur.setDate(cur.getDate() + 1);
     }
 
-    res.json({ success: true, data: result.reverse() });
+    // Filter to requested from date for display
+    const fromDate = from || calcFrom;
+    const filtered = allResult.filter(r => r.register_date >= fromDate);
+
+    res.json({ success: true, data: filtered.reverse() });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
   }
