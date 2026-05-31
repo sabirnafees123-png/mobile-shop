@@ -69,7 +69,7 @@ router.get('/today', async (req, res) => {
       runningBal = runningBal + parseFloat(s.cs||0) - parseFloat(s.cr||0) + m.ti + m.mi - parseFloat(e.total||0) - parseFloat(p.total||0) - m.to - m.mo;
       cur.setDate(cur.getDate() + 1);
     }
-    const openingBalance = runningBal;
+    const openingBalance = anchorOpening === 0 ? 0 : runningBal;
     const todayCashSales    = parseFloat(sales.rows[0].cash_sales);
     const todayExpenses     = parseFloat(expenses.rows[0].total_expenses);
     const todaySupplierPaid = parseFloat(supplierPayments.rows[0].total_paid);
@@ -164,12 +164,13 @@ router.get('/history', async (req, res) => {
     // Calculate day by day from May 1st — fully dynamic, no stored values
     const allResult = [];
     let prevClosing = anchorOpening;
+    const zeroMode = anchorOpening === 0; // each day independent if anchor = 0
     const cur = new Date(calcFrom);
     const end = new Date(toDate);
 
     while (cur <= end) {
       const d = cur.toISOString().split('T')[0];
-      const opening   = prevClosing;
+      const opening   = zeroMode ? 0 : prevClosing;
       const cashSales = parseFloat(salesMap[d]?.cash_sales || 0);
       const returns   = parseFloat(salesMap[d]?.cash_returns || 0);
       const expenses  = parseFloat(expMap[d]?.total || 0);
