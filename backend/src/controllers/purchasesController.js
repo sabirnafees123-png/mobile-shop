@@ -118,13 +118,13 @@ exports.createPurchase = async (req, res) => {
 
     // Create purchase header
     const purchase = await client.query(
-      `INSERT INTO purchases (purchase_number, supplier_id, purchase_date, total_amount, amount_paid, payment_status, notes)
-       VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
+      `INSERT INTO purchases (purchase_number, supplier_id, purchase_date, total_amount, amount_paid, payment_status, notes, shop_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
       [purchaseNumber, supplier_id,
        purchase_date || new Date().toISOString().split('T')[0],
        totalAmount, amount_paid,
        amount_paid >= totalAmount ? 'paid' : amount_paid > 0 ? 'partial' : 'unpaid',
-       notes]
+       notes, parseInt(items[0].shop_id)]
     );
     const purchaseId = purchase.rows[0].id;
 
@@ -202,21 +202,21 @@ exports.createPurchase = async (req, res) => {
     await client.query('UPDATE suppliers SET balance = $1 WHERE id = $2', [newBalance, supplier_id]);
 
     await client.query(
-      `INSERT INTO supplier_ledger (supplier_id, transaction_type, reference_id, reference_type, amount, balance_after, description, transaction_date)
-       VALUES ($1,'purchase',$2,'purchase',$3,$4,$5,$6)`,
+      `INSERT INTO supplier_ledger (supplier_id, transaction_type, reference_id, reference_type, amount, balance_after, description, transaction_date, shop_id)
+       VALUES ($1,'purchase',$2,'purchase',$3,$4,$5,$6,$7)`,
       [supplier_id, purchaseId, amountDue, newBalance,
        `Purchase ${purchaseNumber} - ${items.length} item(s)`,
-       purchase_date || new Date().toISOString().split('T')[0]]
+       purchase_date || new Date().toISOString().split('T')[0], parseInt(items[0].shop_id)]
     );
 
     if (amount_paid > 0) {
       const balAfterPayment = newBalance - amount_paid;
       await client.query(
-        `INSERT INTO supplier_ledger (supplier_id, transaction_type, reference_id, reference_type, amount, balance_after, description, transaction_date)
-         VALUES ($1,'payment',$2,'purchase',$3,$4,$5,$6)`,
+        `INSERT INTO supplier_ledger (supplier_id, transaction_type, reference_id, reference_type, amount, balance_after, description, transaction_date, shop_id)
+         VALUES ($1,'payment',$2,'purchase',$3,$4,$5,$6,$7)`,
         [supplier_id, purchaseId, -amount_paid, balAfterPayment,
          `Payment with purchase ${purchaseNumber}`,
-         purchase_date || new Date().toISOString().split('T')[0]]
+         purchase_date || new Date().toISOString().split('T')[0], parseInt(items[0].shop_id)]
       );
     }
 
