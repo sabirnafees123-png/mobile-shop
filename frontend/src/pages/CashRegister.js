@@ -129,7 +129,7 @@ export default function CashRegister() {
     } catch { toast.error('Failed'); }
   };
 
-  const today    = data?.today    || {};
+  const todayData = data?.today    || {};
   const register = data?.register;
   const isOpen   = register?.status === 'open';
   const isClosed = register?.status === 'closed';
@@ -199,12 +199,12 @@ export default function CashRegister() {
           <div className="card" style={{padding:'20px',marginBottom:'20px',overflowX:'auto'}}>
             <div style={{display:'flex',gap:'8px',alignItems:'center',fontSize:'.85rem',flexWrap:'wrap'}}>
               {[
-                { label:'Opening', val: today.opening_balance, color:'var(--accent-green)', sign: null },
-                { label:'Cash Sales', val: today.cash_sales, color:'var(--accent-green)', sign: '+' },
-                { label:'Cash In', val: today.manual_in, color:'#059669', sign: '+' },
-                { label:'Expenses', val: today.expenses, color:'var(--accent-red)', sign: '−' },
-                { label:'Supplier Paid', val: today.supplier_paid, color:'var(--accent-red)', sign: '−' },
-                { label:'Cash Out', val: today.manual_out, color:'#dc2626', sign: '−' },
+                { label:'Opening', val: todayData.opening_balance, color:'var(--accent-green)', sign: null },
+                { label:'Cash Sales', val: todayData.cash_sales, color:'var(--accent-green)', sign: '+' },
+                { label:'Cash In', val: todayData.manual_in, color:'#059669', sign: '+' },
+                { label:'Expenses', val: todayData.expenses, color:'var(--accent-red)', sign: '−' },
+                { label:'Supplier Paid', val: todayData.supplier_paid, color:'var(--accent-red)', sign: '−' },
+                { label:'Cash Out', val: todayData.manual_out, color:'#dc2626', sign: '−' },
               ].map((item, i) => (
                 <React.Fragment key={i}>
                   {item.sign && <div style={{fontSize:'1.2rem',fontWeight:700,color:item.sign==='+'?'var(--accent-green)':'var(--accent-red)'}}>{item.sign}</div>}
@@ -216,7 +216,7 @@ export default function CashRegister() {
               ))}
               <div style={{fontSize:'1.2rem',fontWeight:700,color:'var(--text-muted)'}}>=</div>
               <div style={{textAlign:'center',background:'var(--bg-secondary)',borderRadius:'8px',padding:'8px 12px'}}>
-                <div style={{fontSize:'1.1rem',fontWeight:700,color:'var(--accent)'}}>{fmt(today.expected_cash)}</div>
+                <div style={{fontSize:'1.1rem',fontWeight:700,color:'var(--accent)'}}>{fmt(todayData.expected_cash)}</div>
                 <div style={{color:'var(--text-muted)',fontSize:'.75rem'}}>Expected Cash</div>
               </div>
             </div>
@@ -227,32 +227,32 @@ export default function CashRegister() {
           <div className="stat-grid" style={{marginBottom:'24px'}}>
             <div className="stat-card green">
               <div className="label">Gross Sales</div>
-              <div className="value">{fmt(today.gross_sales)}</div>
-              <div className="sub">{today.invoice_count} invoices</div>
+              <div className="value">{fmt(todayData.gross_sales)}</div>
+              <div className="sub">{todayData.invoice_count} invoices</div>
             </div>
             <div className="stat-card yellow">
               <div className="label">Trade-in Value</div>
-              <div className="value">{fmt(today.trade_in)}</div>
+              <div className="value">{fmt(todayData.trade_in)}</div>
               <div className="sub">Exchange deductions</div>
             </div>
             <div className="stat-card blue">
               <div className="label">Net Sales</div>
-              <div className="value">{fmt(today.net_sales)}</div>
+              <div className="value">{fmt(todayData.net_sales)}</div>
               <div className="sub">Gross − Trade-in</div>
             </div>
             <div className="stat-card blue">
               <div className="label">Cash Sales</div>
-              <div className="value">{fmt(today.cash_sales)}</div>
+              <div className="value">{fmt(todayData.cash_sales)}</div>
               <div className="sub">Cash only</div>
             </div>
             <div className="stat-card red">
               <div className="label">Cash Expenses</div>
-              <div className="value">{fmt(today.expenses)}</div>
+              <div className="value">{fmt(todayData.expenses)}</div>
               <div className="sub">Paid in cash</div>
             </div>
             <div className="stat-card red">
               <div className="label">Supplier Payments</div>
-              <div className="value">{fmt(today.supplier_paid)}</div>
+              <div className="value">{fmt(todayData.supplier_paid)}</div>
               <div className="sub">Cash to suppliers</div>
             </div>
           </div>
@@ -284,8 +284,8 @@ export default function CashRegister() {
             ))}
             {manualEntries.length > 0 && (
               <div style={{display:'flex',justifyContent:'flex-end',gap:'16px',marginTop:'8px',padding:'8px 0',borderTop:'1px solid var(--border)',fontSize:'13px',fontWeight:700}}>
-                <span style={{color:'#059669'}}>Total In: {fmt(today.manual_in)}</span>
-                <span style={{color:'#dc2626'}}>Total Out: {fmt(today.manual_out)}</span>
+                <span style={{color:'#059669'}}>Total In: {fmt(todayData.manual_in)}</span>
+                <span style={{color:'#dc2626'}}>Total Out: {fmt(todayData.manual_out)}</span>
               </div>
             )}
           </div>
@@ -415,12 +415,12 @@ export default function CashRegister() {
               <div style={{padding:'12px',background:'var(--bg-secondary)',borderRadius:'8px',marginBottom:'16px',fontSize:'.9rem'}}>
                 <div style={{fontWeight:600,marginBottom:'8px',color:'var(--text-muted)',textTransform:'uppercase',fontSize:'.75rem'}}>System Calculation</div>
                 {[
-                  ['Opening Balance', today.opening_balance, null],
-                  ['+ Cash Sales', today.cash_sales, 'green'],
-                  ['+ Cash In (Manual)', today.manual_in, 'green'],
-                  ['− Cash Expenses', today.expenses, 'red'],
-                  ['− Supplier Payments', today.supplier_paid, 'red'],
-                  ['− Cash Out (Manual)', today.manual_out, 'red'],
+                  ['Opening Balance', todayData.opening_balance, null],
+                  ['+ Cash Sales', todayData.cash_sales, 'green'],
+                  ['+ Cash In (Manual)', todayData.manual_in, 'green'],
+                  ['− Cash Expenses', todayData.expenses, 'red'],
+                  ['− Supplier Payments', todayData.supplier_paid, 'red'],
+                  ['− Cash Out (Manual)', todayData.manual_out, 'red'],
                 ].map(([label, val, color]) => (
                   <div key={label} style={{display:'flex',justifyContent:'space-between',marginBottom:'6px'}}>
                     <span>{label}:</span>
@@ -429,15 +429,15 @@ export default function CashRegister() {
                 ))}
                 <div style={{display:'flex',justifyContent:'space-between',borderTop:'1px solid var(--border)',paddingTop:'8px',fontWeight:700}}>
                   <span>Expected Cash in Drawer:</span>
-                  <strong style={{color:'var(--accent)',fontSize:'1.05rem'}}>{fmt(today.expected_cash)}</strong>
+                  <strong style={{color:'var(--accent)',fontSize:'1.05rem'}}>{fmt(todayData.expected_cash)}</strong>
                 </div>
               </div>
               <div className="form-group" style={{marginBottom:'12px'}}>
                 <label className="form-label">Actual Cash Counted (AED)</label>
-                <input type="number" className="form-control" value={closingBal} onChange={e => setClosingBal(e.target.value)} placeholder={Math.round(today.expected_cash||0).toString()} />
+                <input type="number" className="form-control" value={closingBal} onChange={e => setClosingBal(e.target.value)} placeholder={Math.round(todayData.expected_cash||0).toString()} />
                 {closingBal && (
-                  <div style={{marginTop:'6px',fontSize:'.85rem',fontWeight:600,color:Math.abs(parseFloat(closingBal)-today.expected_cash)<1?'var(--accent-green)':'var(--accent-red)'}}>
-                    {Math.abs(parseFloat(closingBal)-today.expected_cash)<1?'✅ Balanced!':'⚠️ Variance: '+((parseFloat(closingBal)-today.expected_cash)>0?'+':'')+fmt(parseFloat(closingBal)-today.expected_cash)}
+                  <div style={{marginTop:'6px',fontSize:'.85rem',fontWeight:600,color:Math.abs(parseFloat(closingBal)-todayData.expected_cash)<1?'var(--accent-green)':'var(--accent-red)'}}>
+                    {Math.abs(parseFloat(closingBal)-todayData.expected_cash)<1?'✅ Balanced!':'⚠️ Variance: '+((parseFloat(closingBal)-todayData.expected_cash)>0?'+':'')+fmt(parseFloat(closingBal)-todayData.expected_cash)}
                   </div>
                 )}
               </div>
