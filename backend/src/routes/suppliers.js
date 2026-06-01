@@ -151,7 +151,7 @@ router.post("/:id/payments", async (req, res) => {
   const client = await getClient();
   try {
     const { id } = req.params;
-    const { amount, payment_date, payment_method = "cash", cheque_no, note } = req.body;
+    const { amount, payment_date, payment_method = "cash", cheque_no, note, shop_id } = req.body;
 
     if (!amount || Number(amount) <= 0) return res.status(400).json({ error: "Amount must be greater than 0" });
 
@@ -170,10 +170,10 @@ router.post("/:id/payments", async (req, res) => {
 
     const result = await client.query(`
       INSERT INTO supplier_ledger
-        (supplier_id, transaction_type, reference_id, reference_type, amount, balance_after, description, transaction_date)
-      VALUES ($1, 'payment', NULL, 'manual', $2, $3, $4, $5)
+        (supplier_id, transaction_type, reference_id, reference_type, amount, balance_after, description, transaction_date, shop_id)
+      VALUES ($1, 'payment', NULL, 'manual', $2, $3, $4, $5, $6)
       RETURNING *
-    `, [id, -payAmount, newBalance, description, payment_date || new Date().toISOString().split("T")[0]]);
+    `, [id, -payAmount, newBalance, description, payment_date || new Date().toISOString().split("T")[0], shop_id || null]);
 
     await client.query("COMMIT");
     res.status(201).json({ ok: true, payment: result.rows[0] });

@@ -289,7 +289,7 @@ export default function Purchases() {
   const handleSupplierPayment = async () => {
     if (!supPayForm.amount || parseFloat(supPayForm.amount) <= 0) return toast.error('Enter valid amount');
     try {
-      await api.post(`/suppliers/${showSupPay.supplier_id}/payments`, supPayForm);
+      await api.post(`/suppliers/${showSupPay.supplier_id}/payments`, { ...supPayForm, shop_id: showSupPay.shop_id || filterShop || null });
       toast.success('Payment recorded!');
       setShowSupPay(null);
       setSupPayForm({ amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'cash', note: '' });
