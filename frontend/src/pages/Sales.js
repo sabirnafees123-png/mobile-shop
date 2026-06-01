@@ -376,8 +376,10 @@ const searchByName = async (idx, val) => {
       setSerialSearches({}); setSerialResults({});
       setNameSearches({}); setNameResults({});
       reloadAll();
-    } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
-    finally { setSubmitting(false); }
+    } catch (err) {
+      if (err.response?.status === 423) toast.error('🔒 ' + (err.response?.data?.message || 'Register is locked for this date'));
+      else toast.error(err.response?.data?.message || 'Failed');
+    }
   };
 
 

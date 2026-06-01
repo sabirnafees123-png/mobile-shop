@@ -140,7 +140,11 @@ router.get('/history', async (req, res) => {
     );
     // Build anchor map: date -> opening_balance
     const anchorMap = {};
-    anchorRows.rows.forEach(r => { anchorMap[r.d] = parseFloat(r.opening_balance); });
+    const regMap = {};
+    anchorRows.rows.forEach(r => {
+      anchorMap[r.d] = parseFloat(r.opening_balance);
+      regMap[r.d] = r;
+    });
 
     // Get first anchor opening
     const firstAnchor = anchorMap[calcFrom] ?? 0;
@@ -195,7 +199,11 @@ router.get('/history', async (req, res) => {
       const expenses  = parseFloat(expMap[d]?.total || 0);
       const purchases = parseFloat(purMap[d]?.total || 0);
       const man       = manMap[d] || { transfer_in:0, transfer_out:0, manual_in:0, manual_out:0 };
-      const closing   = opening + cashSales - returns + man.transfer_in + man.manual_in - expenses - purchases - man.transfer_out - man.manual_out;
+      const liveClosing = opening + cashSales - returns + man.transfer_in + man.manual_in - expenses - purchases - man.transfer_out - man.manual_out;
+      const reg = regMap[d];
+      const isLocked = reg?.status === 'closed';
+      // Locked days use stored closing; open/no-row days use live calculation
+      const closing = isLocked ? parseFloat(reg.closing_balance) : liveClosing;
 
       allResult.push({
         register_date:    d,
@@ -211,6 +219,8 @@ router.get('/history', async (req, res) => {
         manual_in:        man.manual_in,
         manual_out:       man.manual_out,
         closing_balance:  closing,
+        status:           reg?.status || 'open',
+        is_locked:        isLocked,
       });
 
       prevClosing = closing;

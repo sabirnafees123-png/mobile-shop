@@ -342,7 +342,7 @@ export default function CashRegister() {
                   ) : history.map(h => {
                     const closing = parseFloat(h.opening_balance||0) + parseFloat(h.total_sales_cash||0) - parseFloat(h.cash_returns||0) + parseFloat(h.transfer_in||0) + parseFloat(h.manual_in||0) - parseFloat(h.total_purchases||0) - parseFloat(h.total_expenses||0) - parseFloat(h.manual_out||0) - parseFloat(h.transfer_out||0);
                     return (
-                      <tr key={h.register_date}>
+                      <tr key={h.register_date} style={{background: h.is_locked ? '#f0fdf4' : undefined, opacity: h.is_locked ? 0.85 : 1}}>
                         <td><strong>{fmtDate(h.register_date)}</strong></td>
                         <td style={{textAlign:'right'}}>{fmt(h.opening_balance)}</td>
                         <td style={{textAlign:'right',color:'#059669',fontWeight:600}}>{fmt(h.total_sales_cash)}</td>
@@ -354,12 +354,27 @@ export default function CashRegister() {
                         <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>{parseFloat(h.total_expenses||0)>0?`− ${fmt(h.total_expenses)}`:'—'}</td>
                         <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>{parseFloat(h.manual_out||0)>0?`− ${fmt(h.manual_out)}`:'—'}</td>
                         <td style={{textAlign:'right',color:'#7c3aed',fontWeight:600}}>{parseFloat(h.transfer_out||0)>0?`− ${fmt(h.transfer_out)}`:'—'}</td>
-                        <td style={{textAlign:'right'}}><strong style={{color:'#6366f1'}}>{fmt(h.closing_balance ?? closing)}</strong></td>
+                        <td style={{textAlign:'right'}}><strong style={{color: h.is_locked ? '#0f172a' : '#6366f1'}}>{fmt(h.closing_balance)}</strong></td>
                         <td>
-                          <button className="btn btn-ghost btn-sm" title="Add manual entry for this date"
-                            onClick={() => { setManualForm({entry_type:'in',amount:'',category:'',description:'',entry_date:h.register_date}); setShowManual(true); }}>
-                            + Entry
-                          </button>
+                          <div style={{display:'flex',gap:'4px'}}>
+                            {h.is_locked ? (
+                              <button className="btn btn-ghost btn-sm" title="Reopen this day"
+                                style={{color:'#f59e0b',fontSize:'16px',padding:'2px 6px'}}
+                                onClick={() => { setRegisterDate(h.register_date); setShowOpen(true); }}>
+                                🔓
+                              </button>
+                            ) : (
+                              <button className="btn btn-ghost btn-sm" title="Close & lock this day"
+                                style={{color:'#059669',fontSize:'16px',padding:'2px 6px'}}
+                                onClick={() => { setRegisterDate(h.register_date); setClosingBal(Math.round(h.closing_balance).toString()); setShowClose(true); }}>
+                                🔒
+                              </button>
+                            )}
+                            <button className="btn btn-ghost btn-sm" title="Add manual entry for this date"
+                              onClick={() => { setManualForm({entry_type:'in',amount:'',category:'',description:'',entry_date:h.register_date}); setShowManual(true); }}>
+                              + Entry
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );

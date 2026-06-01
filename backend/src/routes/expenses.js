@@ -2,6 +2,7 @@
 const express = require('express');
 const router  = express.Router();
 const { query } = require('../config/database');
+const checkRegisterLock = require('../middleware/checkRegisterLock');
 
 // GET /api/v1/expenses/categories
 router.get('/categories', async (req, res) => {
@@ -49,7 +50,7 @@ router.get('/', async (req, res) => {
 });
 
 // POST /api/v1/expenses
-router.post('/', async (req, res) => {
+router.post('/', checkRegisterLock, async (req, res) => {
   try {
     const {
       category, category_id, description, amount, payment_method,

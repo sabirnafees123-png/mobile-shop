@@ -294,7 +294,7 @@ export default function Purchases() {
       setShowSupPay(null);
       setSupPayForm({ amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'cash', note: '' });
       load(filterShop, page);
-    } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
+    } catch (err) { if(err.response?.status===423) toast.error("🔒 "+(err.response?.data?.message||"Register locked")); else toast.error(err.response?.data?.message||"Failed"); }
   };
 
   const payStatus = (s) => ({ paid: 'badge-green', partial: 'badge-yellow', unpaid: 'badge-red' }[s] || 'badge-gray');
