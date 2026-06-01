@@ -299,13 +299,19 @@ router.delete('/manual-entry/:id', async (req, res) => {
 // ── POST /api/v1/cash-register/open ─────────────────────────────────────────
 router.post('/open', async (req, res) => {
   try {
-    const today = new Date().toISOString().split('T')[0];
-    const { opening_balance, notes, shop_id } = req.body;
+    const { opening_balance, notes, shop_id, date } = req.body;
+    const registerDate = date || new Date().toISOString().split('T')[0];
     if (!shop_id) return res.status(400).json({ success: false, message: 'shop_id required' });
-    const existing = await query(`SELECT id FROM cash_register WHERE register_date = $1 AND shop_id = $2`, [today, shop_id]);
-    if (existing.rows.length) return res.status(400).json({ success: false, message: 'Register already opened today for this shop' });
+    const existing = await query(`SELECT id FROM cash_register WHERE register_date = $1 AND shop_id = $2`, [registerDate, shop_id]);
+    if (existing.rows.length) {
+      // Update existing row instead of failing
+      await query(`UPDATE cash_register SET opening_balance=$1, status='open', notes=COALESCE($2,notes), updated_at=NOW() WHERE register_date=$3 AND shop_id=$4`,
+        [opening_balance || 0, notes || null, registerDate, shop_id]);
+      const updated = await query(`SELECT * FROM cash_register WHERE register_date=$1 AND shop_id=$2`, [registerDate, shop_id]);
+      return res.status(200).json({ success: true, data: updated.rows[0] });
+    }
     const result = await query(`INSERT INTO cash_register (register_date, shop_id, opening_balance, status, opened_by, notes) VALUES ($1, $2, $3, 'open', $4, $5) RETURNING *`,
-      [today, shop_id, opening_balance || 0, req.user?.id, notes || null]);
+      [registerDate, shop_id, opening_balance || 0, req.user?.id, notes || null]);
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) {
     res.status(500).json({ success: false, message: err.message });
@@ -315,41 +321,46 @@ router.post('/open', async (req, res) => {
 // ── POST /api/v1/cash-register/close ────────────────────────────────────────
 router.post('/close', async (req, res) => {
   try {
-    const today = new Date().toISOString().split('T')[0];
-    const { closing_balance, notes, shop_id } = req.body;
+    const { closing_balance, notes, shop_id, date } = req.body;
+    const registerDate = date || new Date().toISOString().split('T')[0];
     if (!shop_id) return res.status(400).json({ success: false, message: 'shop_id required' });
 
     const [sales, expenses, supplierPayments, manualEntries] = await Promise.all([
-      query(`SELECT COALESCE(SUM(CASE WHEN payment_method='cash' THEN total_amount - COALESCE(exchange_trade_in_value,0) ELSE 0 END),0) as cash_sales FROM sales_invoices WHERE sale_date=$1 AND payment_status!='returned' AND shop_id=$2`, [today, shop_id]),
-      query(`SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE expense_date=$1 AND shop_id=$2 AND payment_method='cash'`, [today, shop_id]),
-      query(`SELECT COALESCE(SUM(ABS(amount)),0) as total_paid FROM supplier_ledger WHERE transaction_type='payment' AND transaction_date=$1 AND amount < 0`, [today]),
-      query(`SELECT entry_type, COALESCE(SUM(amount),0) as total FROM cash_manual_entries WHERE entry_date=$1 AND shop_id=$2 GROUP BY entry_type`, [today, shop_id]).catch(() => ({ rows: [] })),
+      query(`SELECT COALESCE(SUM(CASE WHEN payment_method='cash' AND payment_status!='returned' THEN amount_paid ELSE 0 END),0) as cash_sales FROM sales_invoices WHERE sale_date=$1 AND shop_id=$2`, [registerDate, shop_id]),
+      query(`SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE expense_date=$1 AND shop_id=$2 AND payment_method='cash'`, [registerDate, shop_id]),
+      query(`SELECT COALESCE(SUM(ABS(amount)),0) as total_paid FROM supplier_ledger WHERE transaction_type='payment' AND transaction_date=$1 AND amount<0 AND shop_id=$2`, [registerDate, shop_id]),
+      query(`SELECT entry_type, COALESCE(SUM(amount),0) as total FROM cash_manual_entries WHERE entry_date=$1 AND shop_id=$2 GROUP BY entry_type`, [registerDate, shop_id]).catch(() => ({ rows: [] })),
     ]);
 
-    const manualIn  = manualEntries.rows.find(r => r.entry_type === 'in')?.total || 0;
-    const manualOut = manualEntries.rows.find(r => r.entry_type === 'out')?.total || 0;
+    const manualIn  = parseFloat(manualEntries.rows.find(r => r.entry_type === 'in')?.total || 0);
+    const manualOut = parseFloat(manualEntries.rows.find(r => r.entry_type === 'out')?.total || 0);
+    const cashSales = parseFloat(sales.rows[0].cash_sales);
+    const exps      = parseFloat(expenses.rows[0].total);
+    const supPaid   = parseFloat(supplierPayments.rows[0].total_paid);
 
-    const result = await query(`UPDATE cash_register SET status='closed', closing_balance=$1, closed_by=$2, total_sales_cash=$3, total_expenses=$4, notes=COALESCE($5, notes), updated_at=NOW() WHERE register_date=$6 AND shop_id=$7 RETURNING *`,
-      [closing_balance || 0, req.user?.id, parseFloat(sales.rows[0].cash_sales), parseFloat(expenses.rows[0].total), notes || null, today, shop_id]);
-
-    if (!result.rows.length) return res.status(400).json({ success: false, message: 'No open register found for today' });
+    // Upsert — update if exists, insert if not
+    const existing = await query(`SELECT * FROM cash_register WHERE register_date=$1 AND shop_id=$2`, [registerDate, shop_id]);
+    let result;
+    if (existing.rows.length) {
+      result = await query(`UPDATE cash_register SET status='closed', closing_balance=$1, closed_by=$2, total_sales_cash=$3, total_expenses=$4, notes=COALESCE($5,notes), updated_at=NOW() WHERE register_date=$6 AND shop_id=$7 RETURNING *`,
+        [closing_balance || 0, req.user?.id, cashSales, exps, notes || null, registerDate, shop_id]);
+    } else {
+      result = await query(`INSERT INTO cash_register (register_date, shop_id, opening_balance, closing_balance, total_sales_cash, total_expenses, status, notes) VALUES ($1, $2, 0, $3, $4, $5, 'closed', $6) RETURNING *`,
+        [registerDate, shop_id, closing_balance || 0, cashSales, exps, notes || null]);
+    }
 
     const reg = result.rows[0];
-    const expectedCash = parseFloat(reg.opening_balance) + parseFloat(sales.rows[0].cash_sales) + parseFloat(manualIn) - parseFloat(expenses.rows[0].total) - parseFloat(supplierPayments.rows[0].total_paid) - parseFloat(manualOut);
+    const opening = parseFloat(reg.opening_balance || 0);
+    const expectedCash = opening + cashSales + manualIn - exps - supPaid - manualOut;
 
     res.json({
       success: true,
-      data: result.rows[0],
+      data: reg,
       summary: {
-        opening:        parseFloat(reg.opening_balance),
-        cash_sales:     parseFloat(sales.rows[0].cash_sales),
-        manual_in:      parseFloat(manualIn),
-        manual_out:     parseFloat(manualOut),
-        expenses:       parseFloat(expenses.rows[0].total),
-        supplier_paid:  parseFloat(supplierPayments.rows[0].total_paid),
-        expected_cash:  expectedCash,
+        opening, cash_sales: cashSales, manual_in: manualIn, manual_out: manualOut,
+        expenses: exps, supplier_paid: supPaid, expected_cash: expectedCash,
         actual_closing: parseFloat(closing_balance || 0),
-        variance:       parseFloat(closing_balance || 0) - expectedCash,
+        variance: parseFloat(closing_balance || 0) - expectedCash,
       }
     });
   } catch (err) {

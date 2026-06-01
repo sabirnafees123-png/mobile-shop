@@ -61,10 +61,13 @@ export default function CashRegister() {
 
   useEffect(() => { if (shopId) load(shopId); }, [shopId]);
 
+  const today = new Date().toISOString().split('T')[0];
+  const [registerDate, setRegisterDate] = useState(today);
+
   const handleOpen = async () => {
     setSaving(true);
     try {
-      await api.post('/cash-register/open', { opening_balance: parseFloat(openingBal) || 0, notes, shop_id: shopId });
+      await api.post('/cash-register/open', { opening_balance: parseFloat(openingBal) || 0, notes, shop_id: shopId, date: registerDate });
       toast.success('Register opened!');
       setShowOpen(false); setOpeningBal(''); setNotes('');
       load(shopId);
@@ -75,7 +78,7 @@ export default function CashRegister() {
   const handleClose = async () => {
     setSaving(true);
     try {
-      const res = await api.post('/cash-register/close', { closing_balance: parseFloat(closingBal) || 0, notes, shop_id: shopId });
+      const res = await api.post('/cash-register/close', { closing_balance: parseFloat(closingBal) || 0, notes, shop_id: shopId, date: registerDate });
       if (res.data?.summary) setVariance(res.data.summary);
       toast.success('Register closed!');
       setShowClose(false); setClosingBal(''); setNotes('');
@@ -374,6 +377,10 @@ export default function CashRegister() {
           <div className="modal" style={{maxWidth:'400px'}} onClick={e => e.stopPropagation()}>
             <div className="modal-header"><strong>🔓 Open Register — {shopName}</strong><button className="modal-close" onClick={() => setShowOpen(false)}>✕</button></div>
             <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">Date</label>
+                <input type="date" className="form-control" value={registerDate} onChange={e => setRegisterDate(e.target.value)} />
+              </div>
               <div style={{padding:'12px',background:'var(--bg-secondary)',borderRadius:'8px',marginBottom:'16px',fontSize:'.9rem'}}>
                 Yesterday's closing: <strong>{fmt(data?.yesterday_closing)}</strong>
                 <div style={{fontSize:'.8rem',color:'var(--text-muted)',marginTop:'4px'}}>Enter actual cash counted in drawer.</div>
@@ -401,6 +408,10 @@ export default function CashRegister() {
           <div className="modal" style={{maxWidth:'440px'}} onClick={e => e.stopPropagation()}>
             <div className="modal-header"><strong>🔒 Close Register — {shopName}</strong><button className="modal-close" onClick={() => setShowClose(false)}>✕</button></div>
             <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">Date</label>
+                <input type="date" className="form-control" value={registerDate} onChange={e => setRegisterDate(e.target.value)} />
+              </div>
               <div style={{padding:'12px',background:'var(--bg-secondary)',borderRadius:'8px',marginBottom:'16px',fontSize:'.9rem'}}>
                 <div style={{fontWeight:600,marginBottom:'8px',color:'var(--text-muted)',textTransform:'uppercase',fontSize:'.75rem'}}>System Calculation</div>
                 {[
