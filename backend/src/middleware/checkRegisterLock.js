@@ -13,13 +13,13 @@ const checkRegisterLock = async (req, res, next) => {
     if (!effectiveShopId && req.params?.id) {
       // Try to find shop from invoice/expense/purchase
       const tables = [
-        `SELECT shop_id FROM sales_invoices WHERE id = '${req.params.id}' LIMIT 1`,
-        `SELECT shop_id FROM expenses WHERE id = '${req.params.id}' LIMIT 1`,
-        `SELECT shop_id FROM purchases WHERE id = '${req.params.id}' LIMIT 1`,
+        ['SELECT shop_id FROM sales_invoices WHERE id = $1 LIMIT 1'],
+        ['SELECT shop_id FROM expenses WHERE id = $1 LIMIT 1'],
+        ['SELECT shop_id FROM purchases WHERE id = $1 LIMIT 1'],
       ];
-      for (const sql of tables) {
+      for (const [sql] of tables) {
         try {
-          const r = await query(sql);
+          const r = await query(sql, [req.params.id]);
           if (r.rows.length && r.rows[0].shop_id) { effectiveShopId = r.rows[0].shop_id; break; }
         } catch {}
       }
