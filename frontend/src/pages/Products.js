@@ -21,7 +21,7 @@ const EMPTY = {
   serial_number: '', name: '', brand: '', color: '',
   type: 'Used', description: '',
   base_cost: '', selling_price: '', is_active: true,
-  category: '', sub_category: '',
+  category: '', sub_category: '', is_service: false,
 };
 
 const LIMIT = 50;
@@ -185,7 +185,7 @@ export default function Products() {
                       <td style={{ fontFamily: 'monospace', fontSize: '.85rem', color: 'var(--text-muted)' }}>
                         {p.serial_number || '—'}
                       </td>
-                      <td><strong>{p.name}</strong></td>
+                      <td><strong>{p.name}</strong>{p.is_service && <span style={{marginLeft:'6px',background:'#eef2ff',color:'#6366f1',padding:'1px 6px',borderRadius:'6px',fontSize:'11px',fontWeight:600}}>🔧 Service</span>}</td>
                       <td>{p.brand || '—'}</td>
                       <td>
                         {p.category ? (
@@ -316,6 +316,17 @@ export default function Products() {
                   <label className="form-label">Selling Price (AED)</label>
                   <input type="number" className="form-control" value={form.selling_price}
                     onChange={e => setForm({ ...form, selling_price: e.target.value })} placeholder="0" />
+                </div>
+                <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                  <label style={{ display:'flex', alignItems:'center', gap:'10px', cursor:'pointer', padding:'10px 14px', background: form.is_service ? '#eef2ff' : '#f8fafc', borderRadius:'8px', border:`1.5px solid ${form.is_service ? '#6366f1' : '#e2e8f0'}` }}>
+                    <input type="checkbox" checked={form.is_service || false}
+                      onChange={e => setForm({ ...form, is_service: e.target.checked })}
+                      style={{ width:'18px', height:'18px', accentColor:'#6366f1' }} />
+                    <div>
+                      <div style={{ fontWeight:600, color: form.is_service ? '#6366f1' : '#0f172a' }}>🔧 Service / Repair Item</div>
+                      <div style={{ fontSize:'12px', color:'#64748b' }}>No inventory deducted when sold — for repairs, services, labour charges</div>
+                    </div>
+                  </label>
                 </div>
                 <div className="form-group" style={{ gridColumn: 'span 2' }}>
                   <label className="form-label">Description / Notes</label>

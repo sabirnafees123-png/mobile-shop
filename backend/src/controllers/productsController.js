@@ -109,11 +109,11 @@ const createProduct = async (req, res) => {
       `INSERT INTO products
         (name, brand, color, serial_number, type,
          model, category, sub_category, storage, condition, description,
-         base_cost, selling_price, barcode, is_active)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15) RETURNING *`,
+         base_cost, selling_price, barcode, is_active, is_service)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
       [name, brand, color, serial_number || null, type,
        model, category || 'Mobile Phone', sub_category || null, storage, condition || type,
-       description, base_cost || 0, selling_price || 0, barcode, is_active]
+       description, base_cost || 0, selling_price || 0, barcode, is_active, is_service || false]
     );
     res.status(201).json({ success: true, data: result.rows[0], message: 'Product created' });
   } catch (err) {
@@ -129,7 +129,7 @@ const updateProduct = async (req, res) => {
       name, brand, color, serial_number, type,
       model, category, storage, condition, description,
       base_cost, selling_price, barcode, is_active,
-      sub_category,
+      sub_category, is_service,
     } = req.body;
 
     const existing = await pool.query('SELECT * FROM products WHERE id = $1', [id]);
@@ -159,12 +159,13 @@ const updateProduct = async (req, res) => {
         barcode       = COALESCE($13, barcode),
         is_active     = COALESCE($14, is_active),
         sub_category  = $15,
+        is_service    = COALESCE($17, is_service),
         updated_at    = NOW()
        WHERE id = $16 RETURNING *`,
       [name, brand, color, serial_number, type,
        model, category, storage, condition, description,
        base_cost, selling_price, barcode, is_active,
-       sub_category || null, id]
+       sub_category || null, id, is_service ?? null]
     );
     res.json({ success: true, data: result.rows[0], message: 'Product updated' });
   } catch (err) {

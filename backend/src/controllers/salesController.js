@@ -208,16 +208,21 @@ exports.createSale = async (req, res) => {
          VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [invoiceId, item.product_id, qty, item.unit_cost || 0, item.unit_price, item.discount || 0, item.serial_number || null]
       );
-      await client.query(
-        `UPDATE inventory SET quantity = quantity - $1, last_updated = NOW()
-         WHERE product_id = $2 AND shop_id = $3 AND quantity >= $1`,
-        [qty, item.product_id, parseInt(shop_id)]
-      );
-      await client.query(
-        `INSERT INTO stock_movements (product_id, type, quantity, note, created_by)
-         VALUES ($1, 'out', $2, $3, $4)`,
-        [item.product_id, qty, `Sale ${invoiceNumber}`, userId]
-      );
+      // Skip inventory deduction for service items
+      const prodCheck = await client.query(`SELECT COALESCE(is_service, false) as is_service FROM products WHERE id=$1`, [item.product_id]);
+      const isService = prodCheck.rows[0]?.is_service || false;
+      if (!isService) {
+        await client.query(
+          `UPDATE inventory SET quantity = quantity - $1, last_updated = NOW()
+           WHERE product_id = $2 AND shop_id = $3 AND quantity >= $1`,
+          [qty, item.product_id, parseInt(shop_id)]
+        );
+        await client.query(
+          `INSERT INTO stock_movements (product_id, type, quantity, note, created_by)
+           VALUES ($1, 'out', $2, $3, $4)`,
+          [item.product_id, qty, `Sale ${invoiceNumber}`, userId]
+        );
+      }
     }
 
     if (is_exchange && exchange_serial_number) {
