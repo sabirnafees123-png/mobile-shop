@@ -155,7 +155,8 @@ router.get('/history', async (req, res) => {
         SELECT sale_date::text as d,
           COALESCE(SUM(CASE WHEN payment_method='cash' AND payment_status!='returned' THEN amount_paid ELSE 0 END),0) as cash_sales,
           COALESCE(SUM(CASE WHEN payment_status='returned' AND payment_method='cash' THEN amount_paid ELSE 0 END),0) as cash_returns,
-          COALESCE(SUM(CASE WHEN payment_status!='returned' THEN total_amount ELSE 0 END),0) as gross_sales
+          COALESCE(SUM(CASE WHEN payment_status!='returned' THEN total_amount ELSE 0 END),0) as gross_sales,
+          COALESCE(SUM(CASE WHEN payment_status!='returned' THEN COALESCE(exchange_trade_in_value,0) ELSE 0 END),0) as trade_in
         FROM sales_invoices WHERE shop_id=$1 AND sale_date BETWEEN $2 AND $3 GROUP BY sale_date`,
         [shop_id, calcFrom, toDate]),
       query(`
@@ -211,6 +212,7 @@ router.get('/history', async (req, res) => {
         opening_balance:  opening,
         total_sales_cash: cashSales,
         gross_sales:      parseFloat(salesMap[d]?.gross_sales || 0),
+        trade_in:         parseFloat(salesMap[d]?.trade_in || 0),
         cash_returns:     returns,
         total_expenses:   expenses,
         total_purchases:  purchases,

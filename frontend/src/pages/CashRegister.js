@@ -325,6 +325,7 @@ export default function CashRegister() {
                     <th style={{textAlign:'right'}}>Opening</th>
                     <th style={{textAlign:'right',color:'#059669'}}>+ Cash Sales</th>
                     <th style={{textAlign:'right',color:'#059669'}}>Gross Sales</th>
+                    <th style={{textAlign:'right',color:'#f59e0b'}}>Exchange</th>
                     <th style={{textAlign:'right',color:'#dc2626'}}>− Returns</th>
                     <th style={{textAlign:'right',color:'#6366f1'}}>+ Transfer In</th>
                     <th style={{textAlign:'right',color:'#f59e0b'}}>+ Cash In</th>
@@ -347,6 +348,7 @@ export default function CashRegister() {
                         <td style={{textAlign:'right'}}>{fmt(h.opening_balance)}</td>
                         <td style={{textAlign:'right',color:'#059669',fontWeight:600}}>{fmt(h.total_sales_cash)}</td>
                         <td style={{textAlign:'right',color:'#059669',fontWeight:700}}>{fmt(h.gross_sales)}</td>
+                        <td style={{textAlign:'right',color:'#f59e0b',fontWeight:600}}>{parseFloat(h.trade_in||0)>0?`− ${fmt(h.trade_in)}`:'—'}</td>
                         <td style={{textAlign:'right',color:'#dc2626',fontWeight:600}}>{parseFloat(h.cash_returns||0)>0?`− ${fmt(h.cash_returns)}`:'—'}</td>
                         <td style={{textAlign:'right',color:'#6366f1',fontWeight:600}}>{parseFloat(h.transfer_in||0)>0?fmt(h.transfer_in):'—'}</td>
                         <td style={{textAlign:'right',color:'#f59e0b',fontWeight:600}}>{parseFloat(h.manual_in||0)>0?fmt(h.manual_in):'—'}</td>
