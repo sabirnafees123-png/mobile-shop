@@ -254,6 +254,18 @@ exports.createSale = async (req, res) => {
       );
     }
 
+    // If exchange trade-in > sale amount, we owe customer cash — record as cash out
+    if (is_exchange && tradeIn > 0 && amountDue < 0) {
+      const cashOwedToCustomer = Math.abs(amountDue);
+      await client.query(
+        `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
+         VALUES ($1, $2, 'out', $3, 'Exchange', $4)
+         ON CONFLICT DO NOTHING`,
+        [parseInt(shop_id), sale_date || new Date().toISOString().split('T')[0],
+         cashOwedToCustomer, `Cash paid to customer - exchange ${invoiceNumber}`]
+      );
+    }
+
     await client.query('COMMIT');
     res.status(201).json({
       success: true,
