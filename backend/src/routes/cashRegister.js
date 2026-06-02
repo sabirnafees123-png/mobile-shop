@@ -15,12 +15,13 @@ router.get('/today', async (req, res) => {
       query(`SELECT * FROM cash_register WHERE register_date = $1 AND shop_id = $2 LIMIT 1`, [today, shop_id]),
       query(`
         SELECT
-          COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN total_amount - COALESCE(exchange_trade_in_value,0) ELSE 0 END), 0) as cash_sales,
+          COALESCE(SUM(CASE WHEN payment_method = 'cash' THEN amount_paid ELSE 0 END), 0) as cash_sales,
+          COALESCE(SUM(CASE WHEN payment_status='returned' AND payment_method='cash' THEN amount_paid ELSE 0 END), 0) as cash_returns,
           COALESCE(SUM(CASE WHEN payment_method = 'bank' THEN total_amount ELSE 0 END), 0) as bank_sales,
           COALESCE(SUM(CASE WHEN payment_method = 'card' THEN total_amount ELSE 0 END), 0) as card_sales,
-          COALESCE(SUM(total_amount), 0) as gross_sales,
+          COALESCE(SUM(CASE WHEN payment_status!='returned' THEN total_amount ELSE 0 END), 0) as gross_sales,
           COALESCE(SUM(COALESCE(exchange_trade_in_value,0)), 0) as total_trade_in,
-          COALESCE(SUM(total_amount - COALESCE(exchange_trade_in_value,0)), 0) as net_sales,
+          COALESCE(SUM(CASE WHEN payment_status!='returned' THEN total_amount - COALESCE(exchange_trade_in_value,0) ELSE 0 END), 0) as net_sales,
           COUNT(*) as invoice_count
         FROM sales_invoices
         WHERE sale_date = $1 AND payment_status != 'returned' AND shop_id = $2
@@ -41,7 +42,7 @@ router.get('/today', async (req, res) => {
     const anchorOpening = anchorRow.rows.length ? parseFloat(anchorRow.rows[0].opening_balance) : 0;
 
     const [allSales, allExp, allPur, allMan] = await Promise.all([
-      query(`SELECT sale_date::text as d, COALESCE(SUM(CASE WHEN payment_method='cash' AND payment_status!='returned' THEN amount_paid ELSE 0 END),0) as cs, COALESCE(SUM(CASE WHEN payment_status='returned' AND payment_method='cash' THEN amount_paid ELSE 0 END),0) as cr FROM sales_invoices WHERE shop_id=$1 AND sale_date BETWEEN '2026-05-01' AND $2 GROUP BY sale_date`, [shop_id, today]),
+      query(`SELECT sale_date::text as d, COALESCE(SUM(CASE WHEN payment_method='cash' THEN amount_paid ELSE 0 END),0) as cs, COALESCE(SUM(CASE WHEN payment_status='returned' AND payment_method='cash' THEN amount_paid ELSE 0 END),0) as cr FROM sales_invoices WHERE shop_id=$1 AND sale_date BETWEEN '2026-05-01' AND $2 GROUP BY sale_date`, [shop_id, today]),
       query(`SELECT expense_date::text as d, COALESCE(SUM(amount),0) as total FROM expenses WHERE shop_id=$1 AND expense_date BETWEEN '2026-05-01' AND $2 AND payment_method='cash' GROUP BY expense_date`, [shop_id, today]),
       query(`SELECT transaction_date::text as d, COALESCE(SUM(ABS(amount)),0) as total FROM supplier_ledger WHERE transaction_type='payment' AND amount<0 AND shop_id=$2 AND transaction_date BETWEEN '2026-05-01' AND $1 GROUP BY transaction_date`, [today, shop_id]),
       query(`SELECT entry_date::text as d, entry_type, category, COALESCE(SUM(amount),0) as total FROM cash_manual_entries WHERE shop_id=$1 AND entry_date BETWEEN '2026-05-01' AND $2 GROUP BY entry_date, entry_type, category`, [shop_id, today]),
@@ -153,9 +154,9 @@ router.get('/history', async (req, res) => {
     const [salesData, expensesData, purchasesData, manualData] = await Promise.all([
       query(`
         SELECT sale_date::text as d,
-          COALESCE(SUM(CASE WHEN payment_method='cash' AND payment_status!='returned' THEN amount_paid ELSE 0 END),0) as cash_sales,
+          COALESCE(SUM(CASE WHEN payment_method='cash' THEN amount_paid ELSE 0 END),0) as cash_sales,
           COALESCE(SUM(CASE WHEN payment_status='returned' AND payment_method='cash' THEN amount_paid ELSE 0 END),0) as cash_returns,
-          COALESCE(SUM(CASE WHEN payment_status!='returned' THEN total_amount ELSE 0 END),0) as gross_sales,
+          COALESCE(SUM(CASE WHEN payment_status!='returned' THEN total_amount - COALESCE(exchange_trade_in_value,0) ELSE 0 END),0) as gross_sales,
           COALESCE(SUM(CASE WHEN payment_status!='returned' THEN COALESCE(exchange_trade_in_value,0) ELSE 0 END),0) as trade_in
         FROM sales_invoices WHERE shop_id=$1 AND sale_date BETWEEN $2 AND $3 GROUP BY sale_date`,
         [shop_id, calcFrom, toDate]),
