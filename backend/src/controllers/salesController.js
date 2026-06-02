@@ -225,19 +225,38 @@ exports.createSale = async (req, res) => {
       }
     }
 
-    if (is_exchange && exchange_serial_number) {
-      const exProd = await client.query(
-        `SELECT id FROM products WHERE serial_number = $1 LIMIT 1`, [exchange_serial_number]
-      );
-      if (exProd.rows.length) {
-        await client.query(
-          `INSERT INTO inventory (product_id, shop_id, quantity, min_stock)
-           VALUES ($1, $2, 1, 0)
-           ON CONFLICT (product_id, shop_id)
-           DO UPDATE SET quantity = inventory.quantity + 1, last_updated = NOW()`,
-          [exProd.rows[0].id, parseInt(shop_id)]
+    if (is_exchange && exchange_product_name) {
+      let exchangeProductId;
+      // Try to find by serial number first
+      if (exchange_serial_number) {
+        const exProd = await client.query(
+          `SELECT id FROM products WHERE serial_number = $1 LIMIT 1`, [exchange_serial_number]
         );
+        if (exProd.rows.length) {
+          exchangeProductId = exProd.rows[0].id;
+          // Update cost if trade-in value provided
+          if (tradeIn > 0) {
+            await client.query(`UPDATE products SET base_cost=$1, updated_at=NOW() WHERE id=$2`, [tradeIn, exchangeProductId]);
+          }
+        }
       }
+      // If not found by serial, create new product
+      if (!exchangeProductId) {
+        const newProd = await client.query(
+          `INSERT INTO products (name, serial_number, base_cost, category, is_active, created_at, updated_at)
+           VALUES ($1, $2, $3, 'Exchange', true, NOW(), NOW()) RETURNING id`,
+          [exchange_product_name, exchange_serial_number || null, tradeIn || 0]
+        );
+        exchangeProductId = newProd.rows[0].id;
+      }
+      // Add to inventory
+      await client.query(
+        `INSERT INTO inventory (product_id, shop_id, quantity, min_stock)
+         VALUES ($1, $2, 1, 0)
+         ON CONFLICT (product_id, shop_id)
+         DO UPDATE SET quantity = inventory.quantity + 1, last_updated = NOW()`,
+        [exchangeProductId, parseInt(shop_id)]
+      );
     }
 
     if (finalCustomerId && amountDue > 0 && payment_method !== 'tabby' && payment_method !== 'tamara') {

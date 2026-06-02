@@ -2,6 +2,7 @@
 const express = require('express');
 const router  = express.Router();
 const { query, getClient } = require('../config/database');
+const checkRegisterLock = require('../middleware/checkRegisterLock');
 
 // GET all shops
 router.get('/', async (req, res) => {
@@ -67,7 +68,7 @@ router.get('/transfers', async (req, res) => {
 });
 
 // POST internal transfer
-router.post('/transfers', async (req, res) => {
+router.post('/transfers', checkRegisterLock, async (req, res) => {
   const client = await getClient();
   try {
     const { from_shop_id, to_shop_id, product_id, quantity, transfer_date, notes } = req.body;

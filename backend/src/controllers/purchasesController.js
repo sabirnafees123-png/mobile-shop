@@ -263,11 +263,11 @@ exports.recordPayment = async (req, res) => {
     await client.query('UPDATE suppliers SET balance=$1 WHERE id=$2', [newSupplierBalance, p.supplier_id]);
 
     await client.query(
-      `INSERT INTO supplier_ledger (supplier_id, transaction_type, reference_id, reference_type, amount, balance_after, description, transaction_date)
-       VALUES ($1,'payment',$2,'purchase',$3,$4,$5,$6)`,
+      `INSERT INTO supplier_ledger (supplier_id, transaction_type, reference_id, reference_type, amount, balance_after, description, transaction_date, shop_id)
+       VALUES ($1,'payment',$2,'purchase',$3,$4,$5,$6,$7)`,
       [p.supplier_id, p.id, -amount, newSupplierBalance,
        notes || `Payment for ${p.purchase_number}`,
-       payment_date || new Date().toISOString().split('T')[0]]
+       payment_date || new Date().toISOString().split('T')[0], p.shop_id || null]
     );
 
     await client.query('COMMIT');

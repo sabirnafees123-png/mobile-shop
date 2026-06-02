@@ -98,15 +98,31 @@ router.post('/', async (req, res) => {
 
     const countId = header.rows[0].id;
 
-    // Insert items
+    // Insert items AND update inventory to actual_qty
     for (const item of items) {
       await query(`
         INSERT INTO stock_count_items (stock_count_id, product_id, system_qty, actual_qty, notes)
         VALUES ($1, $2, $3, $4, $5)
       `, [countId, item.product_id, item.system_qty, item.actual_qty, item.notes || '']);
+
+      // Update actual inventory quantity
+      await query(`
+        UPDATE inventory SET quantity = $1, last_updated = NOW()
+        WHERE product_id = $2 AND shop_id = $3
+      `, [item.actual_qty, item.product_id, shop_id]);
+
+      // Log stock movement if variance exists
+      const variance = item.actual_qty - item.system_qty;
+      if (variance !== 0) {
+        await query(`
+          INSERT INTO stock_movements (product_id, type, quantity, note, created_by)
+          VALUES ($1, $2, $3, $4, $5)
+        `, [item.product_id, variance > 0 ? 'in' : 'out', Math.abs(variance),
+            `Stock count adjustment — ${count_date}`, created_by || null]);
+      }
     }
 
-    res.json({ success: true, data: header.rows[0], message: 'Stock count saved!' });
+    res.json({ success: true, data: header.rows[0], message: 'Stock count saved and inventory updated!' });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
