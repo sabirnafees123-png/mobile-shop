@@ -4,7 +4,7 @@ const { query, getClient } = require('../config/database');
 // GET all inventory with pagination and filters
 const getInventory = async (req, res) => {
   try {
-    const { search, status, shop_id, type, from, to, page = 1, limit = 50 } = req.query;
+    const { search, status, shop_id, type, from, to, hide_zero, page = 1, limit = 50 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
     let whereClauses = ['p.is_active = true'];
@@ -21,6 +21,8 @@ const getInventory = async (req, res) => {
     if (status === 'in_stock')     whereClauses.push(`i.quantity > i.min_stock`);
     if (status === 'low_stock')    whereClauses.push(`i.quantity <= i.min_stock AND i.quantity > 0`);
     if (status === 'out_of_stock') whereClauses.push(`i.quantity = 0`);
+    // hide_zero: exclude items with zero quantity (unless user explicitly wants out-of-stock view)
+    if (hide_zero === 'true' && !status) whereClauses.push(`i.quantity > 0`);
 
     const where = whereClauses.length ? `WHERE ${whereClauses.join(' AND ')}` : '';
 

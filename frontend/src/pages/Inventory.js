@@ -192,6 +192,7 @@ export default function Inventory() {
   const [filterType, setFilterType]     = useState('');
   const [filterFrom, setFilterFrom]     = useState('');
   const [filterTo, setFilterTo]         = useState('');
+  const [hideZero, setHideZero]         = useState(true);
   const [page, setPage]                 = useState(1);
   const [limitPerPage]                  = useState(50);
 
@@ -207,6 +208,7 @@ export default function Inventory() {
       const params = { page: pg, limit: limitPerPage };
       if (search)       params.search  = search;
       if (filterStatus) params.status  = filterStatus;
+      else if (hideZero) params.hide_zero = true;   // hide zero-stock unless a status filter is set
       if (shopId)       params.shop_id = shopId;
       if (filterType)   params.type    = filterType;
       if (filterFrom)   params.from    = filterFrom;
@@ -221,9 +223,9 @@ export default function Inventory() {
       setStats(statsRes.data.data);
     } catch { toast.error('Failed to load inventory'); }
     finally { setLoading(false); }
-  }, [search, filterStatus, shopId, filterType, filterFrom, filterTo, page, limitPerPage]);
+  }, [search, filterStatus, shopId, filterType, filterFrom, filterTo, page, limitPerPage, hideZero]);
 
-  useEffect(() => { fetchInventory(page); }, [search, filterStatus, shopId, filterType, filterFrom, filterTo, page]);
+  useEffect(() => { fetchInventory(page); }, [search, filterStatus, shopId, filterType, filterFrom, filterTo, page, hideZero]);
 
   const handleExport = async () => {
     try {
@@ -360,6 +362,14 @@ export default function Inventory() {
             <input type="date" value={filterTo} onChange={e=>{setFilterTo(e.target.value);setPage(1);}} className="form-control" />
           </div>
           <button className="btn btn-ghost btn-sm" onClick={clearFilters} style={{marginBottom:'2px'}}>✕ Clear</button>
+          <button
+            className={`btn btn-sm ${hideZero ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => { setHideZero(v => !v); setPage(1); }}
+            style={{marginBottom:'2px'}}
+            title="Toggle whether zero-stock items are shown"
+          >
+            {hideZero ? '🙈 Hiding Zero' : '👁 Show Zero'}
+          </button>
         </div>
       </div>
 

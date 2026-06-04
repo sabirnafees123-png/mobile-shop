@@ -1,5 +1,5 @@
 // src/pages/Transfers.js
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { TableSkeleton, EmptyTransfers } from '../components/UI';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
@@ -15,37 +15,73 @@ const EMPTY = {
 export default function Transfers() {
   const [transfers, setTransfers] = useState([]);
   const [shops, setShops]         = useState([]);
-  const [products, setProducts]   = useState([]);
   const [inventory, setInventory] = useState([]);
   const [loading, setLoading]     = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm]           = useState(EMPTY);
   const [saving, setSaving]       = useState(false);
 
+  // Product search state
+  const [productSearch, setProductSearch]   = useState('');
+  const [productResults, setProductResults] = useState([]);
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  const [searchLoading, setSearchLoading]   = useState(false);
+  const searchTimer = useRef(null);
+
   const load = async () => {
     setLoading(true);
     try {
-      const [tRes, sRes, pRes] = await Promise.all([
+      const [tRes, sRes] = await Promise.all([
         api.get('/shops/transfers'),
         api.get('/shops'),
-        api.get('/products'),
       ]);
       setTransfers(tRes.data?.data || []);
       setShops(sRes.data?.data || []);
-      setProducts(pRes.data?.data || []);
     } catch { toast.error('Failed to load'); }
     finally { setLoading(false); }
   };
 
   useEffect(() => { load(); }, []);
 
-  // Load inventory when from_shop changes
+  // Reset product search when from_shop changes
   useEffect(() => {
-    if (!form.from_shop_id) { setInventory([]); return; }
+    setInventory([]);
+    setProductSearch('');
+    setProductResults([]);
+    setSelectedProduct(null);
+    setForm(f => ({ ...f, product_id: '' }));
+    if (!form.from_shop_id) return;
+    // Pre-load all inventory for summary
     api.get(`/shops/${form.from_shop_id}/inventory`)
       .then(r => setInventory(r.data?.data || []))
       .catch(() => setInventory([]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.from_shop_id]);
+
+  // Live search as user types
+  const handleProductSearch = (val) => {
+    setProductSearch(val);
+    setSelectedProduct(null);
+    setForm(f => ({ ...f, product_id: '' }));
+    clearTimeout(searchTimer.current);
+    if (!form.from_shop_id) return;
+    if (!val.trim()) { setProductResults(inventory); return; }
+    searchTimer.current = setTimeout(async () => {
+      setSearchLoading(true);
+      try {
+        const r = await api.get(`/shops/${form.from_shop_id}/inventory?search=${encodeURIComponent(val)}`);
+        setProductResults(r.data?.data || []);
+      } catch { setProductResults([]); }
+      finally { setSearchLoading(false); }
+    }, 250);
+  };
+
+  const pickProduct = (item) => {
+    setSelectedProduct(item);
+    setForm(f => ({ ...f, product_id: item.product_id }));
+    setProductSearch(`${item.brand ? item.brand + ' ' : ''}${item.name}${item.color ? ' ' + item.color : ''}`);
+    setProductResults([]);
+  };
 
   const handleSubmit = async () => {
     if (!form.from_shop_id || !form.to_shop_id || !form.product_id || !form.quantity)
@@ -58,12 +94,12 @@ export default function Transfers() {
       toast.success('Transfer completed!');
       setShowModal(false);
       setForm(EMPTY);
+      setProductSearch('');
+      setSelectedProduct(null);
       load();
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
     finally { setSaving(false); }
   };
-
-  const selectedProduct = inventory.find(i => i.product_id === form.product_id);
 
   return (
     <div>
@@ -72,7 +108,7 @@ export default function Transfers() {
           <div className="page-title">🔄 Internal Transfers</div>
           <div className="page-subtitle">Move stock between AlAman and Blessing</div>
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm(EMPTY); setShowModal(true); }}>
+        <button className="btn btn-primary" onClick={() => { setForm(EMPTY); setProductSearch(''); setSelectedProduct(null); setShowModal(true); }}>
           + New Transfer
         </button>
       </div>
@@ -144,24 +180,65 @@ export default function Transfers() {
                     ))}
                   </select>
                 </div>
-                <div className="form-group" style={{gridColumn:'span 2'}}>
-                  <label className="form-label">Product *</label>
-                  <select className="form-control" value={form.product_id}
-                    onChange={e => setForm({...form, product_id: e.target.value})}>
-                    <option value="">Select product...</option>
-                    {inventory.map(i => (
-                      <option key={i.product_id} value={i.product_id}>
-                        {i.brand} {i.name} — Stock: {i.quantity}
-                      </option>
-                    ))}
-                  </select>
-                  {!form.from_shop_id && <div style={{fontSize:'.78rem',color:'var(--text-muted)',marginTop:'4px'}}>Select source shop first</div>}
+
+                {/* Product search */}
+                <div className="form-group" style={{gridColumn:'span 2',position:'relative'}}>
+                  <label className="form-label">Product * {searchLoading && <span style={{fontSize:'.75rem',color:'var(--text-muted)'}}>searching...</span>}</label>
+                  <input
+                    className="form-control"
+                    placeholder={form.from_shop_id ? 'Type brand, name, color, serial...' : 'Select source shop first'}
+                    disabled={!form.from_shop_id}
+                    value={productSearch}
+                    onChange={e => handleProductSearch(e.target.value)}
+                    onFocus={() => { if (form.from_shop_id && !productSearch) setProductResults(inventory); }}
+                    autoComplete="off"
+                  />
+                  {productResults.length > 0 && (
+                    <div style={{
+                      position:'absolute',zIndex:1000,top:'100%',left:0,right:0,
+                      background:'var(--bg-card)',border:'1px solid var(--border)',
+                      borderRadius:'8px',boxShadow:'0 8px 24px rgba(0,0,0,.15)',
+                      maxHeight:'220px',overflowY:'auto',marginTop:'2px'
+                    }}>
+                      {productResults.map(item => (
+                        <div key={item.product_id}
+                          onClick={() => pickProduct(item)}
+                          style={{
+                            padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid var(--border)',
+                            display:'flex',justifyContent:'space-between',alignItems:'center'
+                          }}
+                          onMouseOver={e => e.currentTarget.style.background='var(--bg-secondary)'}
+                          onMouseOut={e => e.currentTarget.style.background=''}
+                        >
+                          <div>
+                            <strong style={{fontSize:'.9rem'}}>{item.brand} {item.name}</strong>
+                            {item.color && <span style={{color:'var(--text-muted)',marginLeft:'6px',fontSize:'.8rem'}}>{item.color}</span>}
+                            {item.serial_number && <span style={{color:'var(--text-muted)',marginLeft:'6px',fontSize:'.75rem'}}>#{item.serial_number}</span>}
+                          </div>
+                          <span style={{
+                            fontWeight:700,fontSize:'.85rem',
+                            color: item.quantity === 0 ? '#dc2626' : item.quantity <= item.min_stock ? '#d97706' : '#059669'
+                          }}>
+                            {item.quantity} in stock
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {form.from_shop_id && productSearch && productResults.length === 0 && !searchLoading && !selectedProduct && (
+                    <div style={{fontSize:'.78rem',color:'#dc2626',marginTop:'4px'}}>No matching products found</div>
+                  )}
                 </div>
+
                 {selectedProduct && (
-                  <div style={{gridColumn:'span 2',padding:'10px 14px',background:'var(--bg-secondary)',borderRadius:'8px',fontSize:'.85rem'}}>
-                    Available stock in {shops.find(s=>s.id===parseInt(form.from_shop_id))?.name}: <strong>{selectedProduct.quantity}</strong>
+                  <div style={{gridColumn:'span 2',padding:'10px 14px',background:'var(--bg-secondary)',borderRadius:'8px',fontSize:'.85rem',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <span>✅ {selectedProduct.brand} {selectedProduct.name} {selectedProduct.color && `— ${selectedProduct.color}`}</span>
+                    <strong style={{color: selectedProduct.quantity === 0 ? '#dc2626' : '#059669'}}>
+                      {selectedProduct.quantity} available in {shops.find(s=>s.id===parseInt(form.from_shop_id))?.name}
+                    </strong>
                   </div>
                 )}
+
                 <div className="form-group">
                   <label className="form-label">Quantity *</label>
                   <input type="number" min="1" className="form-control" value={form.quantity}

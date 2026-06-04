@@ -170,6 +170,19 @@ exports.createSale = async (req, res) => {
     const paid        = parseFloat(amount_paid);
     const amountDue   = (totalAmount - tradeIn) - paid;
 
+    // ── Invoice balance validation ────────────────────────────────────────
+    // paid + due must equal (totalAmount - tradeIn), i.e. amountDue must not be negative
+    // for non-exchange sales, paid + due must equal total
+    if (!is_exchange && paid > 0) {
+      const reconstructed = paid + Math.max(amountDue, 0);
+      if (Math.abs(reconstructed - totalAmount) > 0.5) {
+        throw new Error(
+          `Invoice mismatch: amount_paid (${paid}) + amount_due (${Math.max(amountDue,0)}) = ${reconstructed} ≠ total (${totalAmount}). Check your figures.`
+        );
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────
+
     let paymentStatus;
     if (payment_method === 'pending') {
       paymentStatus = 'unpaid';
@@ -212,12 +225,34 @@ exports.createSale = async (req, res) => {
     for (const item of items) {
       if (!item.product_id) throw new Error('Each item needs a product');
       const qty = parseInt(item.qty) || 1;
+      const isService = serviceMap[item.product_id] || false;
+
+      // ── Stock validation (non-service items only) ─────────────────────
+      if (!isService) {
+        const stock = await client.query(
+          `SELECT quantity FROM inventory WHERE product_id = $1 AND shop_id = $2`,
+          [item.product_id, parseInt(shop_id)]
+        );
+        const available = stock.rows.length ? parseInt(stock.rows[0].quantity) : 0;
+        if (available < qty) {
+          // Get product name for a readable error
+          const pName = await client.query(`SELECT name, brand FROM products WHERE id = $1`, [item.product_id]);
+          const label = pName.rows.length
+            ? `${pName.rows[0].brand ? pName.rows[0].brand + ' ' : ''}${pName.rows[0].name}`
+            : `Product #${item.product_id}`;
+          throw new Error(
+            available === 0
+              ? `"${label}" is out of stock`
+              : `Insufficient stock for "${label}" — only ${available} available, requested ${qty}`
+          );
+        }
+      }
+
       await client.query(
         `INSERT INTO sale_items (invoice_id, product_id, qty, unit_cost, unit_price, discount, serial_number)
          VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [invoiceId, item.product_id, qty, item.unit_cost || 0, item.unit_price, item.discount || 0, item.serial_number || null]
       );
-      const isService = serviceMap[item.product_id] || false;
       if (!isService) {
         await client.query(
           `UPDATE inventory SET quantity = quantity - $1, last_updated = NOW()

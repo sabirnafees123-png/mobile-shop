@@ -19,7 +19,7 @@ router.get('/:shopId/inventory', async (req, res) => {
     const { search, status } = req.query;
     let sql = `
       SELECT i.*, p.name, p.brand, p.model, p.category, p.color,
-             p.selling_price, p.base_cost,
+             p.selling_price, p.base_cost, p.serial_number,
              s.name as shop_name
       FROM inventory i
       JOIN products p ON p.id = i.product_id
@@ -28,15 +28,19 @@ router.get('/:shopId/inventory', async (req, res) => {
     `;
     const params = [shopId];
     let idx = 2;
-    if (search) {
-      params.push(`%${search}%`);
-      sql += ` AND (p.name ILIKE $${idx} OR p.brand ILIKE $${idx} OR p.model ILIKE $${idx})`;
-      idx++;
+    if (search && search.trim()) {
+      // Split search into individual words and require ALL words to match somewhere
+      const words = search.trim().split(/\s+/);
+      for (const word of words) {
+        params.push(`%${word}%`);
+        sql += ` AND (p.name ILIKE $${idx} OR p.brand ILIKE $${idx} OR p.model ILIKE $${idx} OR p.color ILIKE $${idx} OR p.serial_number ILIKE $${idx} OR p.category ILIKE $${idx})`;
+        idx++;
+      }
     }
     if (status === 'in_stock')     sql += ` AND i.quantity > i.min_stock`;
     if (status === 'low_stock')    sql += ` AND i.quantity <= i.min_stock AND i.quantity > 0`;
     if (status === 'out_of_stock') sql += ` AND i.quantity = 0`;
-    sql += ` ORDER BY p.name`;
+    sql += ` ORDER BY i.quantity DESC, p.brand, p.name`;
     const result = await query(sql, params);
     res.json({ success: true, data: result.rows });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
