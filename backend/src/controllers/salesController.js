@@ -1,13 +1,22 @@
 // src/controllers/salesController.js
 const { query, getClient } = require('../config/database');
 
-async function generateInvoiceNumber() {
+async function generateInvoiceNumber(client) {
+  // Use a sequence-safe approach: MAX on invoice_number for this year (index-friendly)
   const year = new Date().getFullYear();
-  const result = await query(
-    `SELECT COUNT(*) as count FROM sales_invoices WHERE EXTRACT(YEAR FROM sale_date) = $1`, [year]
+  const result = await client.query(
+    `SELECT invoice_number FROM sales_invoices
+     WHERE invoice_number LIKE $1
+     ORDER BY invoice_number DESC LIMIT 1
+     FOR UPDATE SKIP LOCKED`,
+    [`INV-${year}-%`]
   );
-  const count = parseInt(result.rows[0].count) + 1;
-  return `INV-${year}-${String(count).padStart(4, '0')}`;
+  let next = 1;
+  if (result.rows.length) {
+    const last = result.rows[0].invoice_number; // INV-2026-0371
+    next = parseInt(last.split('-')[2]) + 1;
+  }
+  return `INV-${year}-${String(next).padStart(4, '0')}`;
 }
 
 // GET /api/v1/sales
@@ -142,6 +151,7 @@ exports.createSale = async (req, res) => {
     if (!items || !items.length) throw new Error('At least one sale item is required');
     if (!shop_id) throw new Error('shop_id is required');
 
+    // ── Customer lookup/create ─────────────────────────────────────────
     let finalCustomerId = customer_id || null;
     if (customer_phone) {
       const phone = customer_phone.startsWith('+971') ? customer_phone : `+971${customer_phone}`;
@@ -150,8 +160,7 @@ exports.createSale = async (req, res) => {
         finalCustomerId = existing.rows[0].id;
       } else if (customer_name) {
         const newCust = await client.query(
-          `INSERT INTO customers (name, phone) VALUES ($1, $2) RETURNING id`,
-          [customer_name, phone]
+          `INSERT INTO customers (name, phone) VALUES ($1, $2) RETURNING id`, [customer_name, phone]
         );
         finalCustomerId = newCust.rows[0].id;
       }
@@ -162,17 +171,14 @@ exports.createSale = async (req, res) => {
       finalCustomerId = newCust.rows[0].id;
     }
 
+    // ── Amounts ───────────────────────────────────────────────────────
     const subtotal    = items.reduce((sum, i) => sum + ((i.qty || 1) * i.unit_price), 0);
     const tradeIn     = is_exchange ? parseFloat(exchange_trade_in_value) : 0;
-    // total_amount = gross sale (subtotal - discount), trade-in stored separately
     const totalAmount = subtotal - parseFloat(discount);
-    // amount customer actually pays = totalAmount - tradeIn credit
     const paid        = parseFloat(amount_paid);
     const amountDue   = (totalAmount - tradeIn) - paid;
 
-    // ── Invoice balance validation ────────────────────────────────────────
-    // paid + due must equal (totalAmount - tradeIn), i.e. amountDue must not be negative
-    // for non-exchange sales, paid + due must equal total
+    // Invoice balance validation
     if (!is_exchange && paid > 0) {
       const reconstructed = paid + Math.max(amountDue, 0);
       if (Math.abs(reconstructed - totalAmount) > 0.5) {
@@ -181,7 +187,6 @@ exports.createSale = async (req, res) => {
         );
       }
     }
-    // ─────────────────────────────────────────────────────────────────────
 
     let paymentStatus;
     if (payment_method === 'pending') {
@@ -192,9 +197,53 @@ exports.createSale = async (req, res) => {
       paymentStatus = paid >= totalAmount ? 'paid' : paid > 0 ? 'partial' : 'unpaid';
     }
 
-    const invoiceNumber = await generateInvoiceNumber();
+    // ── Batch ALL pre-flight queries in parallel ───────────────────────
+    const productIds = items.map(i => i.product_id).filter(Boolean);
+
+    const [serviceCheck, stockCheck, invoiceNumber] = await Promise.all([
+      client.query(
+        `SELECT id, COALESCE(is_service, false) as is_service, name, brand
+         FROM products WHERE id = ANY($1)`,
+        [productIds]
+      ),
+      client.query(
+        `SELECT product_id, quantity FROM inventory
+         WHERE product_id = ANY($1) AND shop_id = $2`,
+        [productIds, parseInt(shop_id)]
+      ),
+      generateInvoiceNumber(client),
+    ]);
+
+    const serviceMap = {};
+    const nameMap    = {};
+    serviceCheck.rows.forEach(r => {
+      serviceMap[r.id] = r.is_service;
+      nameMap[r.id]    = `${r.brand ? r.brand + ' ' : ''}${r.name}`;
+    });
+    const stockMap = {};
+    stockCheck.rows.forEach(r => { stockMap[r.product_id] = parseInt(r.quantity); });
+
+    // ── Stock validation (all items, zero extra queries) ──────────────
+    for (const item of items) {
+      if (!item.product_id) throw new Error('Each item needs a product');
+      const qty       = parseInt(item.qty) || 1;
+      const isService = serviceMap[item.product_id] || false;
+      if (!isService) {
+        const available = stockMap[item.product_id] ?? 0;
+        if (available < qty) {
+          const label = nameMap[item.product_id] || `Product #${item.product_id}`;
+          throw new Error(
+            available === 0
+              ? `"${label}" is out of stock`
+              : `Insufficient stock for "${label}" — only ${available} available, requested ${qty}`
+          );
+        }
+      }
+    }
+
     const userId = req.user?.id || null;
 
+    // ── Insert invoice ─────────────────────────────────────────────────
     const invoice = await client.query(
       `INSERT INTO sales_invoices
         (invoice_number, customer_id, sale_date, subtotal, discount, total_amount,
@@ -213,76 +262,65 @@ exports.createSale = async (req, res) => {
     );
     const invoiceId = invoice.rows[0].id;
 
-    // Fetch all product service flags in ONE query (performance fix)
-    const productIds = items.map(i => i.product_id).filter(Boolean);
-    const serviceCheck = await client.query(
-      `SELECT id, COALESCE(is_service, false) as is_service FROM products WHERE id = ANY($1)`,
-      [productIds]
+    // ── Batch INSERT sale_items ────────────────────────────────────────
+    const itemValues = items.map((_, i) => {
+      const b = i * 7;
+      return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7})`;
+    }).join(',');
+    const itemParams = items.flatMap(item => [
+      invoiceId, item.product_id, parseInt(item.qty) || 1,
+      item.unit_cost || 0, item.unit_price, item.discount || 0, item.serial_number || null,
+    ]);
+    await client.query(
+      `INSERT INTO sale_items (invoice_id, product_id, qty, unit_cost, unit_price, discount, serial_number)
+       VALUES ${itemValues}`,
+      itemParams
     );
-    const serviceMap = {};
-    serviceCheck.rows.forEach(r => { serviceMap[r.id] = r.is_service; });
 
-    for (const item of items) {
-      if (!item.product_id) throw new Error('Each item needs a product');
-      const qty = parseInt(item.qty) || 1;
-      const isService = serviceMap[item.product_id] || false;
-
-      // ── Stock validation (non-service items only) ─────────────────────
-      if (!isService) {
-        const stock = await client.query(
-          `SELECT quantity FROM inventory WHERE product_id = $1 AND shop_id = $2`,
-          [item.product_id, parseInt(shop_id)]
-        );
-        const available = stock.rows.length ? parseInt(stock.rows[0].quantity) : 0;
-        if (available < qty) {
-          // Get product name for a readable error
-          const pName = await client.query(`SELECT name, brand FROM products WHERE id = $1`, [item.product_id]);
-          const label = pName.rows.length
-            ? `${pName.rows[0].brand ? pName.rows[0].brand + ' ' : ''}${pName.rows[0].name}`
-            : `Product #${item.product_id}`;
-          throw new Error(
-            available === 0
-              ? `"${label}" is out of stock`
-              : `Insufficient stock for "${label}" — only ${available} available, requested ${qty}`
-          );
-        }
-      }
-
+    // ── Batch inventory deductions + stock movements ───────────────────
+    const inventoryItems = items.filter(i => !serviceMap[i.product_id]);
+    if (inventoryItems.length) {
+      // Single UPDATE with CASE WHEN for all products
+      const caseWhen    = inventoryItems.map((item, i) =>
+        `WHEN product_id = $${i * 2 + 1} THEN quantity - $${i * 2 + 2}`
+      ).join(' ');
+      const caseParams  = inventoryItems.flatMap(item => [item.product_id, parseInt(item.qty) || 1]);
+      const idPlaceholders = inventoryItems.map((_, i) => `$${i * 2 + 1}`).join(',');
       await client.query(
-        `INSERT INTO sale_items (invoice_id, product_id, qty, unit_cost, unit_price, discount, serial_number)
-         VALUES ($1,$2,$3,$4,$5,$6,$7)`,
-        [invoiceId, item.product_id, qty, item.unit_cost || 0, item.unit_price, item.discount || 0, item.serial_number || null]
+        `UPDATE inventory
+         SET quantity = CASE ${caseWhen} ELSE quantity END, last_updated = NOW()
+         WHERE product_id IN (${idPlaceholders}) AND shop_id = $${caseParams.length + 1}`,
+        [...caseParams, parseInt(shop_id)]
       );
-      if (!isService) {
-        await client.query(
-          `UPDATE inventory SET quantity = quantity - $1, last_updated = NOW()
-           WHERE product_id = $2 AND shop_id = $3 AND quantity >= $1`,
-          [qty, item.product_id, parseInt(shop_id)]
-        );
-        await client.query(
-          `INSERT INTO stock_movements (product_id, type, quantity, note, created_by)
-           VALUES ($1, 'out', $2, $3, $4)`,
-          [item.product_id, qty, `Sale ${invoiceNumber}`, userId]
-        );
-      }
+
+      // Batch INSERT stock_movements
+      const mvValues = inventoryItems.map((_, i) => {
+        const b = i * 4;
+        return `($${b+1},'out',$${b+2},$${b+3},$${b+4})`;
+      }).join(',');
+      const mvParams = inventoryItems.flatMap(item => [
+        item.product_id, parseInt(item.qty) || 1, `Sale ${invoiceNumber}`, userId,
+      ]);
+      await client.query(
+        `INSERT INTO stock_movements (product_id, type, quantity, note, created_by) VALUES ${mvValues}`,
+        mvParams
+      );
     }
 
+    // ── Exchange product handling ──────────────────────────────────────
     if (is_exchange && exchange_product_name) {
       let exchangeProductId;
-      // Try to find by serial number first
       if (exchange_serial_number) {
         const exProd = await client.query(
           `SELECT id FROM products WHERE serial_number = $1 LIMIT 1`, [exchange_serial_number]
         );
         if (exProd.rows.length) {
           exchangeProductId = exProd.rows[0].id;
-          // Update cost if trade-in value provided
           if (tradeIn > 0) {
             await client.query(`UPDATE products SET base_cost=$1, updated_at=NOW() WHERE id=$2`, [tradeIn, exchangeProductId]);
           }
         }
       }
-      // If not found by serial, create new product
       if (!exchangeProductId) {
         const newProd = await client.query(
           `INSERT INTO products (name, serial_number, base_cost, category, is_active, created_at, updated_at)
@@ -291,7 +329,6 @@ exports.createSale = async (req, res) => {
         );
         exchangeProductId = newProd.rows[0].id;
       }
-      // Add to inventory
       await client.query(
         `INSERT INTO inventory (product_id, shop_id, quantity, min_stock)
          VALUES ($1, $2, 1, 0)
@@ -301,31 +338,27 @@ exports.createSale = async (req, res) => {
       );
     }
 
-    if (finalCustomerId && amountDue > 0 && payment_method !== 'tabby' && payment_method !== 'tamara') {
-      await client.query(
-        `UPDATE customers SET balance = balance + $1 WHERE id = $2`, [amountDue, finalCustomerId]
-      );
-    }
-
-    if (payment_method === 'cash' && paid > 0) {
-      await client.query(
-        `UPDATE cash_register SET total_sales_cash = total_sales_cash + $1
-         WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
-        [paid, sale_date || new Date().toISOString().split('T')[0], parseInt(shop_id)]
-      );
-    }
-
-    // If exchange trade-in > sale amount, we owe customer cash — record as cash out
-    if (is_exchange && tradeIn > 0 && amountDue < 0) {
-      const cashOwedToCustomer = Math.abs(amountDue);
-      await client.query(
-        `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
-         VALUES ($1, $2, 'out', $3, 'Exchange', $4)
-         ON CONFLICT DO NOTHING`,
-        [parseInt(shop_id), sale_date || new Date().toISOString().split('T')[0],
-         cashOwedToCustomer, `Cash paid to customer - exchange ${invoiceNumber}`]
-      );
-    }
+    // ── Customer balance, cash register, exchange cash out ────────────
+    const [,,] = await Promise.all([
+      finalCustomerId && amountDue > 0 && payment_method !== 'tabby' && payment_method !== 'tamara'
+        ? client.query(`UPDATE customers SET balance = balance + $1 WHERE id = $2`, [amountDue, finalCustomerId])
+        : Promise.resolve(),
+      payment_method === 'cash' && paid > 0
+        ? client.query(
+            `UPDATE cash_register SET total_sales_cash = total_sales_cash + $1
+             WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
+            [paid, sale_date || new Date().toISOString().split('T')[0], parseInt(shop_id)]
+          )
+        : Promise.resolve(),
+      is_exchange && tradeIn > 0 && amountDue < 0
+        ? client.query(
+            `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
+             VALUES ($1, $2, 'out', $3, 'Exchange', $4) ON CONFLICT DO NOTHING`,
+            [parseInt(shop_id), sale_date || new Date().toISOString().split('T')[0],
+             Math.abs(amountDue), `Cash paid to customer - exchange ${invoiceNumber}`]
+          )
+        : Promise.resolve(),
+    ]);
 
     await client.query('COMMIT');
     res.status(201).json({
@@ -341,7 +374,6 @@ exports.createSale = async (req, res) => {
   }
 };
 
-// POST /api/v1/sales/:id/mark-received
 exports.markPaymentReceived = async (req, res) => {
   const client = await getClient();
   try {
