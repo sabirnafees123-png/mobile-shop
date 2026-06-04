@@ -417,12 +417,21 @@ exports.markPaymentReceived = async (req, res) => {
     );
 
     if (amountNow > 0) {
-      await client.query(
+      const regUpdate = await client.query(
         `UPDATE cash_register
          SET total_sales_cash = total_sales_cash + $1
          WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
         [amountNow, recDate, invoice.shop_id]
       );
+      // If register is closed or missing for that date, record as manual cash entry
+      if (regUpdate.rowCount === 0) {
+        await client.query(
+          `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
+           VALUES ($1, $2, 'in', $3, 'Cash', $4)`,
+          [invoice.shop_id, recDate, amountNow,
+           `Payment received — ${invoice.invoice_number} (register was closed)`]
+        );
+      }
     }
 
     await client.query('COMMIT');
