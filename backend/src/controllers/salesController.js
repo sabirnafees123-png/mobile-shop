@@ -424,11 +424,26 @@ exports.returnSale = async (req, res) => {
 
     const items = await client.query('SELECT * FROM sale_items WHERE invoice_id = $1', [invoiceId]);
 
+    // Fetch service flags for all returned items in one query
+    const retProductIds = items.rows.map(i => i.product_id);
+    const retServiceCheck = await client.query(
+      `SELECT id, COALESCE(is_service, false) as is_service FROM products WHERE id = ANY($1)`,
+      [retProductIds]
+    );
+    const retServiceMap = {};
+    retServiceCheck.rows.forEach(r => { retServiceMap[r.id] = r.is_service; });
+
     for (const item of items.rows) {
+      // Skip service products — they have no inventory to restore
+      if (retServiceMap[item.product_id]) continue;
+
+      // Upsert: if inventory row missing for this shop, create it instead of silently doing nothing
       await client.query(
-        `UPDATE inventory SET quantity = quantity + $1, last_updated = NOW()
-         WHERE product_id = $2 AND shop_id = $3`,
-        [item.qty, item.product_id, invoice.shop_id]
+        `INSERT INTO inventory (product_id, shop_id, quantity, min_stock)
+         VALUES ($1, $2, $3, 0)
+         ON CONFLICT (product_id, shop_id)
+         DO UPDATE SET quantity = inventory.quantity + $3, last_updated = NOW()`,
+        [item.product_id, invoice.shop_id, item.qty]
       );
       await client.query(
         `INSERT INTO stock_movements (product_id, type, quantity, note, created_by)
