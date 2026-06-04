@@ -200,6 +200,15 @@ exports.createSale = async (req, res) => {
     );
     const invoiceId = invoice.rows[0].id;
 
+    // Fetch all product service flags in ONE query (performance fix)
+    const productIds = items.map(i => i.product_id).filter(Boolean);
+    const serviceCheck = await client.query(
+      `SELECT id, COALESCE(is_service, false) as is_service FROM products WHERE id = ANY($1)`,
+      [productIds]
+    );
+    const serviceMap = {};
+    serviceCheck.rows.forEach(r => { serviceMap[r.id] = r.is_service; });
+
     for (const item of items) {
       if (!item.product_id) throw new Error('Each item needs a product');
       const qty = parseInt(item.qty) || 1;
@@ -208,9 +217,7 @@ exports.createSale = async (req, res) => {
          VALUES ($1,$2,$3,$4,$5,$6,$7)`,
         [invoiceId, item.product_id, qty, item.unit_cost || 0, item.unit_price, item.discount || 0, item.serial_number || null]
       );
-      // Skip inventory deduction for service items
-      const prodCheck = await client.query(`SELECT COALESCE(is_service, false) as is_service FROM products WHERE id=$1`, [item.product_id]);
-      const isService = prodCheck.rows[0]?.is_service || false;
+      const isService = serviceMap[item.product_id] || false;
       if (!isService) {
         await client.query(
           `UPDATE inventory SET quantity = quantity - $1, last_updated = NOW()

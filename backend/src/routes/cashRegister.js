@@ -3,6 +3,47 @@ const express = require('express');
 const router  = express.Router();
 const { query } = require('../config/database');
 
+// ── GET /api/v1/cash-register/detail?shop_id=X&date=Y ───────────────────────
+router.get('/detail', async (req, res) => {
+  try {
+    const { shop_id, date } = req.query;
+    if (!shop_id || !date) return res.status(400).json({ success: false, message: 'shop_id and date required' });
+
+    const [sales, returns, expenses, purchases, manualEntries, regRow] = await Promise.all([
+      query(`SELECT invoice_number, total_amount, amount_paid, COALESCE(exchange_trade_in_value,0) as exchange_trade_in_value, is_exchange FROM sales_invoices WHERE shop_id=$1 AND sale_date=$2 AND payment_method='cash' AND payment_status!='returned' ORDER BY invoice_number`, [shop_id, date]),
+      query(`SELECT invoice_number, amount_paid FROM sales_invoices WHERE shop_id=$1 AND sale_date=$2 AND payment_method='cash' AND payment_status='returned' ORDER BY invoice_number`, [shop_id, date]),
+      query(`SELECT COALESCE(ec.name, e.category, 'Uncategorized') as category_name, e.amount, e.description FROM expenses e LEFT JOIN expense_categories ec ON ec.id = e.category_id WHERE e.shop_id=$1 AND e.expense_date=$2 AND e.payment_method='cash' ORDER BY e.amount DESC`, [shop_id, date]),
+      query(`SELECT COALESCE(p.purchase_number, sl.description) as reference, ABS(sl.amount) as amount FROM supplier_ledger sl LEFT JOIN purchases p ON p.id = sl.reference_id WHERE sl.shop_id=$1 AND sl.transaction_date=$2 AND sl.transaction_type='payment' AND sl.amount<0 ORDER BY sl.amount`, [shop_id, date]),
+      query(`SELECT entry_type, amount, category, description FROM cash_manual_entries WHERE shop_id=$1 AND entry_date=$2 ORDER BY entry_type, amount DESC`, [shop_id, date]),
+      query(`SELECT opening_balance FROM cash_register WHERE shop_id=$1 AND register_date=$2 LIMIT 1`, [shop_id, date]),
+    ]);
+
+    const totalSales     = sales.rows.reduce((s, r) => s + parseFloat(r.amount_paid), 0);
+    const totalReturns   = returns.rows.reduce((s, r) => s + parseFloat(r.amount_paid), 0);
+    const totalExpenses  = expenses.rows.reduce((s, r) => s + parseFloat(r.amount), 0);
+    const totalPurchases = purchases.rows.reduce((s, r) => s + parseFloat(r.amount), 0);
+    const manualIn       = manualEntries.rows.filter(r => r.entry_type==='in'  && r.category!=='Shop Transfer').reduce((s,r) => s+parseFloat(r.amount), 0);
+    const manualOut      = manualEntries.rows.filter(r => r.entry_type==='out' && r.category!=='Shop Transfer').reduce((s,r) => s+parseFloat(r.amount), 0);
+    const transferIn     = manualEntries.rows.filter(r => r.entry_type==='in'  && r.category==='Shop Transfer').reduce((s,r) => s+parseFloat(r.amount), 0);
+    const transferOut    = manualEntries.rows.filter(r => r.entry_type==='out' && r.category==='Shop Transfer').reduce((s,r) => s+parseFloat(r.amount), 0);
+    const opening        = parseFloat(regRow.rows[0]?.opening_balance || 0);
+    const closing        = opening + totalSales - totalReturns + transferIn + manualIn - totalExpenses - totalPurchases - manualOut - transferOut;
+
+    res.json({ success: true, data: {
+      date, shop_id, opening,
+      sales:        { total: totalSales,     items: sales.rows },
+      returns:      { total: totalReturns,   items: returns.rows },
+      expenses:     { total: totalExpenses,  items: expenses.rows },
+      purchases:    { total: totalPurchases, items: purchases.rows },
+      manual_in:    { total: manualIn,       items: manualEntries.rows.filter(r => r.entry_type==='in'  && r.category!=='Shop Transfer') },
+      manual_out:   { total: manualOut,      items: manualEntries.rows.filter(r => r.entry_type==='out' && r.category!=='Shop Transfer') },
+      transfer_in:  { total: transferIn,     items: manualEntries.rows.filter(r => r.entry_type==='in'  && r.category==='Shop Transfer') },
+      transfer_out: { total: transferOut,    items: manualEntries.rows.filter(r => r.entry_type==='out' && r.category==='Shop Transfer') },
+      closing,
+    }});
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
 // ── GET /api/v1/cash-register/today?shop_id= ────────────────────────────────
 router.get('/today', async (req, res) => {
   try {

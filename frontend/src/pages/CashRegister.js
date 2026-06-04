@@ -120,6 +120,21 @@ export default function CashRegister() {
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
     finally { setSaving(false); }
   };
+  const [showDetail, setShowDetail] = useState(false);
+  const [detailData, setDetailData] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+
+  const loadDetail = async (date) => {
+    setDetailLoading(true);
+    setShowDetail(true);
+    setDetailData(null);
+    try {
+      const res = await api.get(`/cash-register/detail?shop_id=${shopId}&date=${date}`);
+      setDetailData(res.data?.data);
+    } catch { toast.error('Failed to load detail'); }
+    finally { setDetailLoading(false); }
+  };
+
   const deleteManualEntry = async (id) => {
     if (!window.confirm('Delete this entry?')) return;
     try {
@@ -376,6 +391,11 @@ export default function CashRegister() {
                               onClick={() => { setManualForm({entry_type:'in',amount:'',category:'',description:'',entry_date:h.register_date}); setShowManual(true); }}>
                               + Entry
                             </button>
+                            <button className="btn btn-ghost btn-sm" title="View full breakdown"
+                              onClick={() => loadDetail(h.register_date)}
+                              style={{color:'#6366f1'}}>
+                              📋 Detail
+                            </button>
                           </div>
                         </td>
                       </tr>
@@ -431,32 +451,49 @@ export default function CashRegister() {
               </div>
               <div style={{padding:'12px',background:'var(--bg-secondary)',borderRadius:'8px',marginBottom:'16px',fontSize:'.9rem'}}>
                 <div style={{fontWeight:600,marginBottom:'8px',color:'var(--text-muted)',textTransform:'uppercase',fontSize:'.75rem'}}>System Calculation</div>
-                {[
-                  ['Opening Balance', todayData.opening_balance, null],
-                  ['+ Cash Sales', todayData.cash_sales, 'green'],
-                  ['+ Cash In (Manual)', todayData.manual_in, 'green'],
-                  ['− Cash Expenses', todayData.expenses, 'red'],
-                  ['− Supplier Payments', todayData.supplier_paid, 'red'],
-                  ['− Cash Out (Manual)', todayData.manual_out, 'red'],
-                ].map(([label, val, color]) => (
-                  <div key={label} style={{display:'flex',justifyContent:'space-between',marginBottom:'6px'}}>
-                    <span>{label}:</span>
-                    <strong style={{color:color==='green'?'var(--accent-green)':color==='red'?'var(--accent-red)':undefined}}>{fmt(val)}</strong>
-                  </div>
-                ))}
-                <div style={{display:'flex',justifyContent:'space-between',borderTop:'1px solid var(--border)',paddingTop:'8px',fontWeight:700}}>
-                  <span>Expected Cash in Drawer:</span>
-                  <strong style={{color:'var(--accent)',fontSize:'1.05rem'}}>{fmt(todayData.expected_cash)}</strong>
-                </div>
+                {(() => {
+                  const hRow = history.find(h => h.register_date === registerDate);
+                  const op  = hRow ? parseFloat(hRow.opening_balance||0)  : parseFloat(todayData.opening_balance||0);
+                  const cs  = hRow ? parseFloat(hRow.total_sales_cash||0) : parseFloat(todayData.cash_sales||0);
+                  const mi  = hRow ? parseFloat(hRow.manual_in||0)        : parseFloat(todayData.manual_in||0);
+                  const exp = hRow ? parseFloat(hRow.total_expenses||0)   : parseFloat(todayData.expenses||0);
+                  const sup = hRow ? parseFloat(hRow.total_purchases||0)  : parseFloat(todayData.supplier_paid||0);
+                  const mo  = hRow ? parseFloat(hRow.manual_out||0)       : parseFloat(todayData.manual_out||0);
+                  const expCash = op + cs + mi - exp - sup - mo;
+                  return (<>
+                    {[['Opening Balance',op,null],['+ Cash Sales',cs,'green'],['+ Cash In (Manual)',mi,'green'],['− Cash Expenses',exp,'red'],['− Supplier Payments',sup,'red'],['− Cash Out (Manual)',mo,'red']].map(([label,val,color]) => (
+                      <div key={label} style={{display:'flex',justifyContent:'space-between',marginBottom:'6px'}}>
+                        <span>{label}:</span>
+                        <strong style={{color:color==='green'?'var(--accent-green)':color==='red'?'var(--accent-red)':undefined}}>{fmt(val)}</strong>
+                      </div>
+                    ))}
+                    <div style={{display:'flex',justifyContent:'space-between',borderTop:'1px solid var(--border)',paddingTop:'8px',fontWeight:700}}>
+                      <span>Expected Cash in Drawer:</span>
+                      <strong style={{color:'var(--accent)',fontSize:'1.05rem'}}>{fmt(expCash)}</strong>
+                    </div>
+                  </>);
+                })()}
               </div>
               <div className="form-group" style={{marginBottom:'12px'}}>
                 <label className="form-label">Actual Cash Counted (AED)</label>
-                <input type="number" className="form-control" value={closingBal} onChange={e => setClosingBal(e.target.value)} placeholder={Math.round(todayData.expected_cash||0).toString()} />
-                {closingBal && (
-                  <div style={{marginTop:'6px',fontSize:'.85rem',fontWeight:600,color:Math.abs(parseFloat(closingBal)-todayData.expected_cash)<1?'var(--accent-green)':'var(--accent-red)'}}>
-                    {Math.abs(parseFloat(closingBal)-todayData.expected_cash)<1?'✅ Balanced!':'⚠️ Variance: '+((parseFloat(closingBal)-todayData.expected_cash)>0?'+':'')+fmt(parseFloat(closingBal)-todayData.expected_cash)}
-                  </div>
-                )}
+                {(() => {
+                  const hRow = history.find(h => h.register_date === registerDate);
+                  const op  = hRow ? parseFloat(hRow.opening_balance||0)  : parseFloat(todayData.opening_balance||0);
+                  const cs  = hRow ? parseFloat(hRow.total_sales_cash||0) : parseFloat(todayData.cash_sales||0);
+                  const mi  = hRow ? parseFloat(hRow.manual_in||0)        : parseFloat(todayData.manual_in||0);
+                  const exp = hRow ? parseFloat(hRow.total_expenses||0)   : parseFloat(todayData.expenses||0);
+                  const sup = hRow ? parseFloat(hRow.total_purchases||0)  : parseFloat(todayData.supplier_paid||0);
+                  const mo  = hRow ? parseFloat(hRow.manual_out||0)       : parseFloat(todayData.manual_out||0);
+                  const expCash = op + cs + mi - exp - sup - mo;
+                  return (<>
+                    <input type="number" className="form-control" value={closingBal} onChange={e => setClosingBal(e.target.value)} placeholder={Math.round(expCash).toString()} />
+                    {closingBal && (
+                      <div style={{marginTop:'6px',fontSize:'.85rem',fontWeight:600,color:Math.abs(parseFloat(closingBal)-expCash)<1?'var(--accent-green)':'var(--accent-red)'}}>
+                        {Math.abs(parseFloat(closingBal)-expCash)<1?'✅ Balanced!':'⚠️ Variance: '+((parseFloat(closingBal)-expCash)>0?'+':'')+fmt(parseFloat(closingBal)-expCash)}
+                      </div>
+                    )}
+                  </>);
+                })()}
               </div>
               <div className="form-group">
                 <label className="form-label">Notes</label>
@@ -576,6 +613,150 @@ export default function CashRegister() {
               <button className="btn btn-primary" onClick={handleTransfer} disabled={saving||!transferForm.amount||!transferForm.date||!transferForm.from_shop_id||!transferForm.to_shop_id}>
                 {saving ? 'Transferring...' : '🔄 Transfer & Recalculate'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Detail Modal */}
+      {showDetail && (
+        <div className="modal-overlay" onClick={() => setShowDetail(false)}>
+          <div className="modal" style={{maxWidth:'560px',maxHeight:'80vh',overflow:'hidden',display:'flex',flexDirection:'column'}} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <strong>📋 {detailData?.date ? new Date(detailData.date).toLocaleDateString('en-AE',{day:'numeric',month:'long',year:'numeric'}) : 'Loading...'} — {shopName}</strong>
+              <button className="modal-close" onClick={() => setShowDetail(false)}>✕</button>
+            </div>
+            <div className="modal-body" style={{overflowY:'auto'}}>
+              {detailLoading ? (
+                <div style={{textAlign:'center',padding:'2rem',color:'var(--text-muted)'}}>Loading...</div>
+              ) : detailData ? (
+                <div style={{fontSize:'13px'}}>
+                  {/* Opening */}
+                  <div style={{display:'flex',justifyContent:'space-between',padding:'8px 0',borderBottom:'2px solid #e2e8f0',marginBottom:'8px',fontWeight:700}}>
+                    <span>Opening Balance</span><span>{fmt(detailData.opening)}</span>
+                  </div>
+
+                  {/* Sales */}
+                  {detailData.sales.items.length > 0 && (
+                    <div style={{marginBottom:'12px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',fontWeight:700,color:'#059669',marginBottom:'4px'}}>
+                        <span>💰 Cash Sales</span><span>+ {fmt(detailData.sales.total)}</span>
+                      </div>
+                      {detailData.sales.items.map(i => (
+                        <div key={i.invoice_number} style={{display:'flex',justifyContent:'space-between',paddingLeft:'16px',color:'#64748b',marginBottom:'2px'}}>
+                          <span>{i.invoice_number}{i.is_exchange?' 🔄':''}</span><span>{fmt(i.amount_paid)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Returns */}
+                  {detailData.returns.items.length > 0 && (
+                    <div style={{marginBottom:'12px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',fontWeight:700,color:'#dc2626',marginBottom:'4px'}}>
+                        <span>↩️ Returns</span><span>− {fmt(detailData.returns.total)}</span>
+                      </div>
+                      {detailData.returns.items.map(i => (
+                        <div key={i.invoice_number} style={{display:'flex',justifyContent:'space-between',paddingLeft:'16px',color:'#64748b',marginBottom:'2px'}}>
+                          <span>{i.invoice_number}</span><span>{fmt(i.amount_paid)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Transfer In */}
+                  {detailData.transfer_in.total > 0 && (
+                    <div style={{marginBottom:'12px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',fontWeight:700,color:'#6366f1',marginBottom:'4px'}}>
+                        <span>🔄 Transfer In</span><span>+ {fmt(detailData.transfer_in.total)}</span>
+                      </div>
+                      {detailData.transfer_in.items.map((i,idx) => (
+                        <div key={idx} style={{display:'flex',justifyContent:'space-between',paddingLeft:'16px',color:'#64748b',marginBottom:'2px'}}>
+                          <span>{i.description||i.category}</span><span>{fmt(i.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Cash In Manual */}
+                  {detailData.manual_in.total > 0 && (
+                    <div style={{marginBottom:'12px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',fontWeight:700,color:'#f59e0b',marginBottom:'4px'}}>
+                        <span>⬇️ Cash In</span><span>+ {fmt(detailData.manual_in.total)}</span>
+                      </div>
+                      {detailData.manual_in.items.map((i,idx) => (
+                        <div key={idx} style={{display:'flex',justifyContent:'space-between',paddingLeft:'16px',color:'#64748b',marginBottom:'2px'}}>
+                          <span>{i.description||i.category}</span><span>{fmt(i.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Purchases */}
+                  {detailData.purchases.items.length > 0 && (
+                    <div style={{marginBottom:'12px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',fontWeight:700,color:'#dc2626',marginBottom:'4px'}}>
+                        <span>📦 Purchases Paid</span><span>− {fmt(detailData.purchases.total)}</span>
+                      </div>
+                      {detailData.purchases.items.map((i,idx) => (
+                        <div key={idx} style={{display:'flex',justifyContent:'space-between',paddingLeft:'16px',color:'#64748b',marginBottom:'2px'}}>
+                          <span>{i.reference}</span><span>{fmt(i.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Expenses */}
+                  {detailData.expenses.items.length > 0 && (
+                    <div style={{marginBottom:'12px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',fontWeight:700,color:'#dc2626',marginBottom:'4px'}}>
+                        <span>🧾 Expenses</span><span>− {fmt(detailData.expenses.total)}</span>
+                      </div>
+                      {detailData.expenses.items.map((i,idx) => (
+                        <div key={idx} style={{display:'flex',justifyContent:'space-between',paddingLeft:'16px',color:'#64748b',marginBottom:'2px'}}>
+                          <span>{i.category_name}{i.description?` — ${i.description}`:''}</span><span>{fmt(i.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Cash Out Manual */}
+                  {detailData.manual_out.total > 0 && (
+                    <div style={{marginBottom:'12px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',fontWeight:700,color:'#dc2626',marginBottom:'4px'}}>
+                        <span>⬆️ Cash Out</span><span>− {fmt(detailData.manual_out.total)}</span>
+                      </div>
+                      {detailData.manual_out.items.map((i,idx) => (
+                        <div key={idx} style={{display:'flex',justifyContent:'space-between',paddingLeft:'16px',color:'#64748b',marginBottom:'2px'}}>
+                          <span>{i.description||i.category}</span><span>{fmt(i.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Transfer Out */}
+                  {detailData.transfer_out.total > 0 && (
+                    <div style={{marginBottom:'12px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',fontWeight:700,color:'#7c3aed',marginBottom:'4px'}}>
+                        <span>🔄 Transfer Out</span><span>− {fmt(detailData.transfer_out.total)}</span>
+                      </div>
+                      {detailData.transfer_out.items.map((i,idx) => (
+                        <div key={idx} style={{display:'flex',justifyContent:'space-between',paddingLeft:'16px',color:'#64748b',marginBottom:'2px'}}>
+                          <span>{i.description||i.category}</span><span>{fmt(i.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Closing */}
+                  <div style={{display:'flex',justifyContent:'space-between',padding:'10px 0',borderTop:'2px solid #e2e8f0',marginTop:'8px',fontWeight:800,fontSize:'15px'}}>
+                    <span>Closing Balance</span>
+                    <span style={{color:'#6366f1'}}>{fmt(detailData.closing)}</span>
+                  </div>
+                </div>
+              ) : null}
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setShowDetail(false)}>Close</button>
             </div>
           </div>
         </div>
