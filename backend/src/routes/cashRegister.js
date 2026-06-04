@@ -2,6 +2,7 @@
 const express = require('express');
 const router  = express.Router();
 const { query } = require('../config/database');
+const checkRegisterLock = require('../middleware/checkRegisterLock');
 
 // ── GET /api/v1/cash-register/detail?shop_id=X&date=Y ───────────────────────
 router.get('/detail', async (req, res) => {
@@ -323,7 +324,7 @@ router.post('/recalculate', async (req, res) => {
 });
 
 // ── POST /api/v1/cash-register/manual-entry ──────────────────────────────────
-router.post('/manual-entry', async (req, res) => {
+router.post('/manual-entry', checkRegisterLock, async (req, res) => {
   try {
     const { shop_id, entry_type, amount, category, description, entry_date } = req.body;
     if (!shop_id || !entry_type || !amount) return res.status(400).json({ success: false, message: 'shop_id, entry_type, amount required' });

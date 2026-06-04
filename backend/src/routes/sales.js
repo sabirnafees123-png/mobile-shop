@@ -8,6 +8,6 @@ router.get('/search-serial',      ctrl.searchBySerial);
 router.get('/:id',                ctrl.getSale);
 router.post('/',                  checkRegisterLock, ctrl.createSale);
 router.post('/:id/return',        checkRegisterLock, ctrl.returnSale);
-router.post('/:id/mark-received', ctrl.markPaymentReceived);
+router.post('/:id/mark-received', checkRegisterLock, ctrl.markPaymentReceived);
 
 module.exports = router;
