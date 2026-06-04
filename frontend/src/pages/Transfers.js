@@ -55,8 +55,7 @@ export default function Transfers() {
     api.get(`/shops/${form.from_shop_id}/inventory`)
       .then(r => setInventory(r.data?.data || []))
       .catch(() => setInventory([]));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [form.from_shop_id]);
+  }, [form.from_shop_id]); // intentionally omitting other deps — only re-run when source shop changes
 
   // Live search as user types
   const handleProductSearch = (val) => {
