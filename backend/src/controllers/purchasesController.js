@@ -112,6 +112,7 @@ exports.createPurchase = async (req, res) => {
     if (!supplier_id) throw new Error('supplier_id is required');
     if (!items || !items.length) throw new Error('At least one item is required');
     if (items.some(i => !i.shop_id)) throw new Error('Each item must have a shop selected');
+    if (items.some(i => !i.unit_cost)) throw new Error('Each item needs a cost price');
 
     const totalAmount    = items.reduce((sum, item) => sum + ((item.qty || 1) * item.unit_cost), 0);
     const purchaseNumber = await generatePurchaseNumber();
@@ -128,72 +129,75 @@ exports.createPurchase = async (req, res) => {
     );
     const purchaseId = purchase.rows[0].id;
 
-    for (const item of items) {
-      if (!item.unit_cost) throw new Error('Each item needs a cost price');
+    // ── Batch lookup existing products by serial ──────────────────────
+    const serialsToCheck = items.filter(i => !i.product_id && i.serial_number).map(i => i.serial_number);
+    const existingBySerial = {};
+    if (serialsToCheck.length) {
+      const found = await client.query(
+        `SELECT id, serial_number FROM products WHERE serial_number = ANY($1)`, [serialsToCheck]
+      );
+      found.rows.forEach(r => { existingBySerial[r.serial_number] = r.id; });
+    }
 
+    // ── Resolve product IDs — create new products individually ────────
+    const resolvedItems = [];
+    for (const item of items) {
       let finalProductId = item.product_id || null;
 
-      // ── Auto product resolution ──────────────────────────────────────
-      if (!finalProductId && item.serial_number) {
-        // 1. Try to find existing product by serial number
-        const existing = await client.query(
-          `SELECT id FROM products WHERE serial_number = $1 LIMIT 1`,
-          [item.serial_number]
-        );
-        if (existing.rows.length) {
-          finalProductId = existing.rows[0].id;
-        }
-      }
-
-      if (!finalProductId) {
-        // 2. Create new product with provided details
-        const productName = item.product_name || item.serial_number || 'Unknown Product';
-        const newProduct  = await client.query(
-          `INSERT INTO products (name, brand, color, serial_number, type, category, selling_price, base_cost, is_active)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true) RETURNING id`,
-          [productName,
-           item.brand || null,
-           item.color || null,
-           item.serial_number || null,
-           item.product_type || 'Used',
-           'Mobile Phone',
-           item.recommended_selling_price || 0,
-           item.unit_cost || 0]
-        );
-        finalProductId = newProduct.rows[0].id;
-      } else {
-        // 3. Update existing product's selling price if provided
+      if (!finalProductId && item.serial_number && existingBySerial[item.serial_number]) {
+        finalProductId = existingBySerial[item.serial_number];
         if (item.recommended_selling_price && parseFloat(item.recommended_selling_price) > 0) {
           await client.query(
-            `UPDATE products SET selling_price = $1, serial_number = COALESCE($2, serial_number) WHERE id = $3`,
+            `UPDATE products SET selling_price=$1, serial_number=COALESCE($2,serial_number) WHERE id=$3`,
             [item.recommended_selling_price, item.serial_number || null, finalProductId]
           );
         }
+      } else if (!finalProductId) {
+        const newProduct = await client.query(
+          `INSERT INTO products (name, brand, color, serial_number, type, category, selling_price, base_cost, is_active)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true) RETURNING id`,
+          [item.product_name || item.serial_number || 'Unknown Product',
+           item.brand || null, item.color || null, item.serial_number || null,
+           item.product_type || 'Used', 'Mobile Phone',
+           item.recommended_selling_price || 0, item.unit_cost || 0]
+        );
+        finalProductId = newProduct.rows[0].id;
       }
-      // ─────────────────────────────────────────────────────────────────
-
-      await client.query(
-        `INSERT INTO purchase_items
-          (purchase_id, product_id, serial_number, imei, qty, unit_cost, recommended_selling_price, shop_id)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-        [purchaseId, finalProductId,
-         item.serial_number || null,
-         item.imei || null,
-         item.qty || 1,
-         item.unit_cost,
-         item.recommended_selling_price || 0,
-         parseInt(item.shop_id)]
-      );
-
-      // Upsert inventory for this item's shop
-      await client.query(
-        `INSERT INTO inventory (product_id, shop_id, quantity, min_stock)
-         VALUES ($1,$2,$3,5)
-         ON CONFLICT (product_id, shop_id)
-         DO UPDATE SET quantity = inventory.quantity + $3, last_updated = NOW()`,
-        [finalProductId, parseInt(item.shop_id), item.qty || 1]
-      );
+      resolvedItems.push({ ...item, finalProductId });
     }
+
+    // ── Batch INSERT purchase_items ───────────────────────────────────
+    const piValues = resolvedItems.map((_, i) => {
+      const b = i * 8;
+      return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8})`;
+    }).join(',');
+    const piParams = resolvedItems.flatMap(item => [
+      purchaseId, item.finalProductId,
+      item.serial_number || null, item.imei || null,
+      item.qty || 1, item.unit_cost,
+      item.recommended_selling_price || 0, parseInt(item.shop_id),
+    ]);
+    await client.query(
+      `INSERT INTO purchase_items (purchase_id, product_id, serial_number, imei, qty, unit_cost, recommended_selling_price, shop_id)
+       VALUES ${piValues}`, piParams
+    );
+
+    // ── Batch inventory upsert ────────────────────────────────────────
+    const invMap = {};
+    resolvedItems.forEach(item => {
+      const key = `${item.finalProductId}:${parseInt(item.shop_id)}`;
+      if (!invMap[key]) invMap[key] = { product_id: item.finalProductId, shop_id: parseInt(item.shop_id), qty: 0 };
+      invMap[key].qty += item.qty || 1;
+    });
+    const invRows   = Object.values(invMap);
+    const invValues = invRows.map((_, i) => { const b=i*3; return `($${b+1},$${b+2},$${b+3},5)`; }).join(',');
+    const invParams = invRows.flatMap(r => [r.product_id, r.shop_id, r.qty]);
+    await client.query(
+      `INSERT INTO inventory (product_id, shop_id, quantity, min_stock) VALUES ${invValues}
+       ON CONFLICT (product_id, shop_id)
+       DO UPDATE SET quantity = inventory.quantity + EXCLUDED.quantity, last_updated = NOW()`,
+      invParams
+    );
 
     // Update supplier balance
     const amountDue  = totalAmount - amount_paid;
@@ -239,7 +243,6 @@ exports.createPurchase = async (req, res) => {
   }
 };
 
-// POST /api/v1/purchases/:id/pay
 exports.recordPayment = async (req, res) => {
   const client = await getClient();
   try {

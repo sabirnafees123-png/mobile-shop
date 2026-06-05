@@ -174,17 +174,14 @@ export default function CashRegister() {
           {shopId && (
             <button className="btn btn-ghost" onClick={() => { setTransferForm({...transferForm, from_shop_id: shopId}); setShowTransfer(true); }}>🔄 Transfer Cash</button>
           )}
-          {shopId && !register && (
+          {shopId && !isOpen && (
             <button className="btn btn-primary" onClick={() => setShowOpen(true)}>🔓 Open Register</button>
           )}
           {shopId && isOpen && (
-            <button className="btn btn-primary" style={{background:'var(--accent-red)'}} onClick={() => setShowClose(true)}>🔒 Close Register</button>
+            <button className="btn btn-ghost" onClick={() => setShowOpen(true)}>🔓 Reopen</button>
           )}
-          {shopId && isClosed && (
-            <>
-              <span className="badge badge-gray" style={{padding:'8px 16px',fontSize:'.9rem'}}>🔒 Closed</span>
-              <button className="btn btn-ghost" onClick={() => setShowOpen(true)} title="Reopen this register">🔓 Reopen</button>
-            </>
+          {shopId && (
+            <button className="btn btn-primary" style={{background: isOpen ? 'var(--accent-red)' : '#6b7280'}} onClick={() => setShowClose(true)}>🔒 Close Register</button>
           )}
         </div>
       </div>
