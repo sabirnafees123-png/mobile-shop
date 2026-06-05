@@ -41,19 +41,17 @@ const checkRegisterLock = async (req, res, next) => {
       });
     }
 
-    // ── Block if NO register row exists for that date (never opened) ──
-    // This prevents entries being silently posted to dates with no register
-    if (!reg.rows.length) {
-      // Allow if it's today (register will be auto-created on open)
-      const today = new Date().toISOString().split('T')[0];
-      if (date !== today) {
-        return res.status(423).json({
-          success: false,
-          locked: true,
-          message: `No register found for ${date}. Please open the register for that date first.`,
-        });
-      }
+    // ── For past dates: block if no register row exists ───────────────
+    const today = new Date().toISOString().split('T')[0];
+    if (!reg.rows.length && date < today) {
+      return res.status(423).json({
+        success: false,
+        locked: true,
+        message: `No register found for ${date}. Please open the register for that date first.`,
+      });
     }
+
+    // Today with no register row = allow (register will be created on first open)
 
     next();
   } catch (err) {

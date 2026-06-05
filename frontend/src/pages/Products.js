@@ -1,12 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { TableSkeleton, EmptyProducts } from '../components/UI';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 
 const TYPES = ['New (Box Pack)', 'Used', 'Refurbished', 'Parts', 'Accessories', 'Wholesale'];
-
 const CATEGORIES = ['Mobile', 'Laptop', 'Tab', 'Accessories', 'Ipad'];
-
 const SUB_CATEGORIES = {
   Mobile:      ['Mobile'],
   Laptop:      ['Laptop', 'Macbook', 'Surface', 'Chromebook'],
@@ -14,8 +12,9 @@ const SUB_CATEGORIES = {
   Ipad:        ['Ipad'],
   Accessories: ['Earbuds', 'Smartwatch', 'Charger', 'keyboard', 'Strip', 'Cable', 'PowerBank', 'Controller', 'Pen', 'Belkin'],
 };
-
 const ALL_SUB = ['Mobile','Ipad','Tab','Laptop','Earbuds','Smartwatch','Celender','Macbook','Charger','keyboard','Strip','Surface','Belkin','Cable','Controller','Pen','PowerBank'];
+
+const ADJUST_REASONS = ['Opening Stock', 'Stock Found', 'Damaged / Written Off', 'Returned from Customer', 'Supplier Return', 'Manual Correction'];
 
 const EMPTY = {
   serial_number: '', name: '', brand: '', color: '',
@@ -23,8 +22,18 @@ const EMPTY = {
   base_cost: '', selling_price: '', is_active: true,
   category: '', sub_category: '', is_service: false,
 };
-
 const LIMIT = 50;
+const fmt = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
+const fmtDate = d => d ? new Date(d).toLocaleDateString('en-AE') : '—';
+
+const typeBadgeColor = (t) => ({
+  'New (Box Pack)': { bg: '#d1fae5', color: '#065f46' },
+  'Used':           { bg: '#fef3c7', color: '#92400e' },
+  'Refurbished':    { bg: '#dbeafe', color: '#1e40af' },
+  'Parts':          { bg: '#f3e8ff', color: '#6b21a8' },
+  'Accessories':    { bg: '#fce7f3', color: '#9d174d' },
+  'Wholesale':      { bg: '#e0f2fe', color: '#0369a1' },
+}[t] || { bg: '#f3f4f6', color: '#374151' });
 
 export default function Products() {
   const [products, setProducts]         = useState([]);
@@ -36,17 +45,28 @@ export default function Products() {
   const [filterType, setFilterType]     = useState('');
   const [filterCat, setFilterCat]       = useState('');
   const [filterSubCat, setFilterSubCat] = useState('');
+  const [page, setPage]                 = useState(1);
+  const [totalPages, setTotalPages]     = useState(1);
+  const [totalCount, setTotalCount]     = useState(0);
 
-  const [page, setPage]             = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
+  // Transactions modal
+  const [txProduct, setTxProduct]   = useState(null);
+  const [txData, setTxData]         = useState(null);
+  const [txLoading, setTxLoading]   = useState(false);
+  const [txTab, setTxTab]           = useState('sales');
 
-  const load = () => {
+  // Adjust modal
+  const [adjProduct, setAdjProduct] = useState(null);
+  const [shops, setShops]           = useState([]);
+  const [adjForm, setAdjForm]       = useState({ shop_id: '', quantity: '', reason: 'Opening Stock', note: '' });
+  const [adjSaving, setAdjSaving]   = useState(false);
+
+  const load = useCallback(() => {
     setLoading(true);
     const params = { page, limit: LIMIT };
-    if (search)       params.search      = search;
-    if (filterType)   params.type        = filterType;
-    if (filterCat)    params.category    = filterCat;
+    if (search)       params.search       = search;
+    if (filterType)   params.type         = filterType;
+    if (filterCat)    params.category     = filterCat;
     if (filterSubCat) params.sub_category = filterSubCat;
     api.get('/products', { params })
       .then(r => {
@@ -56,13 +76,31 @@ export default function Products() {
       })
       .catch(() => toast.error('Failed to load'))
       .finally(() => setLoading(false));
-  };
+  }, [page, search, filterType, filterCat, filterSubCat]);
 
   useEffect(() => { setPage(1); }, [search, filterType, filterCat, filterSubCat]);
-  useEffect(() => { load(); }, [page, search, filterType, filterCat, filterSubCat]);
+  useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    api.get('/shops').then(r => setShops(r.data?.data || [])).catch(() => {});
+  }, []);
 
   const openAdd  = () => { setEditing(null); setForm(EMPTY); setShowModal(true); };
   const openEdit = (p) => { setEditing(p); setForm({ ...EMPTY, ...p }); setShowModal(true); };
+
+  const openTx = async (p) => {
+    setTxProduct(p); setTxData(null); setTxTab('sales'); setTxLoading(true);
+    try {
+      const r = await api.get(`/products/${p.id}/transactions`);
+      setTxData(r.data?.data);
+    } catch { toast.error('Failed to load transactions'); }
+    finally { setTxLoading(false); }
+  };
+
+  const openAdj = (p) => {
+    setAdjProduct(p);
+    setAdjForm({ shop_id: '', quantity: '', reason: 'Opening Stock', note: '' });
+  };
 
   const handleSubmit = async () => {
     if (!form.name)  return toast.error('Product name is required');
@@ -75,38 +113,35 @@ export default function Products() {
         await api.post('/products', form);
         toast.success('Product added!');
       }
-      setShowModal(false);
-      load();
-    } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to save');
-    }
+      setShowModal(false); load();
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to save'); }
   };
 
   const handleDelete = async (id) => {
     if (!window.confirm('Delete this product?')) return;
+    try { await api.delete(`/products/${id}`); toast.success('Deleted'); load(); }
+    catch { toast.error('Failed to delete'); }
+  };
+
+  const handleAdjust = async () => {
+    if (!adjForm.shop_id)  return toast.error('Select a shop');
+    if (!adjForm.quantity || adjForm.quantity === '0') return toast.error('Enter quantity');
+    setAdjSaving(true);
     try {
-      await api.delete(`/products/${id}`);
-      toast.success('Deleted');
+      const r = await api.post(`/products/${adjProduct.id}/adjust`, {
+        shop_id:  adjForm.shop_id,
+        quantity: parseInt(adjForm.quantity),
+        reason:   adjForm.reason,
+        note:     adjForm.note || adjForm.reason,
+      });
+      toast.success(`Stock updated! New qty: ${r.data?.data?.quantity}`);
+      setAdjProduct(null);
       load();
-    } catch { toast.error('Failed to delete'); }
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
+    finally { setAdjSaving(false); }
   };
 
-  const clearFilters = () => {
-    setSearch(''); setFilterType(''); setFilterCat(''); setFilterSubCat('');
-  };
-
-  const fmt = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
-
-  const typeBadgeColor = (t) => ({
-    'New (Box Pack)': { bg: '#d1fae5', color: '#065f46' },
-    'Used':           { bg: '#fef3c7', color: '#92400e' },
-    'Refurbished':    { bg: '#dbeafe', color: '#1e40af' },
-    'Parts':          { bg: '#f3e8ff', color: '#6b21a8' },
-    'Accessories':    { bg: '#fce7f3', color: '#9d174d' },
-    'Wholesale':      { bg: '#e0f2fe', color: '#0369a1' },
-  }[t] || { bg: '#f3f4f6', color: '#374151' });
-
-  // Sub categories to show in filter — depends on selected category
+  const clearFilters = () => { setSearch(''); setFilterType(''); setFilterCat(''); setFilterSubCat(''); };
   const subCatsForFilter = filterCat ? (SUB_CATEGORIES[filterCat] || ALL_SUB) : ALL_SUB;
 
   return (
@@ -137,8 +172,7 @@ export default function Products() {
           </div>
           <div>
             <label style={{ fontSize: '.78rem', color: 'var(--text-muted)', display: 'block', marginBottom: '4px' }}>Sub Category</label>
-            <select className="form-control" value={filterSubCat}
-              onChange={e => setFilterSubCat(e.target.value)}>
+            <select className="form-control" value={filterSubCat} onChange={e => setFilterSubCat(e.target.value)}>
               <option value="">All Sub Categories</option>
               {subCatsForFilter.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -156,22 +190,14 @@ export default function Products() {
 
       {/* Table */}
       <div className="card">
-        {loading ? <TableSkeleton rows={8} cols={11} /> : (
+        {loading ? <TableSkeleton rows={8} cols={12} /> : (
           <div className="table-wrapper">
             <table>
               <thead>
                 <tr>
-                  <th>#</th>
-                  <th>Serial No.</th>
-                  <th>Product Name</th>
-                  <th>Brand</th>
-                  <th>Category</th>
-                  <th>Sub Category</th>
-                  <th>Type</th>
-                  <th>Cost</th>
-                  <th>Sell Price</th>
-                  <th>Status</th>
-                  <th>Actions</th>
+                  <th>#</th><th>Serial No.</th><th>Product Name</th><th>Brand</th>
+                  <th>Category</th><th>Sub Category</th><th>Type</th>
+                  <th>Cost</th><th>Sell Price</th><th>Status</th><th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -185,26 +211,23 @@ export default function Products() {
                       <td style={{ fontFamily: 'monospace', fontSize: '.85rem', color: 'var(--text-muted)' }}>
                         {p.serial_number || '—'}
                       </td>
-                      <td><strong>{p.name}</strong>{p.is_service && <span style={{marginLeft:'6px',background:'#eef2ff',color:'#6366f1',padding:'1px 6px',borderRadius:'6px',fontSize:'11px',fontWeight:600}}>🔧 Service</span>}</td>
+                      <td>
+                        <strong>{p.name}</strong>
+                        {p.is_service && <span style={{ marginLeft: '6px', background: '#eef2ff', color: '#6366f1', padding: '1px 6px', borderRadius: '6px', fontSize: '11px', fontWeight: 600 }}>🔧 Service</span>}
+                      </td>
                       <td>{p.brand || '—'}</td>
                       <td>
                         {p.category ? (
-                          <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '.75rem', fontWeight: 600, background: '#eef2ff', color: '#6366f1' }}>
-                            {p.category}
-                          </span>
+                          <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '.75rem', fontWeight: 600, background: '#eef2ff', color: '#6366f1' }}>{p.category}</span>
                         ) : '—'}
                       </td>
                       <td>
                         {p.sub_category ? (
-                          <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '.75rem', fontWeight: 600, background: '#f1f5f9', color: '#475569' }}>
-                            {p.sub_category}
-                          </span>
+                          <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '.75rem', fontWeight: 600, background: '#f1f5f9', color: '#475569' }}>{p.sub_category}</span>
                         ) : '—'}
                       </td>
                       <td>
-                        <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '.78rem', fontWeight: 600, background: tc.bg, color: tc.color }}>
-                          {p.type || '—'}
-                        </span>
+                        <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '.78rem', fontWeight: 600, background: tc.bg, color: tc.color }}>{p.type || '—'}</span>
                       </td>
                       <td>{p.base_cost > 0 ? fmt(p.base_cost) : '—'}</td>
                       <td><strong>{fmt(p.selling_price)}</strong></td>
@@ -213,7 +236,9 @@ export default function Products() {
                           {p.is_active ? 'Active' : 'Inactive'}
                         </span>
                       </td>
-                      <td>
+                      <td style={{ whiteSpace: 'nowrap' }}>
+                        <button className="btn btn-ghost btn-sm" title="View Transactions" onClick={() => openTx(p)}>📋</button>
+                        <button className="btn btn-ghost btn-sm" title="Stock Adjustment" onClick={() => openAdj(p)}>⚖️</button>
                         <button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)}>✏️</button>
                         <button className="btn btn-ghost btn-sm" style={{ color: 'var(--accent-red)' }} onClick={() => handleDelete(p.id)}>🗑️</button>
                       </td>
@@ -222,7 +247,6 @@ export default function Products() {
                 })}
               </tbody>
             </table>
-
             {totalPages > 1 && (
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '12px', padding: '1rem', borderTop: '1px solid var(--border)' }}>
                 <button className="btn btn-ghost btn-sm" onClick={() => setPage(p => p - 1)} disabled={page === 1}>← Prev</button>
@@ -234,7 +258,207 @@ export default function Products() {
         )}
       </div>
 
-      {/* Modal */}
+      {/* ── Transactions Modal ───────────────────────────────────────── */}
+      {txProduct && (
+        <div className="modal-overlay" onClick={() => setTxProduct(null)}>
+          <div className="modal" style={{ maxWidth: '760px', maxHeight: '85vh', display: 'flex', flexDirection: 'column' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <strong>📋 Transactions — {txProduct.brand} {txProduct.name}</strong>
+                {txProduct.serial_number && <div style={{ fontSize: '.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>Serial: {txProduct.serial_number}</div>}
+              </div>
+              <button className="modal-close" onClick={() => setTxProduct(null)}>✕</button>
+            </div>
+
+            {/* Current stock summary */}
+            {txData?.inventory?.length > 0 && (
+              <div style={{ padding: '10px 20px', background: 'var(--bg-secondary)', display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
+                {txData.inventory.map(inv => (
+                  <div key={inv.shop_id} style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span style={{ fontSize: '.8rem', color: 'var(--text-muted)' }}>{inv.shop_name}:</span>
+                    <strong style={{ color: inv.quantity === 0 ? '#dc2626' : inv.quantity <= inv.min_stock ? '#d97706' : '#059669' }}>
+                      {inv.quantity} in stock
+                    </strong>
+                  </div>
+                ))}
+                {txData.inventory.length === 0 && <span style={{ fontSize: '.8rem', color: '#dc2626' }}>Not in inventory</span>}
+              </div>
+            )}
+
+            {/* Tabs */}
+            <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', padding: '0 20px' }}>
+              {[
+                { key: 'sales',     label: `🧾 Sales (${txData?.sales?.length || 0})` },
+                { key: 'purchases', label: `📥 Purchases (${txData?.purchases?.length || 0})` },
+                { key: 'movements', label: `🔄 Movements (${txData?.movements?.length || 0})` },
+              ].map(tab => (
+                <button key={tab.key} onClick={() => setTxTab(tab.key)}
+                  style={{
+                    padding: '10px 16px', border: 'none', background: 'none', cursor: 'pointer',
+                    fontSize: '.85rem', fontWeight: txTab === tab.key ? 700 : 400,
+                    color: txTab === tab.key ? 'var(--accent)' : 'var(--text-muted)',
+                    borderBottom: txTab === tab.key ? '2px solid var(--accent)' : '2px solid transparent',
+                    marginBottom: '-1px',
+                  }}>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
+              {txLoading ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>Loading...</div>
+              ) : (
+                <>
+                  {txTab === 'sales' && (
+                    <table style={{ width: '100%', fontSize: '.85rem' }}>
+                      <thead><tr>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text-muted)' }}>Invoice</th>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text-muted)' }}>Date</th>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text-muted)' }}>Shop</th>
+                        <th style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text-muted)' }}>Qty</th>
+                        <th style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text-muted)' }}>Price</th>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text-muted)' }}>Status</th>
+                      </tr></thead>
+                      <tbody>
+                        {txData?.sales?.length === 0 ? (
+                          <tr><td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>No sales found</td></tr>
+                        ) : txData?.sales?.map(s => (
+                          <tr key={s.reference} style={{ borderTop: '1px solid var(--border)' }}>
+                            <td style={{ padding: '8px' }}><strong style={{ color: 'var(--accent)' }}>{s.reference}</strong></td>
+                            <td style={{ padding: '8px' }}>{fmtDate(s.date)}</td>
+                            <td style={{ padding: '8px' }}>{s.shop_name}</td>
+                            <td style={{ padding: '8px', textAlign: 'right' }}>{s.quantity}</td>
+                            <td style={{ padding: '8px', textAlign: 'right' }}>{fmt(s.price)}</td>
+                            <td style={{ padding: '8px' }}>
+                              <span className={`badge ${s.payment_status === 'paid' ? 'badge-green' : 'badge-yellow'}`}>{s.payment_status}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+
+                  {txTab === 'purchases' && (
+                    <table style={{ width: '100%', fontSize: '.85rem' }}>
+                      <thead><tr>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text-muted)' }}>Purchase #</th>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text-muted)' }}>Date</th>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text-muted)' }}>Shop</th>
+                        <th style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text-muted)' }}>Qty</th>
+                        <th style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text-muted)' }}>Cost</th>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text-muted)' }}>Status</th>
+                      </tr></thead>
+                      <tbody>
+                        {txData?.purchases?.length === 0 ? (
+                          <tr><td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>No purchases found</td></tr>
+                        ) : txData?.purchases?.map(p => (
+                          <tr key={p.reference} style={{ borderTop: '1px solid var(--border)' }}>
+                            <td style={{ padding: '8px' }}><strong style={{ color: 'var(--accent)' }}>{p.reference}</strong></td>
+                            <td style={{ padding: '8px' }}>{fmtDate(p.date)}</td>
+                            <td style={{ padding: '8px' }}>{p.shop_name}</td>
+                            <td style={{ padding: '8px', textAlign: 'right' }}>{p.quantity}</td>
+                            <td style={{ padding: '8px', textAlign: 'right' }}>{fmt(p.price)}</td>
+                            <td style={{ padding: '8px' }}>
+                              <span className={`badge ${p.payment_status === 'paid' ? 'badge-green' : 'badge-yellow'}`}>{p.payment_status}</span>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+
+                  {txTab === 'movements' && (
+                    <table style={{ width: '100%', fontSize: '.85rem' }}>
+                      <thead><tr>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text-muted)' }}>Type</th>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text-muted)' }}>Note</th>
+                        <th style={{ textAlign: 'right', padding: '6px 8px', color: 'var(--text-muted)' }}>Qty</th>
+                        <th style={{ textAlign: 'left', padding: '6px 8px', color: 'var(--text-muted)' }}>Date</th>
+                      </tr></thead>
+                      <tbody>
+                        {txData?.movements?.length === 0 ? (
+                          <tr><td colSpan={4} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-muted)' }}>No movements found</td></tr>
+                        ) : txData?.movements?.map((m, i) => (
+                          <tr key={i} style={{ borderTop: '1px solid var(--border)' }}>
+                            <td style={{ padding: '8px' }}>
+                              <span style={{ fontWeight: 700, color: m.movement_type === 'in' ? '#059669' : '#dc2626' }}>
+                                {m.movement_type === 'in' ? '▲ IN' : '▼ OUT'}
+                              </span>
+                            </td>
+                            <td style={{ padding: '8px', color: 'var(--text-muted)' }}>{m.note || '—'}</td>
+                            <td style={{ padding: '8px', textAlign: 'right', fontWeight: 700 }}>{m.quantity}</td>
+                            <td style={{ padding: '8px' }}>{fmtDate(m.date)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  )}
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Stock Adjustment Modal ───────────────────────────────────── */}
+      {adjProduct && (
+        <div className="modal-overlay" onClick={() => setAdjProduct(null)}>
+          <div className="modal" style={{ maxWidth: '440px' }} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <div>
+                <strong>⚖️ Stock Adjustment</strong>
+                <div style={{ fontSize: '.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>
+                  {adjProduct.brand} {adjProduct.name}
+                </div>
+              </div>
+              <button className="modal-close" onClick={() => setAdjProduct(null)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-grid">
+                <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                  <label className="form-label">Shop *</label>
+                  <select className="form-control" value={adjForm.shop_id}
+                    onChange={e => setAdjForm({ ...adjForm, shop_id: e.target.value })}>
+                    <option value="">Select shop...</option>
+                    {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+                <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                  <label className="form-label">Quantity *</label>
+                  <input type="number" className="form-control" value={adjForm.quantity}
+                    onChange={e => setAdjForm({ ...adjForm, quantity: e.target.value })}
+                    placeholder="Use negative to remove (e.g. -2)" />
+                  <div style={{ fontSize: '.75rem', color: 'var(--text-muted)', marginTop: '4px' }}>
+                    Positive = add stock &nbsp;|&nbsp; Negative = remove stock
+                  </div>
+                </div>
+                <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                  <label className="form-label">Reason</label>
+                  <select className="form-control" value={adjForm.reason}
+                    onChange={e => setAdjForm({ ...adjForm, reason: e.target.value })}>
+                    {ADJUST_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+                  </select>
+                </div>
+                <div className="form-group" style={{ gridColumn: 'span 2' }}>
+                  <label className="form-label">Note (optional)</label>
+                  <input className="form-control" value={adjForm.note}
+                    onChange={e => setAdjForm({ ...adjForm, note: e.target.value })}
+                    placeholder="Additional details..." />
+                </div>
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setAdjProduct(null)}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleAdjust} disabled={adjSaving}>
+                {adjSaving ? 'Saving...' : 'Apply Adjustment'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Add/Edit Product Modal ───────────────────────────────────── */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal" style={{ maxWidth: '580px' }} onClick={e => e.stopPropagation()}>
@@ -243,7 +467,6 @@ export default function Products() {
               <button className="modal-close" onClick={() => setShowModal(false)}>✕</button>
             </div>
             <div className="modal-body">
-              {/* Type selector */}
               <div className="form-group" style={{ marginBottom: '16px' }}>
                 <label className="form-label">Type *</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
@@ -255,8 +478,7 @@ export default function Products() {
                           padding: '8px 4px', borderRadius: '8px', fontSize: '.82rem', fontWeight: 600,
                           border: `2px solid ${form.type === t ? tc.color : 'var(--border)'}`,
                           background: form.type === t ? tc.bg : 'transparent',
-                          color: form.type === t ? tc.color : 'var(--text-muted)',
-                          cursor: 'pointer',
+                          color: form.type === t ? tc.color : 'var(--text-muted)', cursor: 'pointer',
                         }}>
                         {t}
                       </button>
@@ -264,7 +486,6 @@ export default function Products() {
                   })}
                 </div>
               </div>
-
               <div className="form-grid">
                 <div className="form-group" style={{ gridColumn: 'span 2' }}>
                   <label className="form-label">Serial / IMEI Number</label>
@@ -286,8 +507,6 @@ export default function Products() {
                   <input className="form-control" placeholder="Black, White, Gold..."
                     value={form.color} onChange={e => setForm({ ...form, color: e.target.value })} />
                 </div>
-
-                {/* Category + Sub Category */}
                 <div className="form-group">
                   <label className="form-label">Category</label>
                   <select className="form-control" value={form.category}
@@ -306,7 +525,6 @@ export default function Products() {
                     ))}
                   </select>
                 </div>
-
                 <div className="form-group">
                   <label className="form-label">Base Cost (AED)</label>
                   <input type="number" className="form-control" value={form.base_cost}
@@ -318,13 +536,13 @@ export default function Products() {
                     onChange={e => setForm({ ...form, selling_price: e.target.value })} placeholder="0" />
                 </div>
                 <div className="form-group" style={{ gridColumn: 'span 2' }}>
-                  <label style={{ display:'flex', alignItems:'center', gap:'10px', cursor:'pointer', padding:'10px 14px', background: form.is_service ? '#eef2ff' : '#f8fafc', borderRadius:'8px', border:`1.5px solid ${form.is_service ? '#6366f1' : '#e2e8f0'}` }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer', padding: '10px 14px', background: form.is_service ? '#eef2ff' : '#f8fafc', borderRadius: '8px', border: `1.5px solid ${form.is_service ? '#6366f1' : '#e2e8f0'}` }}>
                     <input type="checkbox" checked={form.is_service || false}
                       onChange={e => setForm({ ...form, is_service: e.target.checked })}
-                      style={{ width:'18px', height:'18px', accentColor:'#6366f1' }} />
+                      style={{ width: '18px', height: '18px', accentColor: '#6366f1' }} />
                     <div>
-                      <div style={{ fontWeight:600, color: form.is_service ? '#6366f1' : '#0f172a' }}>🔧 Service / Repair Item</div>
-                      <div style={{ fontSize:'12px', color:'#64748b' }}>No inventory deducted when sold — for repairs, services, labour charges</div>
+                      <div style={{ fontWeight: 600, color: form.is_service ? '#6366f1' : '#0f172a' }}>🔧 Service / Repair Item</div>
+                      <div style={{ fontSize: '12px', color: '#64748b' }}>No inventory deducted when sold — for repairs, services, labour charges</div>
                     </div>
                   </label>
                 </div>

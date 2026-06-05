@@ -181,7 +181,10 @@ export default function CashRegister() {
             <button className="btn btn-primary" style={{background:'var(--accent-red)'}} onClick={() => setShowClose(true)}>🔒 Close Register</button>
           )}
           {shopId && isClosed && (
-            <span className="badge badge-gray" style={{padding:'8px 16px',fontSize:'.9rem'}}>🔒 Closed</span>
+            <>
+              <span className="badge badge-gray" style={{padding:'8px 16px',fontSize:'.9rem'}}>🔒 Closed</span>
+              <button className="btn btn-ghost" onClick={() => setShowOpen(true)} title="Reopen this register">🔓 Reopen</button>
+            </>
           )}
         </div>
       </div>
