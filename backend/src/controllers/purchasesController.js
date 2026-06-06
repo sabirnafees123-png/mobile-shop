@@ -265,13 +265,29 @@ exports.recordPayment = async (req, res) => {
     const newSupplierBalance = parseFloat(supplier.rows[0].balance) - parseFloat(amount);
     await client.query('UPDATE suppliers SET balance=$1 WHERE id=$2', [newSupplierBalance, p.supplier_id]);
 
+    const payDate = payment_date || new Date().toISOString().split('T')[0];
+
     await client.query(
       `INSERT INTO supplier_ledger (supplier_id, transaction_type, reference_id, reference_type, amount, balance_after, description, transaction_date, shop_id)
        VALUES ($1,'payment',$2,'purchase',$3,$4,$5,$6,$7)`,
       [p.supplier_id, p.id, -amount, newSupplierBalance,
        notes || `Payment for ${p.purchase_number}`,
-       payment_date || new Date().toISOString().split('T')[0], p.shop_id || null]
+       payDate, p.shop_id || null]
     );
+
+    // Record in cash register
+    const regUpdate = await client.query(
+      `UPDATE cash_register SET total_expenses = total_expenses + $1
+       WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
+      [amount, payDate, p.shop_id]
+    );
+    if (regUpdate.rowCount === 0) {
+      await client.query(
+        `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
+         VALUES ($1, $2, 'out', $3, 'Supplier Payment', $4)`,
+        [p.shop_id, payDate, amount, `Payment for ${p.purchase_number}`]
+      );
+    }
 
     await client.query('COMMIT');
     res.json({ success: true, message: 'Payment recorded', new_balance: newSupplierBalance });
