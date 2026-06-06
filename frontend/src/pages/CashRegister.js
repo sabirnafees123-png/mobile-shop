@@ -375,16 +375,16 @@ export default function CashRegister() {
                         <td>
                           <div style={{display:'flex',gap:'4px'}}>
                             {h.is_locked ? (
-                              <button className="btn btn-ghost btn-sm" title="Reopen this day"
-                                style={{color:'#f59e0b',fontSize:'16px',padding:'2px 6px'}}
+                              <button className="btn btn-sm" title="Locked — click to reopen"
+                                style={{background:'#fee2e2',color:'#dc2626',border:'1px solid #fca5a5',fontSize:'12px',padding:'3px 8px',borderRadius:'6px',fontWeight:600}}
                                 onClick={() => { setRegisterDate(h.register_date); setShowOpen(true); }}>
-                                🔓
+                                🔒 Locked
                               </button>
                             ) : (
-                              <button className="btn btn-ghost btn-sm" title="Close & lock this day"
-                                style={{color:'#059669',fontSize:'16px',padding:'2px 6px'}}
+                              <button className="btn btn-sm" title="Open — click to close & lock"
+                                style={{background:'#d1fae5',color:'#059669',border:'1px solid #6ee7b7',fontSize:'12px',padding:'3px 8px',borderRadius:'6px',fontWeight:600}}
                                 onClick={() => { setRegisterDate(h.register_date); setClosingBal(Math.round(h.closing_balance).toString()); setShowClose(true); }}>
-                                🔒
+                                🔓 Open
                               </button>
                             )}
                             <button className="btn btn-ghost btn-sm" title="Add manual entry for this date"
