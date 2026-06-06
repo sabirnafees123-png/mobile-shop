@@ -186,9 +186,7 @@ router.get('/history', async (req, res) => {
     // Get ALL manually set opening balances — these are anchor points
     // A date is an anchor if opening_balance is explicitly set in cash_register
     const anchorRows = await query(
-      `SELECT register_date::text as d, opening_balance 
-       FROM cash_register WHERE shop_id=$1 AND register_date >= $2 
-       ORDER BY register_date ASC`,
+      `SELECT register_date::text as d, opening_balance, closing_balance, status FROM cash_register WHERE shop_id=$1 AND register_date >= $2 ORDER BY register_date ASC`,
       [shop_id, calcFrom]
     );
     // Build anchor map: date -> opening_balance
