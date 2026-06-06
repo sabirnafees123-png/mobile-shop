@@ -7,7 +7,7 @@ const checkRegisterLock = async (req, res, next) => {
     const date = req.body.sale_date   || req.body.expense_date ||
                  req.body.purchase_date || req.body.transfer_date ||
                  req.body.entry_date  || req.body.received_date ||
-                 req.body.date        || new Date().toISOString().split('T')[0];
+                 req.body.payment_date || req.body.date        || new Date().toISOString().split('T')[0];
 
     // For routes with :id, look up the shop from the existing record
     let effectiveShopId = shop_id;
