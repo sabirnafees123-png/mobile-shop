@@ -23,7 +23,7 @@ router.get('/detail', async (req, res) => {
           SELECT purchase_number as reference, amount_paid as amount
           FROM purchases
           WHERE shop_id=$1 AND purchase_date=$2 AND amount_paid > 0
-            AND id NOT IN (SELECT reference_id FROM supplier_ledger WHERE transaction_type='payment' AND transaction_date=$2 AND shop_id=$1 AND reference_id IS NOT NULL)
+            AND id NOT IN (SELECT reference_id FROM supplier_ledger WHERE transaction_type='payment' AND transaction_date=$2 AND shop_id=$1 AND reference_id IS NOT NULL AND amount < 0)
         ) combined ORDER BY amount DESC`, [shop_id, date]),
       query(`SELECT entry_type, amount, category, description FROM cash_manual_entries WHERE shop_id=$1 AND entry_date=$2 ORDER BY entry_type, amount DESC`, [shop_id, date]),
       query(`SELECT opening_balance FROM cash_register WHERE shop_id=$1 AND register_date=$2 LIMIT 1`, [shop_id, date]),
@@ -223,7 +223,7 @@ router.get('/history', async (req, res) => {
           UNION ALL
           SELECT purchase_date::text as d, COALESCE(SUM(amount_paid),0) as total
           FROM purchases WHERE shop_id=$3 AND purchase_date BETWEEN $1 AND $2 AND amount_paid > 0
-            AND id NOT IN (SELECT reference_id FROM supplier_ledger WHERE transaction_type='payment' AND shop_id=$3 AND reference_id IS NOT NULL)
+            AND id NOT IN (SELECT reference_id FROM supplier_ledger WHERE transaction_type='payment' AND shop_id=$3 AND reference_id IS NOT NULL AND amount < 0)
           GROUP BY purchase_date
         ) combined GROUP BY d`,
         [calcFrom, toDate, shop_id]),
