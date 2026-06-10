@@ -174,16 +174,27 @@ exports.createPurchase = async (req, res) => {
          item.recommended_selling_price || 0, item.unit_cost || 0]
       )))
     ]);
-    newProductResults.forEach(r => {
+    newProductResults.forEach((r, idx) => {
       const row = r.rows[0];
+      const item = toCreate[idx];
       if (row.serial_number) existingBySerial[row.serial_number] = row.id;
+      // Also track by product_name for items without serial
+      if (!item.serial_number && item.product_name) existingBySerial[`__name__${item.product_name}`] = row.id;
     });
 
     // Build resolvedItems
     const resolvedItems = items.map(item => ({
       ...item,
-      finalProductId: item.product_id || (item.serial_number && existingBySerial[item.serial_number]) || null,
+      finalProductId: item.product_id
+        || (item.serial_number && existingBySerial[item.serial_number])
+        || (!item.serial_number && item.product_name && existingBySerial[`__name__${item.product_name}`])
+        || null,
     }));
+
+    // Safety check — ensure all items have a product_id
+    const missingProduct = resolvedItems.find(i => !i.finalProductId);
+    if (missingProduct) throw new Error(`Could not resolve product for item: ${missingProduct.product_name || missingProduct.serial_number || 'unknown'}`);
+
 
     // ── Batch INSERT purchase_items ───────────────────────────────────
     const piValues = resolvedItems.map((_, i) => {
