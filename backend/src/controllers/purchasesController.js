@@ -1,13 +1,21 @@
 // src/controllers/purchasesController.js
 const { query, getClient } = require('../config/database');
 
-async function generatePurchaseNumber() {
+async function generatePurchaseNumber(client) {
   const year = new Date().getFullYear();
-  const result = await query(
-    `SELECT COUNT(*) as count FROM purchases WHERE EXTRACT(YEAR FROM purchase_date) = $1`, [year]
+  const result = await client.query(
+    `SELECT purchase_number FROM purchases
+     WHERE purchase_number LIKE $1
+     ORDER BY purchase_number DESC LIMIT 1
+     FOR UPDATE SKIP LOCKED`,
+    [`PUR-${year}-%`]
   );
-  const count = parseInt(result.rows[0].count) + 1;
-  return `PUR-${year}-${String(count).padStart(3, '0')}`;
+  let next = 1;
+  if (result.rows.length) {
+    const last = result.rows[0].purchase_number;
+    next = parseInt(last.split('-')[2]) + 1;
+  }
+  return `PUR-${year}-${String(next).padStart(3, '0')}`;
 }
 
 // GET /api/v1/purchases
@@ -115,7 +123,7 @@ exports.createPurchase = async (req, res) => {
     if (items.some(i => !i.unit_cost)) throw new Error('Each item needs a cost price');
 
     const totalAmount    = items.reduce((sum, item) => sum + ((item.qty || 1) * item.unit_cost), 0);
-    const purchaseNumber = await generatePurchaseNumber();
+    const purchaseNumber = await generatePurchaseNumber(client);
 
     // Create purchase header
     const purchase = await client.query(
@@ -139,32 +147,43 @@ exports.createPurchase = async (req, res) => {
       found.rows.forEach(r => { existingBySerial[r.serial_number] = r.id; });
     }
 
-    // ── Resolve product IDs — create new products individually ────────
-    const resolvedItems = [];
-    for (const item of items) {
-      let finalProductId = item.product_id || null;
-
-      if (!finalProductId && item.serial_number && existingBySerial[item.serial_number]) {
-        finalProductId = existingBySerial[item.serial_number];
-        if (item.recommended_selling_price && parseFloat(item.recommended_selling_price) > 0) {
-          await client.query(
-            `UPDATE products SET selling_price=$1, serial_number=COALESCE($2,serial_number) WHERE id=$3`,
-            [item.recommended_selling_price, item.serial_number || null, finalProductId]
-          );
-        }
-      } else if (!finalProductId) {
-        const newProduct = await client.query(
-          `INSERT INTO products (name, brand, color, serial_number, type, category, selling_price, base_cost, is_active)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true) RETURNING id`,
-          [item.product_name || item.serial_number || 'Unknown Product',
-           item.brand || null, item.color || null, item.serial_number || null,
-           item.product_type || 'Used', 'Mobile Phone',
-           item.recommended_selling_price || 0, item.unit_cost || 0]
-        );
-        finalProductId = newProduct.rows[0].id;
+    // ── Separate: existing (update price) vs new (insert product) ─────
+    const toUpdate = [];
+    const toCreate = [];
+    items.forEach(item => {
+      if (!item.product_id && item.serial_number && existingBySerial[item.serial_number]) {
+        if (item.recommended_selling_price && parseFloat(item.recommended_selling_price) > 0)
+          toUpdate.push({ id: existingBySerial[item.serial_number], price: item.recommended_selling_price, serial: item.serial_number });
+      } else if (!item.product_id) {
+        toCreate.push(item);
       }
-      resolvedItems.push({ ...item, finalProductId });
-    }
+    });
+
+    // Run price updates and new product inserts in parallel
+    const [, newProductResults] = await Promise.all([
+      Promise.all(toUpdate.map(u => client.query(
+        `UPDATE products SET selling_price=$1, serial_number=COALESCE($2,serial_number) WHERE id=$3`,
+        [u.price, u.serial || null, u.id]
+      ))),
+      Promise.all(toCreate.map(item => client.query(
+        `INSERT INTO products (name, brand, color, serial_number, type, category, selling_price, base_cost, is_active)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true) RETURNING id, serial_number`,
+        [item.product_name || item.serial_number || 'Unknown Product',
+         item.brand || null, item.color || null, item.serial_number || null,
+         item.product_type || 'Used', 'Mobile Phone',
+         item.recommended_selling_price || 0, item.unit_cost || 0]
+      )))
+    ]);
+    newProductResults.forEach(r => {
+      const row = r.rows[0];
+      if (row.serial_number) existingBySerial[row.serial_number] = row.id;
+    });
+
+    // Build resolvedItems
+    const resolvedItems = items.map(item => ({
+      ...item,
+      finalProductId: item.product_id || (item.serial_number && existingBySerial[item.serial_number]) || null,
+    }));
 
     // ── Batch INSERT purchase_items ───────────────────────────────────
     const piValues = resolvedItems.map((_, i) => {
