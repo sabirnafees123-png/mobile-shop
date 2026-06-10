@@ -239,6 +239,15 @@ export default function Sales() {
   const [totalCount, setTotalCount] = useState(0);
   const LIMIT = 50;
 
+  // Load products and shops once on mount
+  useEffect(() => {
+    Promise.all([api.get('/products?limit=500'), api.get('/shops')])
+      .then(([p, sh]) => {
+        setProducts(p.data?.data || []);
+        setShops(sh.data?.data || []);
+      })
+      .catch(() => {});
+  }, []);
 
   const load = (sid, status, payment, from, to, pg = 1) => {
     setLoading(true);
@@ -249,15 +258,13 @@ export default function Sales() {
     if (from)    params.append('from', from);
     if (to)      params.append('to', to);
     params.append('page', pg);
-params.append('limit', LIMIT);
-const qs = `?${params.toString()}`;
-    Promise.all([api.get(`/sales${qs}`), api.get('/products'), api.get('/shops')])
-      .then(([s, p, sh]) => {
+    params.append('limit', LIMIT);
+    const qs = `?${params.toString()}`;
+    api.get(`/sales${qs}`)
+      .then(s => {
         setSales(s.data?.data || []);
-	setTotalPages(s.data?.pagination?.total_pages || 1);
-	setTotalCount(s.data?.pagination?.total || 0);
-        setProducts(p.data?.data || []);
-        setShops(sh.data?.data || []);
+        setTotalPages(s.data?.pagination?.total_pages || 1);
+        setTotalCount(s.data?.pagination?.total || 0);
       })
       .catch(() => toast.error('Failed to load'))
       .finally(() => setLoading(false));

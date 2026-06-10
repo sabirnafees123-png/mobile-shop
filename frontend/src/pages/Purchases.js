@@ -142,21 +142,25 @@ export default function Purchases() {
 
   const [supplierForm, setSupplierForm] = useState({ name: '', phone: '', email: '', address: '', city: '', notes: '' });
 
+  // Load suppliers and shops once on mount
+  useEffect(() => {
+    Promise.all([api.get('/suppliers'), api.get('/shops')])
+      .then(([s, sh]) => {
+        setSuppliers(Array.isArray(s.data) ? s.data : s.data?.data || []);
+        setShops(sh.data?.data || []);
+      })
+      .catch(console.error);
+  }, []);
+
   const load = (sid, currentPage) => {
     setLoading(true);
     const params = new URLSearchParams({ page: currentPage, limit: LIMIT });
     if (sid) params.set('shop_id', sid);
-    Promise.all([
-      api.get(`/purchases?${params.toString()}`),
-      api.get('/suppliers'),
-      api.get('/shops'),
-    ])
-      .then(([p, s, sh]) => {
+    api.get(`/purchases?${params.toString()}`)
+      .then(p => {
         setPurchases(p.data?.data || []);
         setTotalPages(p.data?.pagination?.total_pages || 1);
         setTotalCount(p.data?.pagination?.total || 0);
-        setSuppliers(Array.isArray(s.data) ? s.data : s.data?.data || []);
-        setShops(sh.data?.data || []);
       })
       .catch(console.error)
       .finally(() => setLoading(false));
