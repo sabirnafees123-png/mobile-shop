@@ -204,7 +204,7 @@ router.get('/history', async (req, res) => {
     const [salesData, expensesData, purchasesData, manualData] = await Promise.all([
       query(`
         SELECT sale_date::text as d,
-          COALESCE(SUM(CASE WHEN payment_method='cash' THEN amount_paid ELSE 0 END),0) as cash_sales,
+          COALESCE(SUM(CASE WHEN payment_method='cash' AND payment_status!='returned' THEN amount_paid ELSE 0 END),0) as cash_sales,
           COALESCE(SUM(CASE WHEN payment_status='returned' AND payment_method='cash' THEN amount_paid ELSE 0 END),0) as cash_returns,
           COALESCE(SUM(CASE WHEN payment_status!='returned' THEN total_amount - COALESCE(exchange_trade_in_value,0) ELSE 0 END),0) as gross_sales,
           COALESCE(SUM(CASE WHEN payment_status!='returned' THEN COALESCE(exchange_trade_in_value,0) ELSE 0 END),0) as trade_in
@@ -477,7 +477,7 @@ router.post('/transfer', async (req, res) => {
           query(`SELECT * FROM cash_register WHERE register_date=$1 AND shop_id=$2 LIMIT 1`, [d, sid]),
           query(`SELECT COALESCE(SUM(CASE WHEN payment_method='cash' THEN amount_paid ELSE 0 END),0) as cash_sales FROM sales_invoices WHERE sale_date=$1 AND payment_status!='returned' AND shop_id=$2`, [d, sid]),
           query(`SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE expense_date=$1 AND shop_id=$2 AND payment_method='cash'`, [d, sid]),
-          query(`SELECT COALESCE(SUM(ABS(amount)),0) as total FROM supplier_ledger WHERE transaction_type='payment' AND transaction_date=$1 AND amount<0`, [d]),
+          query(`SELECT COALESCE(SUM(ABS(amount)),0) as total FROM supplier_ledger WHERE transaction_type='payment' AND transaction_date=$1 AND amount<0 AND shop_id=$2`, [d, sid]),
           query(`SELECT entry_type, COALESCE(SUM(amount),0) as total FROM cash_manual_entries WHERE entry_date=$1 AND shop_id=$2 GROUP BY entry_type`, [d, sid]).catch(() => ({ rows: [] })),
         ]);
         if (!reg.rows.length) continue;
