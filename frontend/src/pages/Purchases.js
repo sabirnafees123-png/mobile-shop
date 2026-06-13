@@ -109,6 +109,7 @@ export default function Purchases() {
   const [filterShop, setFilterShop]           = useState('');
   const [expandedRows, setExpandedRows]       = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const [paying, setPaying]         = useState(false);
 
 
   // ── Pagination state ──────────────────────────────────────────────────────
@@ -292,6 +293,8 @@ export default function Purchases() {
 
   const handleSupplierPayment = async () => {
     if (!supPayForm.amount || parseFloat(supPayForm.amount) <= 0) return toast.error('Enter valid amount');
+    if (paying) return;
+    setPaying(true);
     try {
       await api.post(`/purchases/${showSupPay.id}/pay`, { 
         amount: parseFloat(supPayForm.amount),
@@ -304,6 +307,7 @@ export default function Purchases() {
       setSupPayForm({ amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'cash', note: '' });
       load(filterShop, page);
     } catch (err) { if(err.response?.status===423) toast.error("🔒 "+(err.response?.data?.message||"Register locked")); else toast.error(err.response?.data?.message||"Failed"); }
+    finally { setPaying(false); }
   };
 
   const payStatus = (s) => ({ paid: 'badge-green', partial: 'badge-yellow', unpaid: 'badge-red' }[s] || 'badge-gray');
@@ -741,7 +745,9 @@ export default function Purchases() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setShowSupPay(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleSupplierPayment}>Record Payment</button>
+              <button className="btn btn-primary" onClick={handleSupplierPayment} disabled={paying}>
+                {paying ? 'Recording...' : 'Record Payment'}
+              </button>
             </div>
           </div>
         </div>
