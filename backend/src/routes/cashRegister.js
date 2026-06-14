@@ -221,7 +221,12 @@ router.get('/history', async (req, res) => {
           UNION ALL
           SELECT purchase_date::text as d, COALESCE(SUM(amount_paid),0) as total
           FROM purchases WHERE shop_id=$3 AND purchase_date BETWEEN $1 AND $2 AND amount_paid > 0
-            AND id NOT IN (SELECT reference_id FROM supplier_ledger WHERE transaction_type='payment' AND shop_id=$3 AND reference_id IS NOT NULL AND amount < 0)
+            AND id NOT IN (
+              SELECT sl.reference_id FROM supplier_ledger sl
+              WHERE sl.transaction_type='payment' AND sl.shop_id=$3 
+              AND sl.reference_id IS NOT NULL AND sl.amount < 0
+              AND sl.transaction_date = purchases.purchase_date
+            )
           GROUP BY purchase_date
         ) combined GROUP BY d`,
         [calcFrom, toDate, shop_id]),
