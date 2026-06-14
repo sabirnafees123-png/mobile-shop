@@ -417,13 +417,14 @@ exports.markPaymentReceived = async (req, res) => {
     );
 
     if (amountNow > 0) {
+      // Always record received cash in register — regardless of original payment method
+      // (e.g. bank_transfer invoice where customer pays remaining in cash)
       const regUpdate = await client.query(
         `UPDATE cash_register
          SET total_sales_cash = total_sales_cash + $1
          WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
         [amountNow, recDate, invoice.shop_id]
       );
-      // If register is closed or missing for that date, record as manual cash entry
       if (regUpdate.rowCount === 0) {
         await client.query(
           `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
@@ -522,6 +523,47 @@ exports.returnSale = async (req, res) => {
        WHERE id = $3`,
       [note || 'Customer return', returnAmt, invoiceId]
     );
+
+    // Record cash impact in register
+    if (invoice.payment_method === 'cash') {
+      const today = new Date().toISOString().split('T')[0];
+      const saleDate = invoice.sale_date instanceof Date
+        ? invoice.sale_date.toISOString().split('T')[0]
+        : String(invoice.sale_date).split('T')[0];
+
+      // 1. Remove original sale from sale date register
+      const salePaid = parseFloat(invoice.amount_paid || 0);
+      if (salePaid > 0) {
+        const saleRegUpdate = await client.query(
+          `UPDATE cash_register SET total_sales_cash = total_sales_cash - $1
+           WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
+          [salePaid, saleDate, invoice.shop_id]
+        );
+        if (saleRegUpdate.rowCount === 0) {
+          await client.query(
+            `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
+             VALUES ($1, $2, 'out', $3, 'Cash', $4)`,
+            [invoice.shop_id, today, salePaid, `Sale reversed — ${invoice.invoice_number} returned`]
+          );
+        }
+      }
+
+      // 2. Record cash refund to customer on today
+      if (returnAmt > 0) {
+        const refundRegUpdate = await client.query(
+          `UPDATE cash_register SET total_sales_cash = total_sales_cash - $1
+           WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
+          [returnAmt, today, invoice.shop_id]
+        );
+        if (refundRegUpdate.rowCount === 0) {
+          await client.query(
+            `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
+             VALUES ($1, $2, 'out', $3, 'Cash', $4)`,
+            [invoice.shop_id, today, returnAmt, `Cash refund — ${invoice.invoice_number} return`]
+          );
+        }
+      }
+    }
 
     await client.query('COMMIT');
     res.json({ success: true, message: 'Return processed successfully' });
