@@ -22,7 +22,7 @@ async function generateInvoiceNumber(client) {
 // GET /api/v1/sales
 exports.getAllSales = async (req, res) => {
   try {
-    const { from, to, payment_status, shop_id } = req.query;
+    const { from, to, payment_status, payment_method, shop_id, search } = req.query;
 
     const page   = Math.max(1, parseInt(req.query.page)  || 1);
     const limit  = Math.max(1, parseInt(req.query.limit) || 50);
@@ -31,10 +31,12 @@ exports.getAllSales = async (req, res) => {
     let where = `WHERE 1=1`;
     const params = [];
     let idx = 1;
-    if (from)           { where += ` AND si.sale_date >= $${idx++}`;     params.push(from); }
-    if (to)             { where += ` AND si.sale_date <= $${idx++}`;     params.push(to); }
-    if (payment_status) { where += ` AND si.payment_status = $${idx++}`; params.push(payment_status); }
-    if (shop_id)        { where += ` AND si.shop_id = $${idx++}`;        params.push(parseInt(shop_id)); }
+    if (from)            { where += ` AND si.sale_date >= $${idx++}`;              params.push(from); }
+    if (to)              { where += ` AND si.sale_date <= $${idx++}`;              params.push(to); }
+    if (payment_status)  { where += ` AND si.payment_status = $${idx++}`;          params.push(payment_status); }
+    if (payment_method)  { where += ` AND si.payment_method = $${idx++}`;          params.push(payment_method); }
+    if (shop_id)         { where += ` AND si.shop_id = $${idx++}`;                 params.push(parseInt(shop_id)); }
+    if (search)          { where += ` AND (si.invoice_number ILIKE $${idx} OR c.name ILIKE $${idx} OR c.phone ILIKE $${idx++})`; params.push(`%${search}%`); }
 
     const countSql = `
       SELECT COUNT(*) AS total

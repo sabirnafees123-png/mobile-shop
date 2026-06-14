@@ -104,9 +104,11 @@ export default function Purchases() {
   const [showAddSupplier, setShowAddSupplier] = useState(false);
   const [viewPurchase, setViewPurchase]       = useState(null);
   const [viewLoading, setViewLoading]         = useState(false);
-  const [showSupPay, setShowSupPay]           = useState(null); // supplier payment modal
+  const [showSupPay, setShowSupPay]           = useState(null);
   const [supPayForm, setSupPayForm]           = useState({ amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'cash', note: '' });
   const [filterShop, setFilterShop]           = useState('');
+  const [filterStatus, setFilterStatus]       = useState('');
+  const [search, setSearch]                   = useState('');
   const [expandedRows, setExpandedRows]       = useState({});
   const [submitting, setSubmitting] = useState(false);
   const [paying, setPaying]         = useState(false);
@@ -156,7 +158,9 @@ export default function Purchases() {
   const load = (sid, currentPage) => {
     setLoading(true);
     const params = new URLSearchParams({ page: currentPage, limit: LIMIT });
-    if (sid) params.set('shop_id', sid);
+    if (sid)          params.set('shop_id', sid);
+    if (filterStatus) params.set('payment_status', filterStatus);
+    if (search)       params.set('search', search);
     api.get(`/purchases?${params.toString()}`)
       .then(p => {
         setPurchases(p.data?.data || []);
@@ -167,12 +171,9 @@ export default function Purchases() {
       .finally(() => setLoading(false));
   };
 
-  // Reset to page 1 when shop filter changes
-  useEffect(() => {
-    setPage(1);
-  }, [filterShop]);
-
-  useEffect(() => { load(filterShop, page); }, [filterShop, page]);
+  // Reset to page 1 when filters change
+  useEffect(() => { setPage(1); }, [filterShop, filterStatus, search]);
+  useEffect(() => { load(filterShop, page); }, [filterShop, filterStatus, search, page]);
 
   const toggleRow = (id) => setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
 
@@ -321,11 +322,20 @@ export default function Purchases() {
           <div className="page-title">📦 Purchases</div>
           <div className="page-subtitle">Showing {purchases.length} of {totalCount} purchases</div>
         </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <input className="form-control" style={{ width: '180px' }} placeholder="Search purchase #, supplier..."
+            value={search} onChange={e => setSearch(e.target.value)} />
           <select className="form-control" style={{ width: 'auto' }} value={filterShop} onChange={e => setFilterShop(e.target.value)}>
             <option value="">All Shops</option>
             {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
+          <select className="form-control" style={{ width: 'auto' }} value={filterStatus} onChange={e => setFilterStatus(e.target.value)}>
+            <option value="">All Status</option>
+            <option value="paid">Paid</option>
+            <option value="partial">Partial</option>
+            <option value="unpaid">Unpaid</option>
+          </select>
+          <button className="btn btn-ghost btn-sm" onClick={() => { setSearch(''); setFilterShop(''); setFilterStatus(''); }}>✕ Clear</button>
           <button className="btn btn-primary" onClick={openAdd}>+ New Purchase</button>
         </div>
       </div>

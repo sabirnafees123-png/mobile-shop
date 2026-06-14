@@ -249,7 +249,7 @@ export default function Sales() {
       .catch(() => {});
   }, []);
 
-  const load = (sid, status, payment, from, to, pg = 1) => {
+  const load = (sid, status, payment, from, to, pg = 1, q = search) => {
     setLoading(true);
     const params = new URLSearchParams();
     if (sid)     params.append('shop_id', sid);
@@ -257,6 +257,7 @@ export default function Sales() {
     if (payment) params.append('payment_method', payment);
     if (from)    params.append('from', from);
     if (to)      params.append('to', to);
+    if (q)       params.append('search', q);
     params.append('page', pg);
     params.append('limit', LIMIT);
     const qs = `?${params.toString()}`;
@@ -271,9 +272,9 @@ export default function Sales() {
   };
 
   useEffect(() => {
-  setPage(1);
-  load(filterShop, filterStatus, filterPayment, filterFrom, filterTo, 1);
-}, [filterShop, filterStatus, filterPayment, filterFrom, filterTo]);
+    setPage(1);
+    load(filterShop, filterStatus, filterPayment, filterFrom, filterTo, 1, search);
+  }, [filterShop, filterStatus, filterPayment, filterFrom, filterTo, search]);
 
 useEffect(() => {
   if (page === 1) return; // already handled by filter effect on reset
@@ -329,7 +330,15 @@ const searchByName = async (idx, val) => {
     setNameResults(prev => ({ ...prev, [idx]: [] }));
   };
 
-  const addItem    = () => setForm(f => ({ ...f, items: [...f.items, { product_id:'', product_name:'', serial_number:'', qty:1, unit_price:'', recommended_price:'', unit_cost:'' }] }));
+  const addItem = () => {
+    const newItem = { product_id:'', product_name:'', serial_number:'', qty:1, unit_price:'', recommended_price:'', unit_cost:'' };
+    if (form.is_exchange && form.items.length === 0) {
+      // Exchange: add 2 lines — sale item + exchange item
+      setForm(f => ({ ...f, items: [{ ...newItem }, { ...newItem }] }));
+    } else {
+      setForm(f => ({ ...f, items: [...f.items, { ...newItem }] }));
+    }
+  };
   const removeItem = i  => setForm(f => ({ ...f, items: f.items.filter((_,idx) => idx !== i) }));
 
   const updateItem = (i, key, val) => {

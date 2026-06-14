@@ -21,7 +21,7 @@ async function generatePurchaseNumber(client) {
 // GET /api/v1/purchases
 exports.getAllPurchases = async (req, res) => {
   try {
-    const { shop_id } = req.query;
+    const { shop_id, search, payment_status, from, to } = req.query;
 
     // --- pagination params ---
     const page   = Math.max(1, parseInt(req.query.page)  || 1);
@@ -32,10 +32,11 @@ exports.getAllPurchases = async (req, res) => {
     let where = `WHERE 1=1`;
     const params = [];
     let idx = 1;
-    if (shop_id) {
-      where += ` AND p.id IN (SELECT purchase_id FROM purchase_items WHERE shop_id = $${idx++})`;
-      params.push(parseInt(shop_id));
-    }
+    if (shop_id)        { where += ` AND p.shop_id = $${idx++}`;                                                    params.push(parseInt(shop_id)); }
+    if (payment_status) { where += ` AND p.payment_status = $${idx++}`;                                             params.push(payment_status); }
+    if (from)           { where += ` AND p.purchase_date >= $${idx++}`;                                             params.push(from); }
+    if (to)             { where += ` AND p.purchase_date <= $${idx++}`;                                             params.push(to); }
+    if (search)         { where += ` AND (p.purchase_number ILIKE $${idx} OR s.name ILIKE $${idx++})`;              params.push(`%${search}%`); }
 
     // --- COUNT query ---
     // Subquery needed because inner query uses GROUP BY
