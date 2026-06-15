@@ -233,6 +233,8 @@ export default function Sales() {
 
   // Payment
   const [payAmount, setPayAmount] = useState('');
+  const [payDate, setPayDate]     = useState('');
+  const [payMethod, setPayMethod] = useState('cash');
   const [submitting, setSubmitting] = useState(false);
   const [page, setPage]             = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -429,20 +431,24 @@ const searchByName = async (idx, val) => {
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
   };
 
-  const markReceived = async (invoiceId) => {
-    try {
-      await api.post(`/sales/${invoiceId}/mark-received`, {});
-      toast.success('Payment marked as received!');
-      reloadAll();
-    } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
+  const markReceived = async (sale) => {
+    // For payment_pending (Tabby/Tamara/Card), open the payment modal with date picker
+    setShowPayment(sale);
+    setPayAmount(Math.round(sale.amount_due || 0).toString());
+    setPayDate(new Date().toISOString().split('T')[0]);
+    setPayMethod('cash');
   };
 
   const handleAdjustPayment = async () => {
     if (!payAmount || parseFloat(payAmount) <= 0) return toast.error('Enter valid amount');
     try {
-      await api.post(`/sales/${showPayment.id}/mark-received`, { partial_amount: parseFloat(payAmount) });
+      await api.post(`/sales/${showPayment.id}/mark-received`, {
+        partial_amount: parseFloat(payAmount),
+        received_date: payDate || new Date().toISOString().split('T')[0],
+        received_method: payMethod,
+      });
       toast.success('Payment updated!');
-      setShowPayment(null); setPayAmount('');
+      setShowPayment(null); setPayAmount(''); setPayDate(''); setPayMethod('cash');
       reloadAll();
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
   };
@@ -587,11 +593,11 @@ const searchByName = async (idx, val) => {
                           <button className="btn btn-ghost btn-sm" onClick={() => printInvoice(s)}>🖨️</button>
                           {s.payment_status==='payment_pending' && (
                             <button className="btn btn-sm" style={{background:'#d1fae5',color:'#065f46',border:'none',cursor:'pointer',fontSize:'.75rem',padding:'3px 8px',borderRadius:'6px'}}
-                              onClick={() => markReceived(s.id)}>✓ Received</button>
+                              onClick={() => markReceived(s)}>✓ Received</button>
                           )}
                           {(s.payment_status==='partial'||s.payment_status==='unpaid'||s.payment_status==='payment_pending') && (
   <button className="btn btn-sm" style={{background:'#fef3c7',color:'#92400e',border:'none',cursor:'pointer',fontSize:'.75rem',padding:'3px 8px',borderRadius:'6px'}}
-    onClick={() => { setShowPayment(s); setPayAmount(''); }}>💰 Pay</button>
+    onClick={() => { setShowPayment(s); setPayAmount(''); setPayDate(new Date().toISOString().split('T')[0]); setPayMethod('cash'); }}>💰 Pay</button>
 )}
                         </div>
                       </td>
@@ -927,12 +933,13 @@ const searchByName = async (idx, val) => {
       {/* ── Adjust Payment Modal ── */}
       {showPayment && (
         <div className="modal-overlay" onClick={() => setShowPayment(null)}>
-          <div className="modal" style={{maxWidth:'420px'}} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{maxWidth:'440px'}} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <strong>💰 Record Payment — {showPayment.invoice_number}</strong>
               <button className="modal-close" onClick={() => setShowPayment(null)}>✕</button>
             </div>
             <div className="modal-body">
+              {/* Invoice summary */}
               <div style={{padding:'12px',background:'var(--bg-secondary)',borderRadius:'8px',marginBottom:'16px',fontSize:'.9rem'}}>
                 <div style={{display:'flex',justifyContent:'space-between',marginBottom:'4px'}}>
                   <span>Invoice Total:</span><strong>{fmt(showPayment.total_amount)}</strong>
@@ -944,11 +951,48 @@ const searchByName = async (idx, val) => {
                   <span>Outstanding:</span><strong style={{color:'#dc2626'}}>{fmt(showPayment.amount_due)}</strong>
                 </div>
               </div>
+
+              {/* Original payment method badge */}
+              {showPayment.payment_method && showPayment.payment_method !== 'cash' && (
+                <div style={{padding:'8px 12px',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:'8px',marginBottom:'12px',fontSize:'.83rem',color:'#1e40af'}}>
+                  ℹ️ Original sale was <strong>{showPayment.payment_method.toUpperCase()}</strong> — select how customer is paying now
+                </div>
+              )}
+
+              {/* Payment Date */}
+              <div className="form-group" style={{marginBottom:'12px'}}>
+                <label className="form-label">📅 Date Received</label>
+                <input type="date" className="form-control" value={payDate}
+                  onChange={e => setPayDate(e.target.value)}
+                  max={new Date().toISOString().split('T')[0]} />
+              </div>
+
+              {/* Payment Method */}
+              <div className="form-group" style={{marginBottom:'12px'}}>
+                <label className="form-label">💳 Received Via</label>
+                <select className="form-control" value={payMethod} onChange={e => setPayMethod(e.target.value)}>
+                  <option value="cash">Cash</option>
+                  <option value="card">Card</option>
+                  <option value="bank_transfer">Bank Transfer</option>
+                  <option value="tabby">Tabby</option>
+                  <option value="tamara">Tamara</option>
+                </select>
+              </div>
+
+              {/* Amount */}
               <div className="form-group">
                 <label className="form-label">Amount Received Now (AED)</label>
                 <input type="number" className="form-control" value={payAmount}
                   onChange={e => setPayAmount(e.target.value)}
                   placeholder={Math.round(showPayment.amount_due||0).toString()} />
+                {payAmount && parseFloat(payAmount) > 0 && parseFloat(payAmount) < parseFloat(showPayment.amount_due||0) && (
+                  <div style={{marginTop:'4px',fontSize:'.82rem',color:'#d97706'}}>
+                    ⚠️ Partial — AED {Math.round(parseFloat(showPayment.amount_due) - parseFloat(payAmount)).toLocaleString()} still remaining
+                  </div>
+                )}
+                {payAmount && parseFloat(payAmount) >= parseFloat(showPayment.amount_due||0) && parseFloat(showPayment.amount_due||0) > 0 && (
+                  <div style={{marginTop:'4px',fontSize:'.82rem',color:'#059669'}}>✅ Full payment — invoice will be marked as Paid</div>
+                )}
               </div>
             </div>
             <div className="modal-footer">
@@ -1014,11 +1058,14 @@ const searchByName = async (idx, val) => {
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setViewSale(null)}>Close</button>
-              {viewSale.payment_status==='payment_pending' && (
-                <button className="btn btn-ghost" style={{color:'#059669'}} onClick={() => {markReceived(viewSale.id);setViewSale(null);}}>✓ Mark Received</button>
-              )}
-              {(viewSale.payment_status==='partial'||viewSale.payment_status==='unpaid') && (
-                <button className="btn btn-ghost" style={{color:'#d97706'}} onClick={() => {setShowPayment(viewSale);setViewSale(null);}}>💰 Record Payment</button>
+              {(viewSale.payment_status==='partial'||viewSale.payment_status==='unpaid'||viewSale.payment_status==='payment_pending') && (
+                <button className="btn btn-ghost" style={{color:'#d97706'}} onClick={() => {
+                  setShowPayment(viewSale);
+                  setPayAmount(Math.round(viewSale.amount_due||0).toString());
+                  setPayDate(new Date().toISOString().split('T')[0]);
+                  setPayMethod('cash');
+                  setViewSale(null);
+                }}>💰 Record Payment</button>
               )}
               <button className="btn btn-primary" onClick={() => printInvoice(viewSale)}>🖨️ Print</button>
             </div>

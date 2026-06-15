@@ -381,7 +381,7 @@ exports.markPaymentReceived = async (req, res) => {
   try {
     await client.query('BEGIN');
     const invoiceId = req.params.id;
-    const { received_date, partial_amount } = req.body;
+    const { received_date, partial_amount, received_method } = req.body;
 
     const inv = await client.query('SELECT * FROM sales_invoices WHERE id = $1', [invoiceId]);
     if (!inv.rows.length) throw new Error('Invoice not found');
@@ -394,6 +394,9 @@ exports.markPaymentReceived = async (req, res) => {
     const amountNow = partial_amount
       ? parseFloat(partial_amount)
       : parseFloat(invoice.amount_due);
+
+    // How customer is paying NOW (cash/card/tabby/tamara/bank_transfer)
+    const method = received_method || 'cash';
 
     const newAmountPaid = parseFloat(invoice.amount_paid) + amountNow;
     const newAmountDue  = parseFloat(invoice.total_amount) - newAmountPaid;
@@ -419,20 +422,33 @@ exports.markPaymentReceived = async (req, res) => {
     );
 
     if (amountNow > 0) {
-      // Always record received cash in register — regardless of original payment method
-      // (e.g. bank_transfer invoice where customer pays remaining in cash)
-      const regUpdate = await client.query(
-        `UPDATE cash_register
-         SET total_sales_cash = total_sales_cash + $1
-         WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
-        [amountNow, recDate, invoice.shop_id]
-      );
-      if (regUpdate.rowCount === 0) {
+      if (method === 'cash') {
+        // Cash payment — update cash register directly
+        const regUpdate = await client.query(
+          `UPDATE cash_register
+           SET total_sales_cash = total_sales_cash + $1
+           WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
+          [amountNow, recDate, invoice.shop_id]
+        );
+        if (regUpdate.rowCount === 0) {
+          // Register closed or not found — fallback to manual entry
+          await client.query(
+            `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
+             VALUES ($1, $2, 'in', $3, 'Cash', $4)`,
+            [invoice.shop_id, recDate, amountNow,
+             `Payment received (cash) — ${invoice.invoice_number} (register was closed)`]
+          );
+        }
+      } else {
+        // Non-cash (card/tabby/tamara/bank_transfer) — record as manual entry for tracking/reconciliation
+        // Does NOT go into cash_register as these are digital payments
+        const methodLabel = method.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
         await client.query(
           `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
-           VALUES ($1, $2, 'in', $3, 'Cash', $4)`,
+           VALUES ($1, $2, 'in', $3, $4, $5)`,
           [invoice.shop_id, recDate, amountNow,
-           `Payment received — ${invoice.invoice_number} (register was closed)`]
+           methodLabel,
+           `Payment received (${method}) — ${invoice.invoice_number}`]
         );
       }
     }
@@ -441,8 +457,8 @@ exports.markPaymentReceived = async (req, res) => {
     res.json({
       success: true,
       message: newStatus === 'paid'
-        ? 'Payment fully received — invoice marked as paid'
-        : `Partial payment of AED ${amountNow} recorded — AED ${Math.max(newAmountDue, 0)} still due`,
+        ? `Payment fully received via ${method} — invoice marked as paid`
+        : `Partial payment of AED ${amountNow} via ${method} recorded — AED ${Math.max(newAmountDue, 0)} still due`,
     });
   } catch (err) {
     await client.query('ROLLBACK');

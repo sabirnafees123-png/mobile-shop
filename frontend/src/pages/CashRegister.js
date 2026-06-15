@@ -409,35 +409,62 @@ export default function CashRegister() {
       )}
 
       {/* Open Register Modal */}
-      {showOpen && (
+      {showOpen && (() => {
+        const isReopen = registerDate !== today || history.some(h => h.register_date === registerDate && h.is_locked);
+        const histRow  = history.find(h => h.register_date === registerDate);
+        return (
         <div className="modal-overlay" onClick={() => setShowOpen(false)}>
-          <div className="modal" style={{maxWidth:'400px'}} onClick={e => e.stopPropagation()}>
-            <div className="modal-header"><strong>🔓 Open Register — {shopName}</strong><button className="modal-close" onClick={() => setShowOpen(false)}>✕</button></div>
+          <div className="modal" style={{maxWidth:'420px'}} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <strong>{isReopen ? `🔓 Reopen Register — ${registerDate}` : `🔓 Open Register — ${shopName}`}</strong>
+              <button className="modal-close" onClick={() => setShowOpen(false)}>✕</button>
+            </div>
             <div className="modal-body">
-              <div className="form-group">
-                <label className="form-label">Date</label>
-                <input type="date" className="form-control" value={registerDate} onChange={e => setRegisterDate(e.target.value)} />
-              </div>
-              <div style={{padding:'12px',background:'var(--bg-secondary)',borderRadius:'8px',marginBottom:'16px',fontSize:'.9rem'}}>
-                Yesterday's closing: <strong>{fmt(data?.yesterday_closing)}</strong>
-                <div style={{fontSize:'.8rem',color:'var(--text-muted)',marginTop:'4px'}}>Enter actual cash counted in drawer.</div>
-              </div>
+              {isReopen && histRow && (
+                <div style={{padding:'12px',background:'#fef3c7',border:'1px solid #fde68a',borderRadius:'8px',marginBottom:'16px',fontSize:'.88rem',color:'#92400e'}}>
+                  ⚠️ <strong>Reopening a locked day.</strong> This will set the register status back to <strong>Open</strong> and allow edits for <strong>{registerDate}</strong>.
+                  <div style={{marginTop:'6px',display:'flex',justifyContent:'space-between'}}>
+                    <span>Stored opening:</span><strong>{fmt(histRow.opening_balance)}</strong>
+                  </div>
+                  <div style={{display:'flex',justifyContent:'space-between'}}>
+                    <span>Stored closing:</span><strong>{fmt(histRow.closing_balance)}</strong>
+                  </div>
+                </div>
+              )}
+              {!isReopen && (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">Date</label>
+                    <input type="date" className="form-control" value={registerDate} onChange={e => setRegisterDate(e.target.value)} />
+                  </div>
+                  <div style={{padding:'12px',background:'var(--bg-secondary)',borderRadius:'8px',marginBottom:'16px',fontSize:'.9rem'}}>
+                    Yesterday's closing: <strong>{fmt(data?.yesterday_closing)}</strong>
+                    <div style={{fontSize:'.8rem',color:'var(--text-muted)',marginTop:'4px'}}>Enter actual cash counted in drawer.</div>
+                  </div>
+                </>
+              )}
               <div className="form-group" style={{marginBottom:'12px'}}>
-                <label className="form-label">Opening Balance (AED)</label>
-                <input type="number" className="form-control" value={openingBal} onChange={e => setOpeningBal(e.target.value)} placeholder={Math.round(data?.yesterday_closing || 0).toString()} />
+                <label className="form-label">{isReopen ? 'Corrected Opening Balance (AED)' : 'Opening Balance (AED)'}</label>
+                <input type="number" className="form-control" value={openingBal}
+                  onChange={e => setOpeningBal(e.target.value)}
+                  placeholder={isReopen && histRow ? Math.round(histRow.opening_balance).toString() : Math.round(data?.yesterday_closing || 0).toString()} />
               </div>
               <div className="form-group">
                 <label className="form-label">Notes</label>
-                <input className="form-control" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional" />
+                <input className="form-control" value={notes} onChange={e => setNotes(e.target.value)}
+                  placeholder={isReopen ? 'Reason for reopening...' : 'Optional'} />
               </div>
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setShowOpen(false)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleOpen} disabled={saving}>{saving?'Opening...':'Open Register'}</button>
+              <button className="btn btn-primary" onClick={handleOpen} disabled={saving}>
+                {saving ? 'Processing...' : isReopen ? '🔓 Reopen Register' : 'Open Register'}
+              </button>
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
 
       {/* Close Register Modal */}
       {showClose && (
