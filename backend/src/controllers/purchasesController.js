@@ -160,21 +160,38 @@ exports.createPurchase = async (req, res) => {
       }
     });
 
-    // Run price updates and new product inserts in parallel
-    const [, newProductResults] = await Promise.all([
-      Promise.all(toUpdate.map(u => client.query(
-        `UPDATE products SET selling_price=$1, serial_number=COALESCE($2,serial_number) WHERE id=$3`,
-        [u.price, u.serial || null, u.id]
-      ))),
-      Promise.all(toCreate.map(item => client.query(
-        `INSERT INTO products (name, brand, color, serial_number, type, category, selling_price, base_cost, is_active)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,true) RETURNING id, serial_number`,
-        [item.product_name || item.serial_number || 'Unknown Product',
-         item.brand || null, item.color || null, item.serial_number || null,
-         item.product_type || 'Used', 'Mobile Phone',
-         item.recommended_selling_price || 0, item.unit_cost || 0]
-      )))
-    ]);
+    // ── Batch UPDATE existing products (single query with CASE WHEN) ───
+    if (toUpdate.length) {
+      const ids    = toUpdate.map(u => u.id);
+      const prices = toUpdate.map(u => u.price);
+      // Build: UPDATE products SET selling_price = CASE id WHEN x THEN y ... END WHERE id = ANY(...)
+      const caseWhen = toUpdate.map((u, i) => `WHEN $${i*2+1}::uuid THEN $${i*2+2}::numeric`).join(' ');
+      const params   = toUpdate.flatMap(u => [u.id, u.price]);
+      params.push(ids);
+      await client.query(
+        `UPDATE products SET selling_price = CASE id ${caseWhen} END
+         WHERE id = ANY($${params.length})`,
+        params
+      );
+    }
+
+    // ── Batch INSERT new products (single multi-row INSERT) ──────────
+    let newProductResults = [];
+    if (toCreate.length) {
+      const vals   = toCreate.map((_, i) => { const b=i*8; return `($${b+1},$${b+2},$${b+3},$${b+4},$${b+5},$${b+6},$${b+7},$${b+8},true)`; }).join(',');
+      const params = toCreate.flatMap(item => [
+        item.product_name || item.serial_number || 'Unknown Product',
+        item.brand || null, item.color || null, item.serial_number || null,
+        item.product_type || 'Used', 'Mobile Phone',
+        item.recommended_selling_price || 0, item.unit_cost || 0,
+      ]);
+      const result = await client.query(
+        `INSERT INTO products (name,brand,color,serial_number,type,category,selling_price,base_cost,is_active)
+         VALUES ${vals} RETURNING id, serial_number`,
+        params
+      );
+      newProductResults = result.rows.map(row => ({ rows: [row] }));
+    }
     newProductResults.forEach((r, idx) => {
       const row = r.rows[0];
       const item = toCreate[idx];
