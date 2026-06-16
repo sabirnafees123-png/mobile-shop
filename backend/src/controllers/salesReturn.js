@@ -57,14 +57,7 @@ exports.returnSale = async (req, res) => {
       await client.query(`UPDATE customers SET balance = balance - $1 WHERE id = $2`, [inv.amount_due, inv.customer_id]);
     }
 
-    // If cash was paid, record refund in cash manual entries
-    if (inv.payment_method === 'cash' && parseFloat(inv.amount_paid) > 0) {
-      await client.query(
-        `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
-         VALUES ($1, $2, 'out', $3, 'Return', $4)`,
-        [shopId, saleDate, parseFloat(inv.amount_paid), `Cash refund - return ${inv.invoice_number}`]
-      ).catch(() => {}); // non-critical
-    }
+    // Cash refund is handled by salesController.js returnSale — no entry here
 
     // Mark invoice as returned
     await client.query(

@@ -553,21 +553,23 @@ exports.returnSale = async (req, res) => {
         ? invoice.sale_date.toISOString().split('T')[0]
         : String(invoice.sale_date).split('T')[0];
 
-      // Try to reverse from the original sale date register first
-      const saleRegUpdate = await client.query(
+      // Register must be open for the original sale date to process return
+      const retRegCheck = await client.query(
+        `SELECT status FROM cash_register WHERE register_date = $1 AND shop_id = $2 LIMIT 1`,
+        [saleDate, invoice.shop_id]
+      );
+      const retRegStatus = retRegCheck.rows[0]?.status;
+      if (retRegStatus === 'closed') {
+        throw new Error(`Register for ${saleDate} is closed. Please reopen the register for that date first to process this return.`);
+      }
+      if (!retRegStatus) {
+        throw new Error(`Register for ${saleDate} is not open. Please open the register for that date first.`);
+      }
+      await client.query(
         `UPDATE cash_register SET total_sales_cash = GREATEST(total_sales_cash - $1, 0)
          WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
         [returnAmt, saleDate, invoice.shop_id]
       );
-
-      if (saleRegUpdate.rowCount === 0) {
-        // Original day register closed or doesn't exist — record as manual cash out today
-        await client.query(
-          `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
-           VALUES ($1, $2, 'out', $3, 'Return', $4)`,
-          [invoice.shop_id, today, returnAmt, `Cash refund — ${invoice.invoice_number} return`]
-        );
-      }
     }
 
     await client.query('COMMIT');

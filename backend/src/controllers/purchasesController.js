@@ -323,19 +323,23 @@ exports.recordPayment = async (req, res) => {
        payDate, p.shop_id || null]
     );
 
-    // Record in cash register
-    const regUpdate = await client.query(
+    // Record in cash register — register MUST be open, else block
+    const regCheck = await client.query(
+      `SELECT status FROM cash_register WHERE register_date = $1 AND shop_id = $2 LIMIT 1`,
+      [payDate, p.shop_id]
+    );
+    const regStatus = regCheck.rows[0]?.status;
+    if (regStatus === 'closed') {
+      throw new Error(`Register for ${payDate} is closed. Please reopen the register first.`);
+    }
+    if (!regStatus) {
+      throw new Error(`Register for ${payDate} is not open. Please open the register for that date first.`);
+    }
+    await client.query(
       `UPDATE cash_register SET total_expenses = total_expenses + $1
        WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
       [amount, payDate, p.shop_id]
     );
-    if (regUpdate.rowCount === 0) {
-      await client.query(
-        `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
-         VALUES ($1, $2, 'out', $3, 'Supplier Payment', $4)`,
-        [p.shop_id, payDate, amount, `Payment for ${p.purchase_number}`]
-      );
-    }
 
     await client.query('COMMIT');
     res.json({ success: true, message: 'Payment recorded', new_balance: newSupplierBalance });
