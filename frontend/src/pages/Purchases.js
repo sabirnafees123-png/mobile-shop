@@ -523,7 +523,7 @@ export default function Purchases() {
       {/* ── New Purchase Modal ── */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" style={{ maxWidth: '900px', maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: '1100px', width:'96vw', maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <strong>📦 New Purchase</strong>
               <button className="modal-close" onClick={() => setShowModal(false)}>✕</button>
@@ -585,133 +585,133 @@ export default function Purchases() {
                 <button className="btn btn-ghost btn-sm" onClick={addItem}>+ Add Item</button>
               </div>
 
-              {form.items.map((item, i) => (
-                <div key={i} style={{ background: 'var(--bg-secondary)', borderRadius: '8px', padding: '0.75rem', marginBottom: '0.75rem', border: '1px solid var(--border)' }}>
+              {/* ── Items table with horizontal scroll ── */}
+              <div style={{ overflowX:'auto', marginBottom:'0.5rem' }}>
+              <div style={{ minWidth:'920px' }}>
 
-                  {/* Row 1: Serial + Shop */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                    <div className="form-group" style={{ marginBottom: 0, position: 'relative' }}>
-                      <label className="form-label">
-                        🔍 Serial / IMEI <span style={{ fontSize: '.75rem', color: 'var(--text-muted)' }}>(scan or type — key field)</span>
-                      </label>
+              {/* ── Column headers (shown once above items) ── */}
+              <div style={{ display:'grid', gridTemplateColumns:'32px 160px 90px 200px 100px 80px 80px 80px 50px 28px', gap:'6px', padding:'0 4px 4px', borderBottom:'1px solid var(--border)', marginBottom:'6px' }}>
+                {['#','Serial / IMEI','Shop','Product Name','Brand','Type','Cost','Sell','Qty',''].map((h,idx) => (
+                  <div key={idx} style={{ fontSize:'.72rem', color:'var(--text-muted)', fontWeight:600, textTransform:'uppercase', letterSpacing:'.03em' }}>{h}</div>
+                ))}
+              </div>
+
+              {form.items.map((item, i) => (
+                <div key={i} style={{ position:'relative' }}>
+                  {/* ── Single row per item ── */}
+                  <div style={{ display:'grid', gridTemplateColumns:'32px 160px 90px 200px 100px 80px 80px 80px 50px 28px', gap:'6px', alignItems:'center', padding:'4px', borderRadius:'6px', background: i%2===0 ? 'var(--bg-secondary)' : 'transparent', marginBottom:'3px' }}>
+
+                    {/* # badge */}
+                    <div style={{ fontSize:'.75rem', color:'var(--text-muted)', textAlign:'center', fontWeight:600 }}>{i+1}</div>
+
+                    {/* Serial / IMEI */}
+                    <div style={{ position:'relative' }}>
                       <input
                         className="form-control"
-                        placeholder="Scan barcode or type serial number..."
+                        placeholder="Serial / IMEI"
                         value={item.serial_number}
                         onChange={e => searchSerial(i, e.target.value)}
                         autoComplete="off"
-                        style={{ fontFamily: 'monospace', fontWeight: 600 }}
+                        style={{ fontFamily:'monospace', fontSize:'.78rem', padding:'5px 7px', height:'32px',
+                          border: item.product_id ? '1.5px solid #059669' : item.serial_number ? '1.5px solid #d97706' : '1px solid var(--border)' }}
+                        title={item.product_id ? '✅ Found in system' : item.serial_number ? '⚠️ Will create new product' : ''}
                       />
                       {(serialResults[i] || []).length > 0 && (
-                        <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, zIndex: 100,
-                          background: 'white', border: '1px solid var(--border)', borderRadius: '8px',
-                          boxShadow: '0 4px 12px rgba(0,0,0,.1)', maxHeight: '180px', overflowY: 'auto' }}>
-                          <div style={{ padding: '6px 12px', fontSize: '.75rem', color: 'var(--text-muted)', borderBottom: '1px solid var(--border)', background: '#f8f9fc' }}>
+                        <div style={{ position:'absolute', top:'100%', left:0, zIndex:200, width:'320px',
+                          background:'white', border:'1px solid var(--border)', borderRadius:'8px',
+                          boxShadow:'0 4px 12px rgba(0,0,0,.15)', maxHeight:'180px', overflowY:'auto' }}>
+                          <div style={{ padding:'5px 10px', fontSize:'.72rem', color:'var(--text-muted)', borderBottom:'1px solid var(--border)', background:'#f8f9fc' }}>
                             Found in system — click to use:
                           </div>
                           {serialResults[i].map(p => (
                             <div key={p.id} onClick={() => selectExistingProduct(i, p)}
-                              style={{ padding: '10px 14px', cursor: 'pointer', borderBottom: '1px solid var(--border)', fontSize: '.88rem' }}
-                              onMouseEnter={e => e.currentTarget.style.background = '#f0fdf4'}
-                              onMouseLeave={e => e.currentTarget.style.background = 'white'}>
+                              style={{ padding:'8px 12px', cursor:'pointer', borderBottom:'1px solid var(--border)', fontSize:'.83rem' }}
+                              onMouseEnter={e => e.currentTarget.style.background='#f0fdf4'}
+                              onMouseLeave={e => e.currentTarget.style.background='white'}>
                               ✅ <strong>{p.brand} {p.name}</strong>
-                              <span style={{ color: 'var(--text-muted)', marginLeft: '8px', fontFamily: 'monospace', fontSize: '.8rem' }}>S/N: {p.serial_number}</span>
-                              {p.selling_price > 0 && <span style={{ marginLeft: '8px', color: '#059669' }}>AED {Math.round(p.selling_price).toLocaleString()}</span>}
+                              <span style={{ color:'var(--text-muted)', marginLeft:'6px', fontFamily:'monospace', fontSize:'.75rem' }}>{p.serial_number}</span>
                             </div>
                           ))}
                           <div onClick={() => setSerialResults(prev => ({ ...prev, [i]: [] }))}
-                            style={{ padding: '8px 14px', cursor: 'pointer', fontSize: '.82rem', color: 'var(--text-muted)', background: '#f8f9fc' }}>
-                            ✏️ Enter as new product instead
+                            style={{ padding:'6px 12px', cursor:'pointer', fontSize:'.78rem', color:'var(--text-muted)', background:'#f8f9fc' }}>
+                            ✏️ Enter as new product
                           </div>
                         </div>
                       )}
                     </div>
 
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Shop → <span style={{ color: '#dc2626' }}>*</span></label>
-                      <select className="form-control" value={item.shop_id}
-                        onChange={e => handleItemChange(i, 'shop_id', e.target.value)}
-                        style={{ border: !item.shop_id ? '2px solid #dc2626' : '' }}>
-                        <option value="">— Select Shop —</option>
-                        {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                      </select>
-                    </div>
-                  </div>
+                    {/* Shop */}
+                    <select className="form-control" value={item.shop_id}
+                      onChange={e => handleItemChange(i, 'shop_id', e.target.value)}
+                      style={{ fontSize:'.78rem', padding:'5px 4px', height:'32px',
+                        border: !item.shop_id ? '1.5px solid #dc2626' : '1px solid var(--border)' }}>
+                      <option value="">Shop</option>
+                      {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                    </select>
 
-                  {/* Row 2: Product details */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr 1fr', gap: '8px', marginBottom: '8px' }}>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">
-                        Product Name
-                        {item.product_id && <span style={{ marginLeft: '6px', color: '#059669', fontSize: '.75rem' }}>✅ Found in system</span>}
-                        {!item.product_id && item.serial_number && <span style={{ marginLeft: '6px', color: '#d97706', fontSize: '.75rem' }}>⚠️ Will create new product</span>}
-                      </label>
-                      <input className="form-control" value={item.product_name}
-                        onChange={e => handleItemChange(i, 'product_name', e.target.value)}
-                        placeholder="e.g. iPhone 14 Pro Max or leave empty for serial-only"
-                        readOnly={!!item.product_id}
-                        style={{ background: item.product_id ? 'var(--bg-tertiary,#f3f4f6)' : '' }} />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Brand</label>
-                      <input className="form-control" value={item.brand}
-                        onChange={e => handleItemChange(i, 'brand', e.target.value)}
-                        placeholder="Apple, Samsung..."
-                        readOnly={!!item.product_id}
-                        style={{ background: item.product_id ? 'var(--bg-tertiary,#f3f4f6)' : '' }} />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Color</label>
-                      <input className="form-control" value={item.color}
-                        onChange={e => handleItemChange(i, 'color', e.target.value)}
-                        placeholder="Black, White..."
-                        readOnly={!!item.product_id}
-                        style={{ background: item.product_id ? 'var(--bg-tertiary,#f3f4f6)' : '' }} />
-                    </div>
-                  </div>
+                    {/* Product Name */}
+                    <input className="form-control" value={item.product_name}
+                      onChange={e => handleItemChange(i, 'product_name', e.target.value)}
+                      placeholder="Product name"
+                      readOnly={!!item.product_id}
+                      style={{ fontSize:'.78rem', padding:'5px 7px', height:'32px',
+                        background: item.product_id ? 'var(--bg-tertiary,#f3f4f6)' : '' }} />
 
-                  {/* Row 3: Type + Cost + Sell + Qty */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1.5fr 1fr 1fr 0.7fr auto', gap: '8px', alignItems: 'end' }}>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Type</label>
-                      <select className="form-control" value={item.product_type}
-                        onChange={e => handleItemChange(i, 'product_type', e.target.value)}>
-                        {PRODUCT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                      </select>
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Cost (AED) *</label>
-                      <input type="number" className="form-control" value={item.unit_cost}
-                        onChange={e => handleItemChange(i, 'unit_cost', e.target.value)} placeholder="0" />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Selling Price</label>
-                      <input type="number" className="form-control" value={item.recommended_selling_price}
-                        onChange={e => handleItemChange(i, 'recommended_selling_price', e.target.value)} placeholder="0" />
-                    </div>
-                    <div className="form-group" style={{ marginBottom: 0 }}>
-                      <label className="form-label">Qty</label>
-                      <input type="number" min="1" className="form-control" value={item.qty}
-                        onChange={e => handleItemChange(i, 'qty', e.target.value)} />
-                    </div>
-                    {form.items.length > 1 && (
-                      <button onClick={() => removeItem(i)}
-                        style={{ marginBottom: '2px', background: 'none', border: 'none', color: 'var(--accent-red)', cursor: 'pointer', fontSize: '1.1rem' }}>✕</button>
-                    )}
+                    {/* Brand */}
+                    <input className="form-control" value={item.brand}
+                      onChange={e => handleItemChange(i, 'brand', e.target.value)}
+                      placeholder="Brand"
+                      readOnly={!!item.product_id}
+                      style={{ fontSize:'.78rem', padding:'5px 7px', height:'32px',
+                        background: item.product_id ? 'var(--bg-tertiary,#f3f4f6)' : '' }} />
+
+                    {/* Type */}
+                    <select className="form-control" value={item.product_type}
+                      onChange={e => handleItemChange(i, 'product_type', e.target.value)}
+                      style={{ fontSize:'.75rem', padding:'5px 3px', height:'32px' }}>
+                      {PRODUCT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+
+                    {/* Cost */}
+                    <input type="number" className="form-control" value={item.unit_cost}
+                      onChange={e => handleItemChange(i, 'unit_cost', e.target.value)}
+                      placeholder="0"
+                      style={{ fontSize:'.78rem', padding:'5px 6px', height:'32px' }} />
+
+                    {/* Selling Price */}
+                    <input type="number" className="form-control" value={item.recommended_selling_price}
+                      onChange={e => handleItemChange(i, 'recommended_selling_price', e.target.value)}
+                      placeholder="0"
+                      style={{ fontSize:'.78rem', padding:'5px 6px', height:'32px' }} />
+
+                    {/* Qty */}
+                    <input type="number" min="1" className="form-control" value={item.qty}
+                      onChange={e => handleItemChange(i, 'qty', e.target.value)}
+                      style={{ fontSize:'.78rem', padding:'5px 6px', height:'32px' }} />
+
+                    {/* Remove */}
+                    {form.items.length > 1
+                      ? <button onClick={() => removeItem(i)}
+                          style={{ background:'none', border:'none', color:'var(--accent-red)', cursor:'pointer', fontSize:'1rem', padding:'0', textAlign:'center' }}>✕</button>
+                      : <div />
+                    }
                   </div>
 
                   {item.unit_cost && item.qty && (
-                    <div style={{ textAlign: 'right', fontSize: '.8rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                      Subtotal: <strong>AED {Math.round((parseFloat(item.qty)||0) * (parseFloat(item.unit_cost)||0)).toLocaleString()}</strong>
+                    <div style={{ textAlign:'right', fontSize:'.72rem', color:'var(--text-muted)', paddingRight:'34px', marginBottom:'2px', marginTop:'-2px' }}>
+                      Sub: <strong style={{ color:'var(--text-primary)' }}>AED {Math.round((parseFloat(item.qty)||0)*(parseFloat(item.unit_cost)||0)).toLocaleString()}</strong>
                       {item.recommended_selling_price && item.unit_cost && (
-                        <span style={{ marginLeft: '12px' }}>
-                          Margin: AED {Math.round(((parseFloat(item.recommended_selling_price)||0) - (parseFloat(item.unit_cost)||0)) * (parseFloat(item.qty)||0)).toLocaleString()}
+                        <span style={{ marginLeft:'10px' }}>
+                          Margin: AED {Math.round(((parseFloat(item.recommended_selling_price)||0)-(parseFloat(item.unit_cost)||0))*(parseFloat(item.qty)||0)).toLocaleString()}
                         </span>
                       )}
                     </div>
                   )}
                 </div>
               ))}
+
+              </div>{/* minWidth */}
+              </div>{/* overflowX scroll */}
 
               <div style={{ textAlign: 'right', marginTop: '0.75rem', fontSize: '1rem', fontWeight: 700 }}>
                 Total: <span style={{ color: 'var(--accent)' }}>AED {Math.round(total).toLocaleString()}</span>
