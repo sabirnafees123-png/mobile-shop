@@ -1,5 +1,5 @@
 // src/pages/Purchases.js
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 
@@ -201,15 +201,38 @@ export default function Purchases() {
   const addItem    = () => setForm({ ...form, items: [...form.items, emptyItem()] });
   const removeItem = (i) => setForm({ ...form, items: form.items.filter((_, idx) => idx !== i) });
 
-  const searchSerial = async (idx, val) => {
+  const serialTimers = useRef({});
+  const serialAborts = useRef({});
+
+  const searchSerial = (idx, val) => {
     const items = [...form.items];
     items[idx] = { ...items[idx], serial_number: val, product_id: null };
     setForm({ ...form, items });
-    if (val.length < 2) { setSerialResults(prev => ({ ...prev, [idx]: [] })); return; }
-    try {
-      const res = await api.get(`/products/serial/${val}`);
-      setSerialResults(prev => ({ ...prev, [idx]: res.data?.data || [] }));
-    } catch { setSerialResults(prev => ({ ...prev, [idx]: [] })); }
+
+    // Clear previous timer for this row
+    if (serialTimers.current[idx]) clearTimeout(serialTimers.current[idx]);
+
+    // Abort previous in-flight request for this row
+    if (serialAborts.current[idx]) serialAborts.current[idx].abort();
+
+    if (val.length < 2) {
+      setSerialResults(prev => ({ ...prev, [idx]: [] }));
+      return;
+    }
+
+    // Debounce — wait 400ms after user stops typing
+    serialTimers.current[idx] = setTimeout(async () => {
+      const controller = new AbortController();
+      serialAborts.current[idx] = controller;
+      try {
+        const res = await api.get(`/products/serial/${val}`, { signal: controller.signal });
+        setSerialResults(prev => ({ ...prev, [idx]: res.data?.data || [] }));
+      } catch (e) {
+        if (e.name !== 'CanceledError' && e.name !== 'AbortError') {
+          setSerialResults(prev => ({ ...prev, [idx]: [] }));
+        }
+      }
+    }, 400);
   };
 
   const selectExistingProduct = (idx, product) => {
