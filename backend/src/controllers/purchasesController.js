@@ -247,22 +247,26 @@ exports.createPurchase = async (req, res) => {
       invParams
     );
 
-    // Update supplier balance
+    // Update supplier balance — only net due affects balance
     const amountDue  = totalAmount - amount_paid;
     const supplier   = await client.query('SELECT balance FROM suppliers WHERE id = $1', [supplier_id]);
-    const newBalance = parseFloat(supplier.rows[0].balance) + amountDue;
+    const oldBalance = parseFloat(supplier.rows[0].balance);
+    const balAfterPurchase = oldBalance + totalAmount;       // balance goes UP by full purchase
+    const balAfterPayment  = balAfterPurchase - amount_paid; // then DOWN by what was paid
+    const newBalance = balAfterPayment;                      // = oldBalance + amountDue
+
     await client.query('UPDATE suppliers SET balance = $1 WHERE id = $2', [newBalance, supplier_id]);
 
+    // Ledger: purchase entry = full totalAmount (not amountDue)
     await client.query(
       `INSERT INTO supplier_ledger (supplier_id, transaction_type, reference_id, reference_type, amount, balance_after, description, transaction_date, shop_id)
        VALUES ($1,'purchase',$2,'purchase',$3,$4,$5,$6,$7)`,
-      [supplier_id, purchaseId, amountDue, newBalance,
+      [supplier_id, purchaseId, totalAmount, balAfterPurchase,
        `Purchase ${purchaseNumber} - ${items.length} item(s)`,
        purchase_date || new Date().toISOString().split('T')[0], parseInt(items[0].shop_id)]
     );
 
     if (amount_paid > 0) {
-      const balAfterPayment = newBalance - amount_paid;
       await client.query(
         `INSERT INTO supplier_ledger (supplier_id, transaction_type, reference_id, reference_type, amount, balance_after, description, transaction_date, shop_id)
          VALUES ($1,'payment',$2,'purchase',$3,$4,$5,$6,$7)`,
