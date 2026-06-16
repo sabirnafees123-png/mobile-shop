@@ -423,25 +423,29 @@ exports.markPaymentReceived = async (req, res) => {
 
     if (amountNow > 0) {
       if (method === 'cash') {
-        // Cash payment — update cash register directly
-        const regUpdate = await client.query(
+        // Cash payment — register MUST be open, else throw error
+        const regCheck = await client.query(
+          `SELECT status FROM cash_register
+           WHERE register_date = $1 AND shop_id = $2 LIMIT 1`,
+          [recDate, invoice.shop_id]
+        );
+        const regStatus = regCheck.rows[0]?.status;
+
+        if (regStatus === 'closed') {
+          throw new Error(`Register for ${recDate} is closed. Please reopen the register first.`);
+        }
+        if (!regStatus) {
+          throw new Error(`Register for ${recDate} is not open. Please open the register for that date first.`);
+        }
+
+        await client.query(
           `UPDATE cash_register
            SET total_sales_cash = total_sales_cash + $1
            WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
           [amountNow, recDate, invoice.shop_id]
         );
-        if (regUpdate.rowCount === 0) {
-          // Register closed or not found — fallback to manual entry
-          await client.query(
-            `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
-             VALUES ($1, $2, 'in', $3, 'Cash', $4)`,
-            [invoice.shop_id, recDate, amountNow,
-             `Payment received (cash) — ${invoice.invoice_number} (register was closed)`]
-          );
-        }
       } else {
-        // Non-cash (card/tabby/tamara/bank_transfer) — record as manual entry for tracking/reconciliation
-        // Does NOT go into cash_register as these are digital payments
+        // Non-cash (card/tabby/tamara/bank_transfer) — manual entry for reconciliation only
         const methodLabel = method.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
         await client.query(
           `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
@@ -542,44 +546,27 @@ exports.returnSale = async (req, res) => {
       [note || 'Customer return', returnAmt, invoiceId]
     );
 
-    // Record cash impact in register
-    if (invoice.payment_method === 'cash') {
+    // Record cash refund — single entry only (no double counting)
+    if (invoice.payment_method === 'cash' && returnAmt > 0) {
       const today = new Date().toISOString().split('T')[0];
       const saleDate = invoice.sale_date instanceof Date
         ? invoice.sale_date.toISOString().split('T')[0]
         : String(invoice.sale_date).split('T')[0];
 
-      // 1. Remove original sale from sale date register
-      const salePaid = parseFloat(invoice.amount_paid || 0);
-      if (salePaid > 0) {
-        const saleRegUpdate = await client.query(
-          `UPDATE cash_register SET total_sales_cash = total_sales_cash - $1
-           WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
-          [salePaid, saleDate, invoice.shop_id]
-        );
-        if (saleRegUpdate.rowCount === 0) {
-          await client.query(
-            `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
-             VALUES ($1, $2, 'out', $3, 'Cash', $4)`,
-            [invoice.shop_id, today, salePaid, `Sale reversed — ${invoice.invoice_number} returned`]
-          );
-        }
-      }
+      // Try to reverse from the original sale date register first
+      const saleRegUpdate = await client.query(
+        `UPDATE cash_register SET total_sales_cash = GREATEST(total_sales_cash - $1, 0)
+         WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
+        [returnAmt, saleDate, invoice.shop_id]
+      );
 
-      // 2. Record cash refund to customer on today
-      if (returnAmt > 0) {
-        const refundRegUpdate = await client.query(
-          `UPDATE cash_register SET total_sales_cash = total_sales_cash - $1
-           WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
-          [returnAmt, today, invoice.shop_id]
+      if (saleRegUpdate.rowCount === 0) {
+        // Original day register closed or doesn't exist — record as manual cash out today
+        await client.query(
+          `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
+           VALUES ($1, $2, 'out', $3, 'Return', $4)`,
+          [invoice.shop_id, today, returnAmt, `Cash refund — ${invoice.invoice_number} return`]
         );
-        if (refundRegUpdate.rowCount === 0) {
-          await client.query(
-            `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
-             VALUES ($1, $2, 'out', $3, 'Cash', $4)`,
-            [invoice.shop_id, today, returnAmt, `Cash refund — ${invoice.invoice_number} return`]
-          );
-        }
       }
     }
 
