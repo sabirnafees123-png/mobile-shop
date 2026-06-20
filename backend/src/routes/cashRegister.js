@@ -209,20 +209,9 @@ router.get('/history', async (req, res) => {
         FROM expenses WHERE shop_id=$1 AND expense_date BETWEEN $2 AND $3 AND payment_method='cash' GROUP BY expense_date`,
         [shop_id, calcFrom, toDate]),
       query(`
-        SELECT d, COALESCE(SUM(total),0) as total FROM (
-          SELECT transaction_date::text as d, COALESCE(SUM(ABS(amount)),0) as total
-          FROM supplier_ledger WHERE transaction_type='payment' AND amount<0 AND shop_id=$3 AND transaction_date BETWEEN $1 AND $2 GROUP BY transaction_date
-          UNION ALL
-          SELECT purchase_date::text as d, COALESCE(SUM(amount_paid),0) as total
-          FROM purchases WHERE shop_id=$3 AND purchase_date BETWEEN $1 AND $2 AND amount_paid > 0
-            AND id NOT IN (
-              SELECT sl.reference_id FROM supplier_ledger sl
-              WHERE sl.transaction_type='payment' AND sl.shop_id=$3 
-              AND sl.reference_id IS NOT NULL AND sl.amount < 0
-              AND sl.transaction_date = purchases.purchase_date
-            )
-          GROUP BY purchase_date
-        ) combined GROUP BY d`,
+        SELECT transaction_date::text as d, COALESCE(SUM(ABS(amount)),0) as total
+        FROM supplier_ledger WHERE transaction_type='payment' AND amount<0 AND shop_id=$3 AND transaction_date BETWEEN $1 AND $2
+        GROUP BY transaction_date`,
         [calcFrom, toDate, shop_id]),
       query(`
         SELECT entry_date::text as d, entry_type, category, COALESCE(SUM(amount),0) as total
