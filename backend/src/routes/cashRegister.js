@@ -15,16 +15,10 @@ router.get('/detail', async (req, res) => {
       query(`SELECT invoice_number, amount_paid FROM sales_invoices WHERE shop_id=$1 AND sale_date=$2 AND payment_method='cash' AND payment_status='returned' ORDER BY invoice_number`, [shop_id, date]),
       query(`SELECT COALESCE(ec.name, e.category, 'Uncategorized') as category_name, e.amount, e.description FROM expenses e LEFT JOIN expense_categories ec ON ec.id = e.category_id WHERE e.shop_id=$1 AND e.expense_date=$2 AND e.payment_method='cash' ORDER BY e.amount DESC`, [shop_id, date]),
       query(`
-        SELECT reference, amount FROM (
-          SELECT COALESCE(p.purchase_number, sl.description) as reference, ABS(sl.amount) as amount
-          FROM supplier_ledger sl LEFT JOIN purchases p ON p.id = sl.reference_id
-          WHERE sl.shop_id=$1 AND sl.transaction_date=$2 AND sl.transaction_type='payment' AND sl.amount<0
-          UNION ALL
-          SELECT purchase_number as reference, amount_paid as amount
-          FROM purchases
-          WHERE shop_id=$1 AND purchase_date=$2 AND amount_paid > 0
-            AND id NOT IN (SELECT reference_id FROM supplier_ledger WHERE transaction_type='payment' AND transaction_date=$2 AND shop_id=$1 AND reference_id IS NOT NULL AND amount < 0)
-        ) combined ORDER BY amount DESC`, [shop_id, date]),
+        SELECT COALESCE(p.purchase_number, sl.description) as reference, ABS(sl.amount) as amount
+        FROM supplier_ledger sl LEFT JOIN purchases p ON p.id = sl.reference_id
+        WHERE sl.shop_id=$1 AND sl.transaction_date=$2 AND sl.transaction_type='payment' AND sl.amount<0
+        ORDER BY amount DESC`, [shop_id, date]),
       query(`SELECT entry_type, amount, category, description FROM cash_manual_entries WHERE shop_id=$1 AND entry_date=$2 ORDER BY entry_type, amount DESC`, [shop_id, date]),
       query(`SELECT opening_balance FROM cash_register WHERE shop_id=$1 AND register_date=$2 LIMIT 1`, [shop_id, date]),
     ]);
