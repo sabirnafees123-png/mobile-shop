@@ -202,19 +202,18 @@ exports.createSale = async (req, res) => {
     // ── Batch ALL pre-flight queries in parallel ───────────────────────
     const productIds = items.map(i => i.product_id).filter(Boolean);
 
-    const [serviceCheck, stockCheck, invoiceNumber] = await Promise.all([
-      client.query(
-        `SELECT id, COALESCE(is_service, false) as is_service, name, brand
-         FROM products WHERE id = ANY($1)`,
-        [productIds]
-      ),
-      client.query(
-        `SELECT product_id, quantity FROM inventory
-         WHERE product_id = ANY($1) AND shop_id = $2`,
-        [productIds, parseInt(shop_id)]
-      ),
-      generateInvoiceNumber(client),
-    ]);
+    // Execute sequentially to prevent node-postgres transaction deadlocks
+    const serviceCheck = await client.query(
+      `SELECT id, COALESCE(is_service, false) as is_service, name, brand
+       FROM products WHERE id = ANY($1)`,
+      [productIds]
+    );
+    const stockCheck = await client.query(
+      `SELECT product_id, quantity FROM inventory
+       WHERE product_id = ANY($1) AND shop_id = $2`,
+      [productIds, parseInt(shop_id)]
+    );
+    const invoiceNumber = await generateInvoiceNumber(client);
 
     const serviceMap = {};
     const nameMap    = {};
@@ -340,27 +339,25 @@ exports.createSale = async (req, res) => {
       );
     }
 
-    // ── Customer balance, cash register, exchange cash out ────────────
-    const [,,] = await Promise.all([
-      finalCustomerId && amountDue > 0 && payment_method !== 'tabby' && payment_method !== 'tamara'
-        ? client.query(`UPDATE customers SET balance = balance + $1 WHERE id = $2`, [amountDue, finalCustomerId])
-        : Promise.resolve(),
-      payment_method === 'cash' && paid > 0
-        ? client.query(
-            `UPDATE cash_register SET total_sales_cash = total_sales_cash + $1
-             WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
-            [paid, sale_date || new Date().toISOString().split('T')[0], parseInt(shop_id)]
-          )
-        : Promise.resolve(),
-      is_exchange && tradeIn > 0 && amountDue < 0
-        ? client.query(
-            `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
-             VALUES ($1, $2, 'out', $3, 'Exchange', $4) ON CONFLICT DO NOTHING`,
-            [parseInt(shop_id), sale_date || new Date().toISOString().split('T')[0],
-             Math.abs(amountDue), `Cash paid to customer - exchange ${invoiceNumber}`]
-          )
-        : Promise.resolve(),
-    ]);
+    // ── Customer balance, cash register, exchange cash out — sequential ────
+    if (finalCustomerId && amountDue > 0 && payment_method !== 'tabby' && payment_method !== 'tamara') {
+      await client.query(`UPDATE customers SET balance = balance + $1 WHERE id = $2`, [amountDue, finalCustomerId]);
+    }
+    if (payment_method === 'cash' && paid > 0) {
+      await client.query(
+        `UPDATE cash_register SET total_sales_cash = total_sales_cash + $1
+         WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
+        [paid, sale_date || new Date().toISOString().split('T')[0], parseInt(shop_id)]
+      );
+    }
+    if (is_exchange && tradeIn > 0 && amountDue < 0) {
+      await client.query(
+        `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
+         VALUES ($1, $2, 'out', $3, 'Exchange', $4) ON CONFLICT DO NOTHING`,
+        [parseInt(shop_id), sale_date || new Date().toISOString().split('T')[0],
+         Math.abs(amountDue), `Cash paid to customer - exchange ${invoiceNumber}`]
+      );
+    }
 
     await client.query('COMMIT');
     res.status(201).json({

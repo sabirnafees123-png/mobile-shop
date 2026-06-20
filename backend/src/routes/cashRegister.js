@@ -379,9 +379,12 @@ router.post('/open', async (req, res) => {
     if (!shop_id) return res.status(400).json({ success: false, message: 'shop_id required' });
     const existing = await query(`SELECT id FROM cash_register WHERE register_date = $1 AND shop_id = $2`, [registerDate, shop_id]);
     if (existing.rows.length) {
-      // Update existing row instead of failing
-      await query(`UPDATE cash_register SET opening_balance=$1, status='open', notes=COALESCE($2,notes), updated_at=NOW() WHERE register_date=$3 AND shop_id=$4`,
-        [opening_balance || 0, notes || null, registerDate, shop_id]);
+      // If opening_balance missing/undefined, use null so COALESCE keeps existing DB value
+      const newOpening = (opening_balance !== undefined && opening_balance !== null && opening_balance !== '')
+        ? parseFloat(opening_balance)
+        : null;
+      await query(`UPDATE cash_register SET opening_balance=COALESCE($1, opening_balance), status='open', notes=COALESCE($2,notes), updated_at=NOW() WHERE register_date=$3 AND shop_id=$4`,
+        [newOpening, notes || null, registerDate, shop_id]);
       const updated = await query(`SELECT * FROM cash_register WHERE register_date=$1 AND shop_id=$2`, [registerDate, shop_id]);
       return res.status(200).json({ success: true, data: updated.rows[0] });
     }

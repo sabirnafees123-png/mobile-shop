@@ -152,10 +152,14 @@ exports.createPurchase = async (req, res) => {
     const toUpdate = [];
     const toCreate = [];
     items.forEach(item => {
-      if (!item.product_id && item.serial_number && existingBySerial[item.serial_number]) {
-        if (item.recommended_selling_price && parseFloat(item.recommended_selling_price) > 0)
-          toUpdate.push({ id: existingBySerial[item.serial_number], price: item.recommended_selling_price, serial: item.serial_number });
-      } else if (!item.product_id) {
+      // Find ID if existing product — via dropdown (product_id) OR found by serial
+      const existingId = item.product_id || (item.serial_number && existingBySerial[item.serial_number]);
+
+      if (existingId) {
+        if (item.recommended_selling_price && parseFloat(item.recommended_selling_price) > 0) {
+          toUpdate.push({ id: existingId, price: item.recommended_selling_price });
+        }
+      } else {
         toCreate.push(item);
       }
     });
