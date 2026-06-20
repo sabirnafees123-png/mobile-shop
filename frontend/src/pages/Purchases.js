@@ -201,7 +201,106 @@ export default function Purchases() {
   const addItem    = () => setForm({ ...form, items: [...form.items, emptyItem()] });
   const removeItem = (i) => setForm({ ...form, items: form.items.filter((_, idx) => idx !== i) });
 
-  const serialTimers = useRef({});
+  const fileInputRef = useRef(null);
+
+  const downloadTemplate = () => {
+    const headers = ['serial_number','product_name','brand','color','product_type','unit_cost','recommended_selling_price','qty','shop'];
+    const example = [
+      ['350486745601689','SAM GALAXY S21 ULTRA 512GB','Samsung','Black','Used','830','1100','1','AlAman'],
+      ['354477870340637','SAM GALAXY S21 ULTRA 512GB','Samsung','Black','Used','830','1100','1','Blessing'],
+    ];
+    const csv = [headers, ...example].map(r => r.join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = 'purchase_template.csv'; a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCSVUpload = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const text  = ev.target.result;
+        const lines = text.trim().split('\n').filter(Boolean);
+        if (lines.length < 2) return toast.error('File is empty or has no data rows');
+
+        // Detect separator
+        const sep = lines[0].includes('\t') ? '\t' : ',';
+        const headers = lines[0].split(sep).map(h => h.trim().toLowerCase().replace(/[^a-z_]/g,''));
+
+        const col = (row, names) => {
+          for (const n of names) {
+            const idx = headers.indexOf(n);
+            if (idx !== -1 && row[idx] !== undefined) return row[idx].trim();
+          }
+          return '';
+        };
+
+        const shopNameToId = {};
+        shops.forEach(s => {
+          shopNameToId[s.name.toLowerCase()] = s.id;
+          shopNameToId[String(s.id)]         = s.id;
+        });
+
+        const parsed = [];
+        const errors = [];
+
+        lines.slice(1).forEach((line, i) => {
+          if (!line.trim()) return;
+          const row = line.split(sep).map(c => c.trim().replace(/^"|"$/g,''));
+
+          const shopRaw  = col(row, ['shop','shop_id','shop_name']);
+          const shopId   = shopNameToId[shopRaw.toLowerCase()] || shopNameToId[shopRaw] || '';
+          const cost     = col(row, ['unit_cost','cost','price','purchase_price']);
+          const sellPrice= col(row, ['recommended_selling_price','selling_price','sell_price','sell']);
+          const serial   = col(row, ['serial_number','serial','imei']);
+          const name     = col(row, ['product_name','name','product']);
+          const type     = col(row, ['product_type','type']);
+
+          if (!cost || parseFloat(cost) <= 0) {
+            errors.push(`Row ${i+2}: cost missing or 0`);
+            return;
+          }
+
+          // Match product_type to valid options
+          const matchedType = PRODUCT_TYPES.find(t => t.toLowerCase() === type.toLowerCase()) || 'Used';
+
+          parsed.push({
+            serial_number: serial,
+            product_name:  name,
+            brand:         col(row, ['brand']),
+            color:         col(row, ['color']),
+            product_type:  matchedType,
+            unit_cost:     cost,
+            recommended_selling_price: sellPrice || '',
+            qty:           col(row, ['qty','quantity']) || '1',
+            shop_id:       shopId,
+            product_id:    null,
+          });
+        });
+
+        if (errors.length) toast.error(errors.slice(0,3).join('\n') + (errors.length > 3 ? `\n...+${errors.length-3} more` : ''));
+        if (!parsed.length) return toast.error('No valid rows found');
+
+        setForm(prev => ({
+          ...prev,
+          items: parsed,
+          payment_type: 'credit',
+          amount_paid:  '',
+        }));
+        toast.success(`✅ ${parsed.length} items loaded from file!`);
+      } catch (err) {
+        toast.error('Failed to parse file: ' + err.message);
+      }
+      e.target.value = '';
+    };
+    reader.readAsText(file);
+  };
+
+
   const serialAborts = useRef({});
 
   const searchSerial = (idx, val) => {
@@ -583,6 +682,12 @@ export default function Purchases() {
                   </span>
                 </div>
                 <button className="btn btn-ghost btn-sm" onClick={addItem}>+ Add Item</button>
+                <button className="btn btn-ghost btn-sm" onClick={downloadTemplate}
+                  style={{ color:'#059669', borderColor:'#059669' }}>⬇ Template</button>
+                <button className="btn btn-ghost btn-sm" onClick={() => fileInputRef.current?.click()}
+                  style={{ color:'#2563eb', borderColor:'#2563eb' }}>📂 Upload CSV / Excel</button>
+                <input ref={fileInputRef} type="file" accept=".csv,.tsv,.txt,.xlsx,.xls"
+                  style={{ display:'none' }} onChange={handleCSVUpload} />
               </div>
 
               {/* ── Items table with horizontal scroll ── */}
