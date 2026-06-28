@@ -305,12 +305,25 @@ export default function Transfers() {
                 </div>
                 )}
 
+                {/* DOUBLE CHECK BOX */}
                 {selectedProduct && (
-                  <div style={{gridColumn:'span 2',padding:'10px 14px',background:'var(--bg-secondary)',borderRadius:'8px',fontSize:'.85rem',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                    <span>✅ {selectedProduct.brand} {selectedProduct.name} {selectedProduct.color && `— ${selectedProduct.color}`}</span>
-                    <strong style={{color: selectedProduct.quantity === 0 ? '#dc2626' : '#059669'}}>
-                      {selectedProduct.quantity} available in {shops.find(s=>s.id===parseInt(form.from_shop_id))?.name}
-                    </strong>
+                  <div style={{gridColumn:'span 2',padding:'12px 16px',background:'var(--bg-secondary)',borderRadius:'8px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    <div>
+                      <div style={{fontSize:'.95rem'}}>✅ <strong>{selectedProduct.brand} {selectedProduct.name}</strong> {selectedProduct.color && `— ${selectedProduct.color}`}</div>
+                      {selectedProduct.serial_number && (
+                        <div style={{marginTop:'6px', marginLeft:'24px', fontFamily:'monospace', fontSize:'.95rem', fontWeight: 600, color:'var(--accent-blue,#2563eb)'}}>
+                          📱 IMEI: {selectedProduct.serial_number}
+                        </div>
+                      )}
+                    </div>
+                    <div style={{textAlign: 'right'}}>
+                      <div style={{fontWeight: 700, fontSize: '.9rem', color: selectedProduct.quantity === 0 ? '#dc2626' : '#059669'}}>
+                        {selectedProduct.quantity} available
+                      </div>
+                      <div style={{fontSize: '.8rem', color: 'var(--text-muted)'}}>
+                        in {shops.find(s=>s.id===parseInt(form.from_shop_id))?.name}
+                      </div>
+                    </div>
                   </div>
                 )}
 
