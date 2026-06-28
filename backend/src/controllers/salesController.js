@@ -209,10 +209,17 @@ exports.createSale = async (req, res) => {
       [productIds]
     );
     const stockCheck = await client.query(
-      `SELECT product_id, quantity FROM inventory
-       WHERE product_id = ANY($1) AND shop_id = $2`,
-      [productIds, parseInt(shop_id)]
+      `SELECT product_id, shop_id, quantity FROM inventory
+       WHERE product_id = ANY($1)`,
+      [productIds]
     );
+
+    // Build stockMap per product per shop: { product_id: { shop_id: qty } }
+    const stockMap = {};
+    stockCheck.rows.forEach(r => {
+      if (!stockMap[r.product_id]) stockMap[r.product_id] = {};
+      stockMap[r.product_id][r.shop_id] = parseInt(r.quantity);
+    });
     const invoiceNumber = await generateInvoiceNumber(client);
 
     const serviceMap = {};
@@ -221,16 +228,15 @@ exports.createSale = async (req, res) => {
       serviceMap[r.id] = r.is_service;
       nameMap[r.id]    = `${r.brand ? r.brand + ' ' : ''}${r.name}`;
     });
-    const stockMap = {};
-    stockCheck.rows.forEach(r => { stockMap[r.product_id] = parseInt(r.quantity); });
 
-    // ── Stock validation (all items, zero extra queries) ──────────────
+    // ── Stock validation — per item, per shop ─────────────────────────
     for (const item of items) {
       if (!item.product_id) throw new Error('Each item needs a product');
       const qty       = parseInt(item.qty) || 1;
       const isService = serviceMap[item.product_id] || false;
       if (!isService) {
-        const available = stockMap[item.product_id] ?? 0;
+        const itemShop  = parseInt(item.shop_id || shop_id);
+        const available = stockMap[item.product_id]?.[itemShop] ?? 0;
         if (available < qty) {
           const label = nameMap[item.product_id] || `Product #${item.product_id}`;
           throw new Error(
