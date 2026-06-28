@@ -1,5 +1,5 @@
 // src/pages/Sales.js
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 
@@ -293,26 +293,43 @@ useEffect(() => {
 };
 
 
-  // Serial search
-const searchSerial = async (idx, val) => {
-  setSerialSearches(prev => ({ ...prev, [idx]: val }));
-  if (val.length < 2) { setSerialResults(prev => ({ ...prev, [idx]: [] })); return; }
-  try {
-    const res = await api.get(`/products/serial/${val}`);
-    setSerialResults(prev => ({ ...prev, [idx]: res.data?.data || [] }));
-    //                                          ^^^^^^^^^^^ ✅ FIXED
-  } catch { setSerialResults(prev => ({ ...prev, [idx]: [] })); }
-};
+  const serialTimers = useRef({});
+  const serialAborts = useRef({});
+  const nameTimers   = useRef({});
+  const nameAborts   = useRef({});
 
-const searchByName = async (idx, val) => {
-  setNameSearches(prev => ({ ...prev, [idx]: val }));
-  if (val.length < 1) { setNameResults(prev => ({ ...prev, [idx]: [] })); return; }
-  try {
-    const res = await api.get(`/products?search=${encodeURIComponent(val)}&limit=15`);
-    setNameResults(prev => ({ ...prev, [idx]: res.data?.data || [] }));
-    //                                        ^^^^^^^^^^^ ✅ FIXED
-  } catch { setNameResults(prev => ({ ...prev, [idx]: [] })); }
-};
+  // Serial search — debounced 400ms
+  const searchSerial = (idx, val) => {
+    setSerialSearches(prev => ({ ...prev, [idx]: val }));
+    if (serialTimers.current[idx]) clearTimeout(serialTimers.current[idx]);
+    if (serialAborts.current[idx]) serialAborts.current[idx].abort();
+    if (val.length < 2) { setSerialResults(prev => ({ ...prev, [idx]: [] })); return; }
+    serialTimers.current[idx] = setTimeout(async () => {
+      const controller = new AbortController();
+      serialAborts.current[idx] = controller;
+      try {
+        const res = await api.get(`/products/serial/${val}`, { signal: controller.signal });
+        setSerialResults(prev => ({ ...prev, [idx]: res.data?.data || [] }));
+      } catch (e) { if (e.name !== 'CanceledError' && e.name !== 'AbortError') setSerialResults(prev => ({ ...prev, [idx]: [] })); }
+    }, 400);
+  };
+
+  // Name search — debounced 400ms
+  const searchByName = (idx, val) => {
+    setNameSearches(prev => ({ ...prev, [idx]: val }));
+    if (nameTimers.current[idx]) clearTimeout(nameTimers.current[idx]);
+    if (nameAborts.current[idx]) nameAborts.current[idx].abort();
+    if (val.length < 1) { setNameResults(prev => ({ ...prev, [idx]: [] })); return; }
+    nameTimers.current[idx] = setTimeout(async () => {
+      const controller = new AbortController();
+      nameAborts.current[idx] = controller;
+      try {
+        const res = await api.get(`/products?search=${encodeURIComponent(val)}&limit=15`, { signal: controller.signal });
+        setNameResults(prev => ({ ...prev, [idx]: res.data?.data || [] }));
+      } catch (e) { if (e.name !== 'CanceledError' && e.name !== 'AbortError') setNameResults(prev => ({ ...prev, [idx]: [] })); }
+    }, 400);
+  };
+
 
   const selectSerialProduct = (idx, product) => {
     const items = [...form.items];
@@ -369,8 +386,8 @@ const searchByName = async (idx, val) => {
     if (submitting) return;
     setSubmitting(true);
     if (!form.shop_id) { setSubmitting(false); return toast.error('Please select a shop'); }
-    if (form.items.some(i => !i.product_id || !i.unit_price)) return toast.error('Each item needs a product and price');
-    if (form.is_exchange && !form.exchange_serial_number) return toast.error('Enter exchange phone serial number');
+    if (form.items.some(i => !i.product_id || !i.unit_price)) { setSubmitting(false); return toast.error('Each item needs a product and price'); }
+    if (form.is_exchange && !form.exchange_serial_number) { setSubmitting(false); return toast.error('Enter exchange phone serial number'); }
     try {
       const payload = {
         ...form,
@@ -396,7 +413,9 @@ const searchByName = async (idx, val) => {
       reloadAll();
     } catch (err) {
       if (err.response?.status === 423) toast.error('🔒 ' + (err.response?.data?.message || 'Register is locked for this date'));
-      else toast.error(err.response?.data?.message || 'Failed');
+      else toast.error(err.response?.data?.message || 'Failed to create sale');
+    } finally {
+      setSubmitting(false);
     }
   };
 
