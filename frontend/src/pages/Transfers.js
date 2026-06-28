@@ -9,6 +9,7 @@ const fmtDate = d => d ? new Date(d).toLocaleDateString('en-AE') : '—';
 
 const EMPTY = {
   from_shop_id: '', to_shop_id: '', product_id: '',
+  serial_number: '',
   quantity: '', transfer_date: new Date().toISOString().split('T')[0], notes: ''
 };
 
@@ -22,7 +23,10 @@ export default function Transfers() {
   const [saving, setSaving]       = useState(false);
 
   // Product search state
-  const [productSearch, setProductSearch]   = useState('');
+  const [searchMode, setSearchMode]   = useState('name'); // 'name' | 'imei'
+  const [imeiSearch, setImeiSearch]   = useState('');
+  const [imeiLoading, setImeiLoading] = useState(false);
+  const imeiTimer = useRef(null);
   const [productResults, setProductResults] = useState([]);
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [searchLoading, setSearchLoading]   = useState(false);
@@ -49,7 +53,8 @@ export default function Transfers() {
     setProductSearch('');
     setProductResults([]);
     setSelectedProduct(null);
-    setForm(f => ({ ...f, product_id: '' }));
+    setImeiSearch('');
+    setForm(f => ({ ...f, product_id: '', serial_number: '' }));
     if (!form.from_shop_id) return;
     // Pre-load all inventory for summary
     api.get(`/shops/${form.from_shop_id}/inventory`)
@@ -75,10 +80,35 @@ export default function Transfers() {
     }, 250);
   };
 
+  const handleImeiSearch = (val) => {
+    setImeiSearch(val);
+    setSelectedProduct(null);
+    setForm(f => ({ ...f, product_id: '', serial_number: '' }));
+    clearTimeout(imeiTimer.current);
+    if (!form.from_shop_id || val.length < 3) return;
+    imeiTimer.current = setTimeout(async () => {
+      setImeiLoading(true);
+      try {
+        const r = await api.get(`/shops/${form.from_shop_id}/inventory?search=${encodeURIComponent(val)}`);
+        const results = (r.data?.data || []).filter(i =>
+          i.serial_number && i.serial_number.toLowerCase().includes(val.toLowerCase())
+        );
+        if (results.length === 1) {
+          // Auto-select if exact match
+          pickProduct(results[0]);
+        } else {
+          setProductResults(results);
+        }
+      } catch { setProductResults([]); }
+      finally { setImeiLoading(false); }
+    }, 300);
+  };
+
   const pickProduct = (item) => {
     setSelectedProduct(item);
-    setForm(f => ({ ...f, product_id: item.product_id }));
+    setForm(f => ({ ...f, product_id: item.product_id, serial_number: item.serial_number || '' }));
     setProductSearch(`${item.brand ? item.brand + ' ' : ''}${item.name}${item.color ? ' ' + item.color : ''}`);
+    setImeiSearch(item.serial_number || '');
     setProductResults([]);
   };
 
@@ -107,7 +137,7 @@ export default function Transfers() {
           <div className="page-title">🔄 Internal Transfers</div>
           <div className="page-subtitle">Move stock between AlAman and Blessing</div>
         </div>
-        <button className="btn btn-primary" onClick={() => { setForm(EMPTY); setProductSearch(''); setSelectedProduct(null); setShowModal(true); }}>
+        <button className="btn btn-primary" onClick={() => { setForm(EMPTY); setProductSearch(''); setSelectedProduct(null); setImeiSearch(''); setSearchMode('name'); setProductResults([]); setShowModal(true); }}>
           + New Transfer
         </button>
       </div>
@@ -180,12 +210,31 @@ export default function Transfers() {
                   </select>
                 </div>
 
-                {/* Product search */}
+                {/* Search mode toggle */}
+                <div style={{gridColumn:'span 2',display:'flex',gap:'8px',marginBottom:'-8px'}}>
+                  <button onClick={() => { setSearchMode('name'); setImeiSearch(''); setProductResults([]); }}
+                    style={{ padding:'5px 14px', borderRadius:'99px', border:'1.5px solid', fontSize:'.8rem', cursor:'pointer',
+                      background: searchMode==='name' ? 'var(--accent-blue,#2563eb)' : 'transparent',
+                      color: searchMode==='name' ? '#fff' : 'var(--text-muted)',
+                      borderColor: searchMode==='name' ? 'var(--accent-blue,#2563eb)' : 'var(--border)' }}>
+                    🔤 Search by Name
+                  </button>
+                  <button onClick={() => { setSearchMode('imei'); setProductSearch(''); setProductResults([]); }}
+                    style={{ padding:'5px 14px', borderRadius:'99px', border:'1.5px solid', fontSize:'.8rem', cursor:'pointer',
+                      background: searchMode==='imei' ? 'var(--accent-blue,#2563eb)' : 'transparent',
+                      color: searchMode==='imei' ? '#fff' : 'var(--text-muted)',
+                      borderColor: searchMode==='imei' ? 'var(--accent-blue,#2563eb)' : 'var(--border)' }}>
+                    📱 Search by IMEI
+                  </button>
+                </div>
+
+                {/* Product search by name */}
+                {searchMode === 'name' && (
                 <div className="form-group" style={{gridColumn:'span 2',position:'relative'}}>
                   <label className="form-label">Product * {searchLoading && <span style={{fontSize:'.75rem',color:'var(--text-muted)'}}>searching...</span>}</label>
                   <input
                     className="form-control"
-                    placeholder={form.from_shop_id ? 'Type brand, name, color, serial...' : 'Select source shop first'}
+                    placeholder={form.from_shop_id ? 'Type brand, name, color...' : 'Select source shop first'}
                     disabled={!form.from_shop_id}
                     value={productSearch}
                     onChange={e => handleProductSearch(e.target.value)}
@@ -193,41 +242,63 @@ export default function Transfers() {
                     autoComplete="off"
                   />
                   {productResults.length > 0 && (
-                    <div style={{
-                      position:'absolute',zIndex:1000,top:'100%',left:0,right:0,
-                      background:'var(--bg-card)',border:'1px solid var(--border)',
-                      borderRadius:'8px',boxShadow:'0 8px 24px rgba(0,0,0,.15)',
-                      maxHeight:'220px',overflowY:'auto',marginTop:'2px'
-                    }}>
+                    <div style={{position:'absolute',zIndex:1000,top:'100%',left:0,right:0,background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:'8px',boxShadow:'0 8px 24px rgba(0,0,0,.15)',maxHeight:'220px',overflowY:'auto',marginTop:'2px'}}>
                       {productResults.map(item => (
-                        <div key={item.product_id}
-                          onClick={() => pickProduct(item)}
-                          style={{
-                            padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid var(--border)',
-                            display:'flex',justifyContent:'space-between',alignItems:'center'
-                          }}
+                        <div key={item.product_id} onClick={() => pickProduct(item)}
+                          style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'center'}}
                           onMouseOver={e => e.currentTarget.style.background='var(--bg-secondary)'}
-                          onMouseOut={e => e.currentTarget.style.background=''}
-                        >
+                          onMouseOut={e => e.currentTarget.style.background=''}>
                           <div>
                             <strong style={{fontSize:'.9rem'}}>{item.brand} {item.name}</strong>
                             {item.color && <span style={{color:'var(--text-muted)',marginLeft:'6px',fontSize:'.8rem'}}>{item.color}</span>}
-                            {item.serial_number && <span style={{color:'var(--text-muted)',marginLeft:'6px',fontSize:'.75rem'}}>#{item.serial_number}</span>}
+                            {item.serial_number && <span style={{color:'var(--text-muted)',marginLeft:'6px',fontSize:'.75rem',fontFamily:'monospace'}}>#{item.serial_number}</span>}
                           </div>
-                          <span style={{
-                            fontWeight:700,fontSize:'.85rem',
-                            color: item.quantity === 0 ? '#dc2626' : item.quantity <= item.min_stock ? '#d97706' : '#059669'
-                          }}>
-                            {item.quantity} in stock
-                          </span>
+                          <span style={{fontWeight:700,fontSize:'.85rem',color:item.quantity===0?'#dc2626':item.quantity<=item.min_stock?'#d97706':'#059669'}}>{item.quantity} in stock</span>
                         </div>
                       ))}
                     </div>
                   )}
-                  {form.from_shop_id && productSearch && productResults.length === 0 && !searchLoading && !selectedProduct && (
+                  {form.from_shop_id && productSearch && productResults.length===0 && !searchLoading && !selectedProduct && (
                     <div style={{fontSize:'.78rem',color:'#dc2626',marginTop:'4px'}}>No matching products found</div>
                   )}
                 </div>
+                )}
+
+                {/* IMEI search */}
+                {searchMode === 'imei' && (
+                <div className="form-group" style={{gridColumn:'span 2',position:'relative'}}>
+                  <label className="form-label">IMEI / Serial Number * {imeiLoading && <span style={{fontSize:'.75rem',color:'var(--text-muted)'}}>searching...</span>}</label>
+                  <input
+                    className="form-control"
+                    placeholder={form.from_shop_id ? 'Scan or type IMEI number...' : 'Select source shop first'}
+                    disabled={!form.from_shop_id}
+                    value={imeiSearch}
+                    onChange={e => handleImeiSearch(e.target.value)}
+                    autoComplete="off"
+                    style={{fontFamily:'monospace'}}
+                  />
+                  {productResults.length > 0 && (
+                    <div style={{position:'absolute',zIndex:1000,top:'100%',left:0,right:0,background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:'8px',boxShadow:'0 8px 24px rgba(0,0,0,.15)',maxHeight:'220px',overflowY:'auto',marginTop:'2px'}}>
+                      {productResults.map(item => (
+                        <div key={item.product_id} onClick={() => pickProduct(item)}
+                          style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'center'}}
+                          onMouseOver={e => e.currentTarget.style.background='var(--bg-secondary)'}
+                          onMouseOut={e => e.currentTarget.style.background=''}>
+                          <div>
+                            <span style={{fontFamily:'monospace',fontSize:'.88rem',fontWeight:600,color:'var(--accent-blue,#2563eb)'}}>{item.serial_number}</span>
+                            <span style={{marginLeft:'10px',fontSize:'.88rem'}}>{item.brand} {item.name}</span>
+                            {item.color && <span style={{color:'var(--text-muted)',marginLeft:'6px',fontSize:'.8rem'}}>{item.color}</span>}
+                          </div>
+                          <span style={{fontWeight:700,fontSize:'.85rem',color:item.quantity===0?'#dc2626':'#059669'}}>{item.quantity} in stock</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {form.from_shop_id && imeiSearch.length>=3 && productResults.length===0 && !imeiLoading && !selectedProduct && (
+                    <div style={{fontSize:'.78rem',color:'#dc2626',marginTop:'4px'}}>No product found with this IMEI in selected shop</div>
+                  )}
+                </div>
+                )}
 
                 {selectedProduct && (
                   <div style={{gridColumn:'span 2',padding:'10px 14px',background:'var(--bg-secondary)',borderRadius:'8px',fontSize:'.85rem',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
