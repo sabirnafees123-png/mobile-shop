@@ -85,16 +85,16 @@ export default function Transfers() {
     setSelectedProduct(null);
     setForm(f => ({ ...f, product_id: '', serial_number: '' }));
     clearTimeout(imeiTimer.current);
-    if (!form.from_shop_id || val.length < 3) return;
+    const searchVal = String(val || '');
+    if (!form.from_shop_id || searchVal.length < 3) return;
     imeiTimer.current = setTimeout(async () => {
       setImeiLoading(true);
       try {
-        const r = await api.get(`/shops/${form.from_shop_id}/inventory?search=${encodeURIComponent(val)}`);
+        const r = await api.get(`/shops/${form.from_shop_id}/inventory?search=${encodeURIComponent(searchVal)}`);
         const results = (r.data?.data || []).filter(i =>
-          i.serial_number && i.serial_number.toLowerCase().includes(val.toLowerCase())
+          i.serial_number && String(i.serial_number).toLowerCase().includes(searchVal.toLowerCase())
         );
         if (results.length === 1) {
-          // Auto-select if exact match
           pickProduct(results[0]);
         } else {
           setProductResults(results);
@@ -212,14 +212,14 @@ export default function Transfers() {
 
                 {/* Search mode toggle */}
                 <div style={{gridColumn:'span 2',display:'flex',gap:'8px',marginBottom:'-8px'}}>
-                  <button onClick={() => { setSearchMode('name'); setImeiSearch(''); setProductResults([]); }}
+                  <button type="button" onClick={() => { setSearchMode('name'); setImeiSearch(''); setProductResults([]); }}
                     style={{ padding:'5px 14px', borderRadius:'99px', border:'1.5px solid', fontSize:'.8rem', cursor:'pointer',
                       background: searchMode==='name' ? 'var(--accent-blue,#2563eb)' : 'transparent',
                       color: searchMode==='name' ? '#fff' : 'var(--text-muted)',
                       borderColor: searchMode==='name' ? 'var(--accent-blue,#2563eb)' : 'var(--border)' }}>
                     🔤 Search by Name
                   </button>
-                  <button onClick={() => { setSearchMode('imei'); setProductSearch(''); setProductResults([]); }}
+                  <button type="button" onClick={() => { setSearchMode('imei'); setProductSearch(''); setProductResults([]); }}
                     style={{ padding:'5px 14px', borderRadius:'99px', border:'1.5px solid', fontSize:'.8rem', cursor:'pointer',
                       background: searchMode==='imei' ? 'var(--accent-blue,#2563eb)' : 'transparent',
                       color: searchMode==='imei' ? '#fff' : 'var(--text-muted)',
