@@ -23,6 +23,7 @@ export default function Transfers() {
   const [saving, setSaving]       = useState(false);
 
   // Product search state
+  const [productSearch, setProductSearch]   = useState('');
   const [searchMode, setSearchMode]   = useState('name'); // 'name' | 'imei'
   const [imeiSearch, setImeiSearch]   = useState('');
   const [imeiLoading, setImeiLoading] = useState(false);
@@ -85,8 +86,11 @@ export default function Transfers() {
     setSelectedProduct(null);
     setForm(f => ({ ...f, product_id: '', serial_number: '' }));
     clearTimeout(imeiTimer.current);
+    
+    // Ensure val is treated as a string to avoid .length or .toLowerCase crashes
     const searchVal = String(val || '');
     if (!form.from_shop_id || searchVal.length < 3) return;
+    
     imeiTimer.current = setTimeout(async () => {
       setImeiLoading(true);
       try {
@@ -95,6 +99,7 @@ export default function Transfers() {
           i.serial_number && String(i.serial_number).toLowerCase().includes(searchVal.toLowerCase())
         );
         if (results.length === 1) {
+          // Auto-select if exact match
           pickProduct(results[0]);
         } else {
           setProductResults(results);
