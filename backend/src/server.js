@@ -11,20 +11,24 @@ app.use(helmet({
 }));
 app.use(cors({
   origin: [
-    'https://mobile-shop-ttur.vercel.app',
-    'https://frontend-chi-jet-38.vercel.app',
-    'http://localhost:3000'
-  ],
+  'https://mobile-shop-snowy.vercel.app',   // ← your real frontend
+  'https://mobile-shop-ttur.vercel.app',
+  'https://frontend-chi-jet-38.vercel.app',
+  'http://localhost:3000'
+],
+
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 app.options('*', cors({
   origin: [
-    'https://mobile-shop-ttur.vercel.app',
-    'https://frontend-chi-jet-38.vercel.app',
-    'http://localhost:3000'
-  ],
+  'https://mobile-shop-snowy.vercel.app',   // ← your real frontend
+  'https://mobile-shop-ttur.vercel.app',
+  'https://frontend-chi-jet-38.vercel.app',
+  'http://localhost:3000'
+],
+
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
