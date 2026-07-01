@@ -3,7 +3,6 @@ const express = require('express');
 const router  = express.Router();
 const { query } = require('../config/database');
 const checkRegisterLock = require('../middleware/checkRegisterLock');
-
 // GET /api/v1/expenses/categories
 router.get('/categories', async (req, res) => {
   try {
@@ -11,7 +10,6 @@ router.get('/categories', async (req, res) => {
     res.json({ success: true, data: result.rows });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
-
 // GET /api/v1/expenses
 router.get('/', async (req, res) => {
   try {
@@ -24,16 +22,15 @@ router.get('/', async (req, res) => {
     `;
     const params = [];
     let idx = 1;
-    if (from)        { sql += ` AND e.expense_date >= $${idx++}`; params.push(from); }
-    if (to)          { sql += ` AND e.expense_date <= $${idx++}`; params.push(to); }
-    if (category)    { sql += ` AND e.category = $${idx++}`;      params.push(category); }
-    if (shop_id)     { sql += ` AND e.shop_id = $${idx++}`;       params.push(shop_id); }
+    if (from)     { sql += ` AND e.expense_date >= $${idx++}`; params.push(from); }
+    if (to)       { sql += ` AND e.expense_date <= $${idx++}`; params.push(to); }
+    if (category) { sql += ` AND e.category = $${idx++}`;      params.push(category); }
+    if (shop_id)  { sql += ` AND e.shop_id = $${idx++}`;       params.push(shop_id); }
     sql += ` ORDER BY e.expense_date DESC`;
     const result = await query(sql, params);
     res.json({ success: true, data: result.rows });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
-
 // POST /api/v1/expenses
 router.post('/', checkRegisterLock, async (req, res) => {
   try {
@@ -60,7 +57,6 @@ router.post('/', checkRegisterLock, async (req, res) => {
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
-
 // PUT /api/v1/expenses/:id
 router.put('/:id', async (req, res) => {
   try {
@@ -85,7 +81,6 @@ router.put('/:id', async (req, res) => {
     res.json({ success: true, data: result.rows[0] });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
-
 // DELETE /api/v1/expenses/:id
 router.delete('/:id', async (req, res) => {
   try {
@@ -93,5 +88,4 @@ router.delete('/:id', async (req, res) => {
     res.json({ success: true, message: 'Expense deleted' });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
-
 module.exports = router;
