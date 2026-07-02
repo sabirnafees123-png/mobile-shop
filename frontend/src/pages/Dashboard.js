@@ -27,7 +27,7 @@ export default function Dashboard() {
     <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', minHeight:'60vh', gap:'12px' }}>
       <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" strokeWidth="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
       <p style={{ color:'#94a3b8', fontSize:'15px' }}>Failed to load dashboard</p>
-      <button onClick={() => load(shopId)} style={{ padding:'8px 20px', borderRadius:'8px', background:'#6366f1', color:'#fff', border:'none', cursor:'pointer', fontSize:'13px' }}>Retry</button>
+      <button onClick={() => load(shopId)} style={{ padding:'8px 20px', borderRadius:'8px', background:'#1e3a8a', color:'#fff', border:'none', cursor:'pointer', fontSize:'13px' }}>Retry</button>
     </div>
   );
 
@@ -54,10 +54,10 @@ export default function Dashboard() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
 
         .dash-root {
-          font-family: 'DM Sans', sans-serif;
+          font-family: 'Inter', sans-serif;
           color: #0f172a;
         }
 
@@ -66,16 +66,20 @@ export default function Dashboard() {
           display: flex; align-items: flex-start; justify-content: space-between;
           flex-wrap: wrap; gap: 16px;
           margin-bottom: 28px;
+          border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+          padding-bottom: 16px;
         }
         .dash-title {
-          font-size: 22px; font-weight: 700; color: #0f172a; letter-spacing: -0.5px;
+          font-family: 'Plus Jakarta Sans', sans-serif;
+          font-size: 24px; font-weight: 800; color: #1e3a8a; letter-spacing: -0.5px;
         }
         .dash-subtitle {
-          font-size: 13px; color: #64748b; margin-top: 3px;
+          font-size: 13px; color: #64748b; margin-top: 4px;
           display: flex; align-items: center; gap: 6px;
+          font-weight: 500;
         }
         .dash-subtitle-dot {
-          width: 6px; height: 6px; border-radius: 50%; background: #22c55e;
+          width: 6px; height: 6px; border-radius: 50%; background: #0f766e;
           display: inline-block; animation: pulse-dot 2s infinite;
         }
         @keyframes pulse-dot {
@@ -86,138 +90,156 @@ export default function Dashboard() {
           display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
         }
         .dash-date {
-          font-size: 12px; color: #94a3b8;
-          background: #f8fafc; border: 1px solid #e2e8f0;
-          padding: 6px 12px; border-radius: 8px;
+          font-size: 12px; color: #64748b; font-weight: 600;
+          background: #ffffff; border: 1px solid rgba(15, 23, 42, 0.08);
+          padding: 6px 14px; border-radius: 8px;
+          box-shadow: 0 1px 2px rgba(0,0,0,0.02);
         }
 
         /* Section label */
         .dash-section-label {
-          font-size: 10px; font-weight: 700; letter-spacing: 1.2px;
+          font-family: 'Plus Jakarta Sans', sans-serif;
+          font-size: 10px; font-weight: 800; letter-spacing: 1.5px;
           text-transform: uppercase; color: #94a3b8;
-          margin-bottom: 12px; margin-top: 28px;
-          display: flex; align-items: center; gap: 8px;
+          margin-bottom: 16px; margin-top: 32px;
+          display: flex; align-items: center; gap: 12px;
         }
         .dash-section-label::after {
-          content: ''; flex: 1; height: 1px; background: #f1f5f9;
+          content: ''; flex: 1; height: 1px; background: rgba(15, 23, 42, 0.06);
         }
 
         /* Stat grid */
         .dash-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-          gap: 14px;
+          grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+          gap: 16px;
         }
 
         /* Stat card */
         .dash-card {
           background: #fff;
-          border: 1px solid #e2e8f0;
+          border: 1px solid rgba(15, 23, 42, 0.06);
           border-radius: 14px;
-          padding: 18px 20px;
+          padding: 20px 22px;
           position: relative; overflow: hidden;
-          transition: transform 0.18s, box-shadow 0.18s;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 10px 15px -3px rgba(15, 23, 42, 0.03);
+          transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1), border-color 0.2s;
           cursor: default;
           animation: card-in 0.4s ease both;
         }
         .dash-card:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 8px 24px rgba(0,0,0,0.07);
+          transform: translateY(-3px);
+          box-shadow: 0 20px 25px -5px rgba(30, 58, 138, 0.08), 0 8px 10px -6px rgba(15, 23, 42, 0.02);
+          border-color: rgba(30, 58, 138, 0.15);
         }
         .dash-card.clickable { cursor: pointer; }
 
         @keyframes card-in {
-          from { opacity:0; transform:translateY(10px); }
+          from { opacity:0; transform:translateY(12px); }
           to   { opacity:1; transform:translateY(0); }
         }
-        .dash-card:nth-child(1) { animation-delay: 0.05s; }
-        .dash-card:nth-child(2) { animation-delay: 0.10s; }
-        .dash-card:nth-child(3) { animation-delay: 0.15s; }
-        .dash-card:nth-child(4) { animation-delay: 0.20s; }
+        .dash-card:nth-child(1) { animation-delay: 0.03s; }
+        .dash-card:nth-child(2) { animation-delay: 0.06s; }
+        .dash-card:nth-child(3) { animation-delay: 0.09s; }
+        .dash-card:nth-child(4) { animation-delay: 0.12s; }
 
         /* Card accent strip */
         .dash-card::before {
           content: ''; position: absolute;
-          top: 0; left: 0; right: 0; height: 3px;
+          top: 0; left: 0; right: 0; height: 4px;
           border-radius: 14px 14px 0 0;
         }
-        .dash-card.c-green::before  { background: linear-gradient(90deg, #22c55e, #4ade80); }
-        .dash-card.c-blue::before   { background: linear-gradient(90deg, #6366f1, #818cf8); }
-        .dash-card.c-yellow::before { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
-        .dash-card.c-red::before    { background: linear-gradient(90deg, #ef4444, #f87171); }
-        .dash-card.c-purple::before { background: linear-gradient(90deg, #8b5cf6, #a78bfa); }
-        .dash-card.c-teal::before   { background: linear-gradient(90deg, #14b8a6, #2dd4bf); }
+        .dash-card.c-green::before  { background: linear-gradient(90deg, #0f766e, #14b8a6); }
+        .dash-card.c-blue::before   { background: linear-gradient(90deg, #1e3a8a, #3b82f6); }
+        .dash-card.c-yellow::before { background: linear-gradient(90deg, #b45309, #fbbf24); }
+        .dash-card.c-red::before    { background: linear-gradient(90deg, #be123c, #f43f5e); }
+        .dash-card.c-purple::before { background: linear-gradient(90deg, #5b21b6, #8b5cf6); }
+        .dash-card.c-teal::before   { background: linear-gradient(90deg, #0d9488, #2dd4bf); }
 
         /* Card icon */
         .dash-card-icon {
           width: 38px; height: 38px; border-radius: 10px;
           display: flex; align-items: center; justify-content: center;
           margin-bottom: 14px; flex-shrink: 0;
+          transition: transform 0.2s ease;
+        }
+        .dash-card:hover .dash-card-icon {
+          transform: scale(1.05);
         }
         .dash-card-icon svg { width: 18px; height: 18px; }
-        .c-green  .dash-card-icon { background: #dcfce7; color: #16a34a; }
-        .c-blue   .dash-card-icon { background: #eef2ff; color: #6366f1; }
-        .c-yellow .dash-card-icon { background: #fef3c7; color: #d97706; }
-        .c-red    .dash-card-icon { background: #fee2e2; color: #dc2626; }
-        .c-purple .dash-card-icon { background: #f3e8ff; color: #7c3aed; }
-        .c-teal   .dash-card-icon { background: #ccfbf1; color: #0f766e; }
+        .c-green  .dash-card-icon { background: #ccfbf1; color: #0f766e; }
+        .c-blue   .dash-card-icon { background: #eff6ff; color: #1e3a8a; }
+        .c-yellow .dash-card-icon { background: #fef3c7; color: #b45309; }
+        .c-red    .dash-card-icon { background: #ffe4e6; color: #be123c; }
+        .c-purple .dash-card-icon { background: #f5f3ff; color: #6d28d9; }
+        .c-teal   .dash-card-icon { background: #e0f2fe; color: #0369a1; }
 
         .dash-card-label {
-          font-size: 11.5px; font-weight: 600; color: #94a3b8;
-          letter-spacing: 0.2px; margin-bottom: 6px;
+          font-family: 'Plus Jakarta Sans', sans-serif;
+          font-weight: 700; color: #64748b;
+          margin-bottom: 6px;
           text-transform: uppercase; font-size: 10.5px; letter-spacing: 0.6px;
         }
         .dash-card-value {
-          font-size: 22px; font-weight: 700; color: #0f172a;
+          font-size: 24px; font-weight: 800; color: #0f172a;
           letter-spacing: -0.8px; line-height: 1;
-          font-family: 'DM Mono', monospace;
+          font-family: 'JetBrains Mono', monospace;
         }
         .dash-card-sub {
-          font-size: 11.5px; color: #94a3b8; margin-top: 6px;
+          font-size: 12px; color: #64748b; margin-top: 8px;
+          border-top: 1px solid rgba(15, 23, 42, 0.04);
+          padding-top: 8px;
         }
-        .dash-card-sub b { color: #64748b; font-weight: 600; }
+        .dash-card-sub b { color: #0f172a; font-weight: 600; }
 
         /* Shop breakdown cards */
         .shop-card {
-          background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
-          padding: 16px 18px; cursor: pointer;
-          transition: transform 0.18s, box-shadow 0.18s, border-color 0.18s;
+          background: #fff; border: 1px solid rgba(15, 23, 42, 0.06); border-radius: 14px;
+          padding: 18px 20px; cursor: pointer;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 10px 15px -3px rgba(15, 23, 42, 0.03);
+          transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s, border-color 0.2s;
           animation: card-in 0.4s ease both;
           display: flex; flex-direction: column; gap: 4px;
+          position: relative;
+        }
+        .shop-card::before {
+          content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+          background: var(--accent, #1e3a8a); border-radius: 14px 14px 0 0;
         }
         .shop-card:hover {
-          transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,0.07);
-          border-color: #6366f1;
+          transform: translateY(-2px); box-shadow: 0 12px 24px rgba(30, 58, 138, 0.08);
+          border-color: rgba(30, 58, 138, 0.2);
         }
-        .shop-card-name { font-size: 12px; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
-        .shop-card-value { font-size: 20px; font-weight: 700; color: #0f172a; letter-spacing: -0.6px; font-family: 'DM Mono', monospace; }
+        .shop-card-name { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 11px; font-weight: 700; color: #64748b; text-transform: uppercase; letter-spacing: 0.8px; }
+        .shop-card-value { font-size: 20px; font-weight: 800; color: #1e3a8a; letter-spacing: -0.6px; font-family: 'JetBrains Mono', monospace; }
         .shop-card-sub { font-size: 11px; color: #94a3b8; }
-        .shop-card-hint { font-size: 10px; color: #6366f1; margin-top: 4px; font-weight: 500; }
+        .shop-card-hint { font-size: 10px; color: #b45309; margin-top: 6px; font-weight: 600; }
 
         /* Top products table */
         .dash-table-wrap {
-          background: #fff; border: 1px solid #e2e8f0; border-radius: 14px;
+          background: #fff; border: 1px solid rgba(15, 23, 42, 0.06); border-radius: 14px;
           overflow: hidden;
+          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 10px 15px -3px rgba(15, 23, 42, 0.03);
           animation: card-in 0.4s ease 0.2s both;
         }
         .dash-table-head {
-          padding: 14px 20px;
-          border-bottom: 1px solid #f1f5f9;
+          padding: 16px 20px;
+          border-bottom: 1px solid rgba(15, 23, 42, 0.06);
           display: flex; align-items: center; justify-content: space-between;
         }
-        .dash-table-head-title { font-size: 13px; font-weight: 700; color: #0f172a; }
+        .dash-table-head-title { font-family: 'Plus Jakarta Sans', sans-serif; font-size: 13.5px; font-weight: 800; color: #1e3a8a; }
         .dash-table-head-sub { font-size: 11px; color: #94a3b8; }
         table.dash-table { width: 100%; border-collapse: collapse; }
         .dash-table th {
-          text-align: left; padding: 10px 20px;
-          font-size: 10.5px; font-weight: 700; color: #94a3b8;
-          text-transform: uppercase; letter-spacing: 0.6px;
-          background: #f8fafc; border-bottom: 1px solid #f1f5f9;
+          text-align: left; padding: 12px 20px;
+          font-size: 10.5px; font-weight: 700; color: #64748b;
+          text-transform: uppercase; letter-spacing: 0.8px;
+          background: #f8fafc; border-bottom: 1px solid rgba(15, 23, 42, 0.06);
         }
         .dash-table th:last-child, .dash-table td:last-child { text-align: right; }
         .dash-table td {
-          padding: 12px 20px; font-size: 13.5px; color: #334155;
-          border-bottom: 1px solid #f8fafc;
+          padding: 14px 20px; font-size: 13.5px; color: #334155;
+          border-bottom: 1px solid rgba(15, 23, 42, 0.04);
         }
         .dash-table tr:last-child td { border-bottom: none; }
         .dash-table tr:hover td { background: #f8fafc; }
@@ -225,10 +247,10 @@ export default function Dashboard() {
           display: inline-flex; align-items: center; justify-content: center;
           width: 22px; height: 22px; border-radius: 6px;
           font-size: 11px; font-weight: 700;
-          background: #f1f5f9; color: #64748b;
+          background: #f1f5f9; color: #475569;
         }
-        .rank-badge.top { background: #fef3c7; color: #d97706; }
-        .revenue-val { font-family: 'DM Mono', monospace; font-weight: 600; color: #0f172a; font-size: 13px; }
+        .rank-badge.top { background: #fef3c7; color: #b45309; }
+        .revenue-val { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: #1e3a8a; font-size: 13px; }
 
         /* Skeleton */
         .skel { background: linear-gradient(90deg, #f1f5f9 25%, #e2e8f0 50%, #f1f5f9 75%); background-size: 200% 100%; animation: skel-shimmer 1.4s infinite; border-radius: 8px; }
