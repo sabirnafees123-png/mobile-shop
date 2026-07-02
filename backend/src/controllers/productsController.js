@@ -5,43 +5,55 @@ const PRODUCT_TYPES = ['New (Box Pack)', 'Used', 'Refurbished', 'Parts', 'Access
 
 const getProducts = async (req, res) => {
   try {
-    const { search, category, type, is_active } = req.query;
+    const { search, category, type, is_active, shop_id } = req.query;
 
     // Pagination params
     const page  = Math.max(1, parseInt(req.query.page)  || 1);
     const limit = Math.max(1, parseInt(req.query.limit) || 50);
     const offset = (page - 1) * limit;
 
+    let selectFields = `p.*`;
+    let joinClause = ``;
     let whereClause = `WHERE 1=1`;
     const params = [];
 
+    if (shop_id) {
+      params.push(parseInt(shop_id));
+      selectFields = `p.*, COALESCE(i.quantity, 0) AS stock_qty`;
+      joinClause = `LEFT JOIN inventory i ON i.product_id = p.id AND i.shop_id = $${params.length}`;
+    }
+
     if (search) {
       params.push(`%${search}%`);
-      whereClause += ` AND (name ILIKE $${params.length}
-                       OR brand ILIKE $${params.length}
-                       OR model ILIKE $${params.length}
-                       OR serial_number ILIKE $${params.length}
-                       OR color ILIKE $${params.length})`;
+      whereClause += ` AND (p.name ILIKE $${params.length}
+                       OR p.brand ILIKE $${params.length}
+                       OR p.model ILIKE $${params.length}
+                       OR p.serial_number ILIKE $${params.length}
+                       OR p.color ILIKE $${params.length})`;
     }
-    if (category) { params.push(category); whereClause += ` AND category = $${params.length}`; }
-    if (req.query.sub_category) { params.push(req.query.sub_category); whereClause += ` AND sub_category = $${params.length}`; }
-    if (type)     { params.push(type);     whereClause += ` AND type = $${params.length}`; }
+    if (category) { params.push(category); whereClause += ` AND p.category = $${params.length}`; }
+    if (req.query.sub_category) { params.push(req.query.sub_category); whereClause += ` AND p.sub_category = $${params.length}`; }
+    if (type)     { params.push(type);     whereClause += ` AND p.type = $${params.length}`; }
     if (is_active !== undefined && is_active !== '') {
       params.push(is_active === 'true');
-      whereClause += ` AND is_active = $${params.length}`;
+      whereClause += ` AND p.is_active = $${params.length}`;
     }
 
     // COUNT query — same filters, no LIMIT/OFFSET
     const countResult = await pool.query(
-      `SELECT COUNT(*) FROM products ${whereClause}`,
+      `SELECT COUNT(*) FROM products p ${joinClause} ${whereClause}`,
       params
     );
     const total = parseInt(countResult.rows[0].count, 10);
 
     // DATA query — append LIMIT/OFFSET after freezing param positions
     const dataParams = [...params, limit, offset];
+    let orderBy = `p.created_at DESC`;
+    if (shop_id) {
+      orderBy = `COALESCE(i.quantity, 0) DESC, p.created_at DESC`;
+    }
     const dataResult = await pool.query(
-      `SELECT * FROM products ${whereClause} ORDER BY created_at DESC LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
+      `SELECT ${selectFields} FROM products p ${joinClause} ${whereClause} ORDER BY ${orderBy} LIMIT $${dataParams.length - 1} OFFSET $${dataParams.length}`,
       dataParams
     );
 

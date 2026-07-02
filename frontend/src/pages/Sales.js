@@ -324,7 +324,7 @@ useEffect(() => {
       const controller = new AbortController();
       nameAborts.current[idx] = controller;
       try {
-        const res = await api.get(`/products?search=${encodeURIComponent(val)}&limit=15`, { signal: controller.signal });
+        const res = await api.get(`/products?search=${encodeURIComponent(val)}&shop_id=${form.shop_id || ''}&limit=15`, { signal: controller.signal });
         setNameResults(prev => ({ ...prev, [idx]: res.data?.data || [] }));
       } catch (e) { if (e.name !== 'CanceledError' && e.name !== 'AbortError') setNameResults(prev => ({ ...prev, [idx]: [] })); }
     }, 400);
@@ -765,6 +765,11 @@ useEffect(() => {
                             <strong>{p.brand} {p.name}</strong>
                             {p.serial_number && <span style={{color:'var(--text-muted)',marginLeft:'8px',fontSize:'.8rem',fontFamily:'monospace'}}>S/N: {p.serial_number}</span>}
                             <span style={{marginLeft:'8px',color:'#059669',fontSize:'.82rem'}}>AED {Math.round(p.selling_price||0).toLocaleString()}</span>
+                            {p.stock_qty !== undefined && (
+                              <span style={{marginLeft:'8px',color:p.stock_qty > 0 ? '#0f766e' : '#be123c',fontWeight:600,fontSize:'.82rem'}}>
+                                Stock: {p.stock_qty}
+                              </span>
+                            )}
                             <span style={{marginLeft:'8px',color:'#92400e',fontSize:'.82rem'}}>Cost: AED {Math.round(p.base_cost||0).toLocaleString()}</span>
                             <span style={{marginLeft:'8px',fontSize:'.75rem',background:'#f3f4f6',padding:'1px 6px',borderRadius:'4px'}}>{p.type||''}</span>
                           </div>
