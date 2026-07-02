@@ -169,7 +169,7 @@ export default function CashRegister() {
             {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           {shopId && isOpen && (
-            <button className="btn btn-ghost" onClick={() => setShowManual(true)}>+ Cash Entry</button>
+            
           )}
           {shopId && (
             <button className="btn btn-ghost" onClick={() => { setTransferForm({...transferForm, from_shop_id: shopId}); setShowTransfer(true); }}>🔄 Transfer Cash</button>
@@ -275,7 +275,7 @@ export default function CashRegister() {
           {/* Manual Cash Entries */}
           <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
             <div className="cr-section-label" style={{margin:0}}>Manual Cash Entries</div>
-            {isOpen && <button className="btn btn-ghost btn-sm" onClick={() => setShowManual(true)}>+ Add Entry</button>}
+            
           </div>
           <div className="card" style={{padding:'12px',marginBottom:'24px'}}>
             {manualEntries.length === 0 ? (
@@ -388,7 +388,7 @@ export default function CashRegister() {
                               </button>
                             )}
                             <button className="btn btn-ghost btn-sm" title="Add manual entry for this date"
-                              onClick={() => { setManualForm({entry_type:'in',amount:'',category:'',description:'',entry_date:h.register_date}); setShowManual(true); }}>
+                              style={{display:"none"}}>
                               + Entry
                             </button>
                             <button className="btn btn-ghost btn-sm" title="View full breakdown"
@@ -536,57 +536,6 @@ export default function CashRegister() {
       )}
 
       {/* Manual Entry Modal */}
-      {showManual && (
-        <div className="modal-overlay" onClick={() => setShowManual(false)}>
-          <div className="modal" style={{maxWidth:'420px'}} onClick={e => e.stopPropagation()}>
-            <div className="modal-header"><strong>💰 Manual Cash Entry</strong><button className="modal-close" onClick={() => setShowManual(false)}>✕</button></div>
-            <div className="modal-body">
-              <div className="form-group">
-                <label className="form-label">Type</label>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
-                  {['in','out'].map(t => (
-                    <button key={t} onClick={() => setManualForm({...manualForm, entry_type: t, category:''})}
-                      style={{padding:'12px',border:`2px solid ${manualForm.entry_type===t?(t==='in'?'#059669':'#dc2626'):'#e2e8f0'}`,borderRadius:'8px',background:manualForm.entry_type===t?(t==='in'?'#f0fdf4':'#fff5f5'):'#fff',cursor:'pointer',fontWeight:700,color:manualForm.entry_type===t?(t==='in'?'#059669':'#dc2626'):'#64748b',fontSize:'14px'}}>
-                      {t==='in'?'⬇️ Cash IN':'⬆️ Cash OUT'}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Date (leave blank for today)</label>
-                <input type="date" className="form-control" value={manualForm.entry_date} onChange={e => setManualForm({...manualForm, entry_date:e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Amount (AED) *</label>
-                <input type="number" className="form-control" value={manualForm.amount} onChange={e => setManualForm({...manualForm, amount:e.target.value})} placeholder="0.00" />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Category</label>
-                <select className="form-control" value={manualForm.category} onChange={e => setManualForm({...manualForm, category:e.target.value})}>
-                  <option value="">— Select Category —</option>
-                  {manualForm.entry_type === 'in' ? (
-                    INCOME_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)
-                  ) : (
-                    expenseCategories.map(c => <option key={c.id} value={c.name}>{c.name}</option>)
-                  )}
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Description</label>
-                <input className="form-control" placeholder="e.g. Room 2 rent from Ahmed — May" value={manualForm.description} onChange={e => setManualForm({...manualForm, description:e.target.value})} />
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn btn-ghost" onClick={() => setShowManual(false)}>Cancel</button>
-              <button className="btn btn-primary"
-                style={{background:manualForm.entry_type==='in'?'#059669':'#dc2626'}}
-                onClick={handleManualEntry} disabled={saving||!manualForm.amount}>
-                {saving?'Saving...':`Record Cash ${manualForm.entry_type==='in'?'IN':'OUT'}`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
       {/* Transfer Modal */}
       {showTransfer && (
         <div className="modal-overlay" onClick={() => setShowTransfer(false)}>
