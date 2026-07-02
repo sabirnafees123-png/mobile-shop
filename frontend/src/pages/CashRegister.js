@@ -254,38 +254,7 @@ export default function CashRegister() {
             </div>
           </div>
 
-          {/* Manual Cash Entries */}
-          <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'8px'}}>
-            <div className="cr-section-label" style={{margin:0}}>Manual Cash Entries</div>
-            
-          </div>
-          <div className="card" style={{padding:'12px',marginBottom:'24px'}}>
-            {manualEntries.length === 0 ? (
-              <div style={{textAlign:'center',padding:'20px',color:'var(--text-muted)',fontSize:'13px'}}>
-                No manual entries today. Use "+ Cash Entry" to record rent received, etc.
-              </div>
-            ) : manualEntries.map(e => (
-              <div key={e.id} className="manual-entry-row"
-                style={{background: e.entry_type==='in'?'#f0fdf4':'#fff5f5', border:`1px solid ${e.entry_type==='in'?'#bbf7d0':'#fecaca'}`}}>
-                <div style={{display:'flex',gap:'10px',alignItems:'center'}}>
-                  <span style={{fontSize:'16px'}}>{e.entry_type==='in'?'⬇️':'⬆️'}</span>
-                  <div>
-                    <div style={{fontWeight:700,color:e.entry_type==='in'?'#059669':'#dc2626'}}>
-                      {e.entry_type==='in'?'+ Cash In':'− Cash Out'} — {fmt(e.amount)}
-                    </div>
-                    <div style={{fontSize:'12px',color:'#64748b'}}>{e.category || '—'}{e.description ? ` · ${e.description}` : ''}</div>
-                  </div>
-                </div>
-                {isOpen && <button className="btn btn-ghost btn-sm" style={{color:'#dc2626'}} onClick={() => deleteManualEntry(e.id)}>🗑️</button>}
-              </div>
-            ))}
-            {manualEntries.length > 0 && (
-              <div style={{display:'flex',justifyContent:'flex-end',gap:'16px',marginTop:'8px',padding:'8px 0',borderTop:'1px solid var(--border)',fontSize:'13px',fontWeight:700}}>
-                <span style={{color:'#059669'}}>Total In: {fmt(todayData.manual_in)}</span>
-                <span style={{color:'#dc2626'}}>Total Out: {fmt(todayData.manual_out)}</span>
-              </div>
-            )}
-          </div>
+
 
           {/* Cheques */}
           <div className="cr-section-label">Pending Cheques — {shopName}</div>
