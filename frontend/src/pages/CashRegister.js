@@ -150,9 +150,6 @@ export default function CashRegister() {
             <option value="">— Select Shop —</option>
             {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
-          {shopId && isOpen && (
-            
-          )}
           {shopId && (
             <button className="btn btn-ghost" onClick={() => { setTransferForm({...transferForm, from_shop_id: shopId}); setShowTransfer(true); }}>🔄 Transfer Cash</button>
           )}
