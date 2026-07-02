@@ -6,7 +6,6 @@ import api from '../utils/api';
 const fmt = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
 const fmtDate = d => new Date(d).toLocaleDateString('en-AE');
 
-const INCOME_CATEGORIES  = ['Rent Received', 'Loan Received', 'Refund Received', 'Repairing', 'Other Income'];
 
 export default function CashRegister() {
   const [data, setData]             = useState(null);
@@ -16,15 +15,12 @@ export default function CashRegister() {
   const [loading, setLoading]       = useState(false);
   const [showOpen, setShowOpen]     = useState(false);
   const [showClose, setShowClose]   = useState(false);
-  const [showManual, setShowManual] = useState(false);
   const [openingBal, setOpeningBal] = useState('');
   const [closingBal, setClosingBal] = useState('');
   const [notes, setNotes]           = useState('');
   const [saving, setSaving]         = useState(false);
   const [variance, setVariance]     = useState(null);
-  const [manualForm, setManualForm] = useState({ entry_type: 'in', amount: '', category: '', description: '', entry_date: '' });
 
-  const [expenseCategories, setExpenseCategories] = useState([]);
 
   useEffect(() => {
     api.get('/shops').then(r => {
@@ -87,20 +83,6 @@ export default function CashRegister() {
     finally { setSaving(false); }
   };
 
-  const handleManualEntry = async () => {
-    if (!manualForm.amount) return toast.error('Enter amount');
-    setSaving(true);
-    try {
-      const entryDate = manualForm.entry_date || new Date().toISOString().split('T')[0];
-      await api.post('/cash-register/manual-entry', { ...manualForm, entry_date: entryDate, shop_id: shopId });
-      await api.post('/cash-register/recalculate', { shop_id: shopId, date: entryDate }).catch(() => {});
-      toast.success(`Cash ${manualForm.entry_type === 'in' ? 'IN' : 'OUT'} recorded!`);
-      setShowManual(false);
-      setManualForm({ entry_type: 'in', amount: '', category: '', description: '', entry_date: '' });
-      load(shopId);
-    } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
-    finally { setSaving(false); }
-  };
 
   const [showTransfer, setShowTransfer] = useState(false);
   const [transferForm, setTransferForm] = useState({ from_shop_id: '', to_shop_id: '', amount: '', date: '', description: '' });
