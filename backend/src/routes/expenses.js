@@ -2,6 +2,7 @@ const express = require('express');
 const router  = express.Router();
 const { query } = require('../config/database');
 const checkRegisterLock = require('../middleware/checkRegisterLock');
+// v2 — category/sub_category columns (no category_id join)
 
 router.get('/categories', async (req, res) => {
   try {
