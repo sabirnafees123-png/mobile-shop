@@ -75,6 +75,7 @@ const cashRegisterRoutes = require('./routes/cashRegister');
 const shopRoutes         = require('./routes/shops');
 const obligationRoutes   = require('./routes/obligations');
 const attendanceRoutes   = require('./routes/attendance');
+const financeRoutes       = require('./routes/finance');
 const stockCountRoutes   = require('./routes/stockCount');
 
 app.use('/api/v1/dashboard',      dashboardRoutes);
@@ -91,6 +92,7 @@ app.use('/api/v1/cash-register',  cashRegisterRoutes);
 app.use('/api/v1/shops',          shopRoutes);
 app.use('/api/v1/obligations',    obligationRoutes);
 app.use('/api/v1/attendance',     attendanceRoutes);
+app.use('/api/v1/finance',        financeRoutes);
 app.use('/api/v1/stock-count',    stockCountRoutes);
 
 // ─── Health check ────────────────────────────────────────────────────────────

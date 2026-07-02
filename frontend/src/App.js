@@ -17,6 +17,7 @@ import Users from './pages/Users';
 import Reports      from './pages/Reports';
 import CashRegister from './pages/CashRegister';
 import Obligations from './pages/Obligations';
+import Finance     from './pages/Finance';
 import Transfers from './pages/Transfers';
 import Attendance from './pages/Attendance';
 import StockCount from './pages/StockCount';
@@ -135,6 +136,7 @@ export default function App() {
 		  <Route path="/reports"       element={<Reports />} />
 		  <Route path="/cash-register" element={<CashRegister />} />
 		  <Route path="/obligations" element={<Obligations />} />
+		  <Route path="/finance" element={<Finance />} />
 		  <Route path="/transfers" element={<Transfers />} />
 		  <Route path="/attendance" element={<Attendance user={user} />} />
 		  <Route path="/stock-count" element={<StockCount user={user} />} />
