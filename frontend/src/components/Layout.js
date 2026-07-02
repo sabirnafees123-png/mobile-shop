@@ -23,6 +23,7 @@ export default function Layout({ children, user, onLogout }) {
     { path: '/suppliers',     label: 'Suppliers',     icon: SuppliersIcon,    roles: ['admin','staff','accountant'] },
     { path: '/customers',     label: 'Customers',     icon: CustomersIcon,    roles: ['admin','staff','accountant'] },
     { path: '/expenses',      label: 'Expenses',      icon: ExpensesIcon,     roles: ['admin','accountant'] },
+    { path: '/finance',       label: 'Finance',       icon: FinanceIcon,      roles: ['admin','accountant'] },
     { path: '/cheques',       label: 'Cheques',       icon: ChequesIcon,      roles: ['admin','accountant'] },
     { path: '/cash-register', label: 'Cash Register', icon: CashIcon,         roles: ['admin','accountant'] },
     { path: '/transfers',     label: 'Transfers',     icon: TransfersIcon,    roles: ['admin','staff'] },
@@ -482,5 +483,12 @@ const UsersIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
     <circle cx="12" cy="7" r="4"/>
+  </svg>
+);
+const FinanceIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="3" width="20" height="14" rx="2"/>
+    <path d="M8 21h8"/><line x1="12" y1="17" x2="12" y2="21"/>
+    <path d="M7 10h.01M12 7v6M17 10h.01"/>
   </svg>
 );
