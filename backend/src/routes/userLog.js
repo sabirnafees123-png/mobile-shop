@@ -35,7 +35,7 @@ router.get('/', async (req, res) => {
       ORDER BY si.created_at DESC
     `, params);
 
-    // 2. Purchases
+    // 2. Purchases — no user tracking, always show all
     const purchases = await query(`
       SELECT
         p.created_at as time,
@@ -53,7 +53,7 @@ router.get('/', async (req, res) => {
       LEFT JOIN suppliers s ON s.id = p.supplier_id
       WHERE p.purchase_date BETWEEN $1 AND $2
       ORDER BY p.created_at DESC
-    `, params);
+    `, [from, to]);
 
     // 3. Expenses
     const expenses = await query(`
