@@ -61,10 +61,13 @@ export default function Attendance({ user }) {
   const [month, setMonth]       = useState(thisMonth);
   const [records, setRecords]   = useState([]);
   const [monthly, setMonthly]   = useState([]);
+  const [lateReport, setLateReport] = useState([]);
+  const [shifts, setShifts]     = useState([]);
   const [leaves, setLeaves]     = useState([]);
   const [shops, setShops]       = useState([]);
   const [loading, setLoading]   = useState(false);
   const [saving, setSaving]     = useState(false);
+  const [savingShift, setSavingShift] = useState(null);
   const [showLeaveForm, setShowLeaveForm] = useState(false);
   const [leaveForm, setLeaveForm] = useState({
     user_id: '', from_date: today, to_date: today, leave_type: 'annual_leave', reason: ''
@@ -87,9 +90,47 @@ export default function Attendance({ user }) {
     finally { setUsersLoading(false); }
   };
 
-  useEffect(() => { if (tab === 'daily')   loadDaily();   }, [date, tab]);
-  useEffect(() => { if (tab === 'monthly') loadMonthly(); }, [month, tab]);
-  useEffect(() => { if (tab === 'leaves')  loadLeaves();  }, [tab]);
+  useEffect(() => { if (tab === 'daily')       loadDaily();      }, [date, tab]);
+  useEffect(() => { if (tab === 'monthly')     loadMonthly();    }, [month, tab]);
+  useEffect(() => { if (tab === 'leaves')      loadLeaves();     }, [tab]);
+  useEffect(() => { if (tab === 'shifts')      loadShifts();     }, [tab]);
+  useEffect(() => { if (tab === 'late-report') loadLateReport(); }, [month, tab]);
+
+  const loadShifts = async () => {
+    setLoading(true);
+    try {
+      const r = await api.get('/attendance/shifts');
+      setShifts(r.data?.data || []);
+    } catch { toast.error('Failed to load shifts'); }
+    finally { setLoading(false); }
+  };
+
+  const saveShift = async (shift) => {
+    setSavingShift(shift.user_id);
+    try {
+      await api.post('/attendance/shifts', {
+        user_id: shift.user_id,
+        shift_start: shift.shift_start,
+        shift_end: shift.shift_end,
+        grace_minutes: shift.grace_minutes,
+      });
+      toast.success(`Shift updated for ${shift.name}`);
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
+    finally { setSavingShift(null); }
+  };
+
+  const updateShift = (userId, field, value) => {
+    setShifts(prev => prev.map(s => s.user_id === userId ? { ...s, [field]: value } : s));
+  };
+
+  const loadLateReport = async () => {
+    setLoading(true);
+    try {
+      const r = await api.get('/attendance/late-report', { params: { month } });
+      setLateReport(r.data?.data || []);
+    } catch { toast.error('Failed to load late report'); }
+    finally { setLoading(false); }
+  };
 
   const loadDaily = async () => {
     setLoading(true);
@@ -199,9 +240,9 @@ export default function Attendance({ user }) {
       </div>
 
       <div className="att-tabs">
-        {['daily', 'monthly', 'leaves'].map(t => (
+        {['daily', 'monthly', 'late-report', 'shifts', 'leaves'].map(t => (
           <button key={t} className={`att-tab${tab === t ? ' active' : ''}`} onClick={() => setTab(t)}>
-            {t === 'daily' ? '📋 Daily' : t === 'monthly' ? '📆 Monthly' : '🏖️ Leave Requests'}
+            {t === 'daily' ? '📋 Daily' : t === 'monthly' ? '📆 Monthly' : t === 'late-report' ? '⏰ Late Report' : t === 'shifts' ? '🕐 Shift Settings' : '🏖️ Leave Requests'}
           </button>
         ))}
       </div>
@@ -238,7 +279,13 @@ export default function Attendance({ user }) {
                       const ss = statusStyle(r.status);
                       return (
                         <tr key={r.user_id}>
-                          <td><strong>{r.user_name}</strong></td>
+                          <td>
+                            <strong>{r.user_name}</strong>
+                            <div style={{fontSize:'.72rem',color:'var(--text-muted)'}}>
+                              {r.shift_start} — {r.shift_end}
+                              {r.is_late && <span style={{marginLeft:'6px',color:'#dc2626',fontWeight:700}}>⏰ Late {r.late_minutes}min</span>}
+                            </div>
+                          </td>
                           <td><span style={{ fontSize:'11px', fontWeight:600, color:'#64748b', textTransform:'uppercase' }}>{r.role}</span></td>
                           <td>
                             <select className="status-select" value={r.shop_id || ''} onChange={e => updateRecord(i, 'shop_id', e.target.value)} disabled={isAbsent}>
@@ -424,6 +471,100 @@ export default function Attendance({ user }) {
           </div>
         </div>
       )}
+      {/* ── Shift Settings ── */}
+      {tab === 'shifts' && (
+        <div>
+          <div style={{marginBottom:'16px',color:'var(--text-muted)',fontSize:'.88rem'}}>
+            Set base shift timing for each staff member. Grace period = minutes after shift start before marking as late.
+          </div>
+          <div style={{overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',fontSize:'.88rem'}}>
+              <thead>
+                <tr style={{borderBottom:'2px solid var(--border)'}}>
+                  {['Staff','Shift Start','Shift End','Grace (mins)',''].map(h => (
+                    <th key={h} style={{padding:'10px 12px',textAlign:'left',fontWeight:600,color:'var(--text-muted)',fontSize:'.78rem',textTransform:'uppercase'}}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {shifts.map(s => (
+                  <tr key={s.user_id} style={{borderBottom:'1px solid var(--border)'}}>
+                    <td style={{padding:'10px 12px'}}>
+                      <div style={{fontWeight:600}}>{s.name}</div>
+                      <div style={{fontSize:'.75rem',color:'var(--text-muted)'}}>{s.role}</div>
+                    </td>
+                    <td style={{padding:'10px 12px'}}>
+                      <input type="time" className="form-control" style={{width:'120px'}}
+                        value={s.shift_start} onChange={e => updateShift(s.user_id,'shift_start',e.target.value)} />
+                    </td>
+                    <td style={{padding:'10px 12px'}}>
+                      <input type="time" className="form-control" style={{width:'120px'}}
+                        value={s.shift_end} onChange={e => updateShift(s.user_id,'shift_end',e.target.value)} />
+                    </td>
+                    <td style={{padding:'10px 12px'}}>
+                      <input type="number" className="form-control" style={{width:'80px'}}
+                        value={s.grace_minutes} min="0" max="60"
+                        onChange={e => updateShift(s.user_id,'grace_minutes',e.target.value)} />
+                    </td>
+                    <td style={{padding:'10px 12px'}}>
+                      <button className="btn btn-primary btn-sm"
+                        onClick={() => saveShift(s)}
+                        disabled={savingShift === s.user_id}>
+                        {savingShift === s.user_id ? 'Saving...' : 'Save'}
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── Late Report ── */}
+      {tab === 'late-report' && (
+        <div>
+          <div style={{display:'flex',gap:'8px',marginBottom:'16px',alignItems:'center'}}>
+            <label className="form-label" style={{margin:0}}>Month:</label>
+            <input type="month" className="form-control" style={{width:'160px'}}
+              value={month} onChange={e => setMonth(e.target.value)} />
+          </div>
+          {loading ? <div style={{textAlign:'center',padding:'2rem',color:'var(--text-muted)'}}>Loading...</div> : (
+          <table style={{width:'100%',borderCollapse:'collapse',fontSize:'.88rem'}}>
+            <thead>
+              <tr style={{borderBottom:'2px solid var(--border)'}}>
+                {['Staff','Present','Late Days','Avg Late (mins)','Max Late (mins)','Absent'].map(h => (
+                  <th key={h} style={{padding:'10px 12px',textAlign:'left',fontWeight:600,color:'var(--text-muted)',fontSize:'.78rem',textTransform:'uppercase'}}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {lateReport.map((r,i) => (
+                <tr key={i} style={{borderBottom:'1px solid var(--border)',background: r.late_days > 0 ? '#fff7f7' : ''}}>
+                  <td style={{padding:'10px 12px',fontWeight:600}}>{r.user_name}</td>
+                  <td style={{padding:'10px 12px',color:'#059669'}}>{r.present_days || 0}</td>
+                  <td style={{padding:'10px 12px'}}>
+                    {r.late_days > 0
+                      ? <span style={{color:'#dc2626',fontWeight:700}}>{r.late_days} days</span>
+                      : <span style={{color:'#059669'}}>0</span>}
+                  </td>
+                  <td style={{padding:'10px 12px',color: r.avg_late_minutes > 30 ? '#dc2626' : '#d97706'}}>
+                    {r.avg_late_minutes ? `${r.avg_late_minutes} min` : '—'}
+                  </td>
+                  <td style={{padding:'10px 12px',color:'#dc2626'}}>
+                    {r.max_late_minutes ? `${r.max_late_minutes} min` : '—'}
+                  </td>
+                  <td style={{padding:'10px 12px',color: r.absent_days > 0 ? '#dc2626' : 'var(--text-muted)'}}>
+                    {r.absent_days || 0}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          )}
+        </div>
+      )}
+
     </div>
   );
 }
