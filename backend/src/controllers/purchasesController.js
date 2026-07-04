@@ -234,22 +234,33 @@ exports.createPurchase = async (req, res) => {
        VALUES ${piValues}`, piParams
     );
 
-    // ── Batch inventory upsert ────────────────────────────────────────
+    // ── Batch inventory upsert — skip service items ──────────────────
+    const productIds = resolvedItems.map(i => i.finalProductId);
+    const serviceCheck = await client.query(
+      `SELECT id, is_service FROM products WHERE id = ANY($1)`,
+      [productIds]
+    );
+    const serviceMap = {};
+    serviceCheck.rows.forEach(r => { serviceMap[r.id] = r.is_service; });
+
     const invMap = {};
     resolvedItems.forEach(item => {
+      if (serviceMap[item.finalProductId]) return; // skip service items
       const key = `${item.finalProductId}:${parseInt(item.shop_id)}`;
       if (!invMap[key]) invMap[key] = { product_id: item.finalProductId, shop_id: parseInt(item.shop_id), qty: 0 };
       invMap[key].qty += item.qty || 1;
     });
-    const invRows   = Object.values(invMap);
-    const invValues = invRows.map((_, i) => { const b=i*3; return `($${b+1},$${b+2},$${b+3},5)`; }).join(',');
-    const invParams = invRows.flatMap(r => [r.product_id, r.shop_id, r.qty]);
-    await client.query(
-      `INSERT INTO inventory (product_id, shop_id, quantity, min_stock) VALUES ${invValues}
-       ON CONFLICT (product_id, shop_id)
-       DO UPDATE SET quantity = inventory.quantity + EXCLUDED.quantity, last_updated = NOW()`,
-      invParams
-    );
+    const invRows = Object.values(invMap);
+    if (invRows.length > 0) {
+      const invValues = invRows.map((_, i) => { const b=i*3; return `($${b+1},$${b+2},$${b+3},5)`; }).join(',');
+      const invParams = invRows.flatMap(r => [r.product_id, r.shop_id, r.qty]);
+      await client.query(
+        `INSERT INTO inventory (product_id, shop_id, quantity, min_stock) VALUES ${invValues}
+         ON CONFLICT (product_id, shop_id)
+         DO UPDATE SET quantity = inventory.quantity + EXCLUDED.quantity, last_updated = NOW()`,
+        invParams
+      );
+    }
 
     // Update supplier balance — only net due affects balance
     const amountDue  = totalAmount - amount_paid;
