@@ -138,6 +138,7 @@ export default function App() {
 		  <Route path="/cash-register" element={<CashRegister />} />
 		  <Route path="/obligations" element={<Obligations />} />
 		  <Route path="/finance" element={<Finance />} />
+		  <Route path="/user-log" element={<UserLog />} />
 		  <Route path="/transfers" element={<Transfers />} />
 		  <Route path="/attendance" element={<Attendance user={user} />} />
 		  <Route path="/stock-count" element={<StockCount user={user} />} />
