@@ -30,7 +30,7 @@ router.get('/', async (req, res) => {
       LEFT JOIN users u ON u.id = si.user_id
       LEFT JOIN shops sh ON sh.id = si.shop_id
       LEFT JOIN customers c ON c.id = si.customer_id
-      WHERE si.sale_date BETWEEN $1 AND $2
+      WHERE si.created_at::date BETWEEN $1 AND $2
         AND si.payment_status != 'returned'
         ${userFilter}
       ORDER BY si.created_at DESC
@@ -54,7 +54,7 @@ router.get('/', async (req, res) => {
       LEFT JOIN users u ON u.id = p.created_by
       LEFT JOIN shops sh ON sh.id = p.shop_id
       LEFT JOIN suppliers s ON s.id = p.supplier_id
-      WHERE p.purchase_date BETWEEN $1 AND $2
+      WHERE p.created_at::date BETWEEN $1 AND $2
       ORDER BY p.created_at DESC
     `, [from, to]);
 
@@ -75,7 +75,7 @@ router.get('/', async (req, res) => {
       FROM expenses e
       LEFT JOIN users u ON u.id = e.user_id
       LEFT JOIN shops sh ON sh.id = e.shop_id
-      WHERE e.expense_date BETWEEN $1 AND $2
+      WHERE e.created_at::date BETWEEN $1 AND $2
         ${userFilter}
       ORDER BY e.created_at DESC
     `, params);
@@ -98,7 +98,7 @@ router.get('/', async (req, res) => {
       LEFT JOIN users u ON u.id = ft.created_by
       LEFT JOIN finance_accounts fa ON fa.id = ft.account_id
       LEFT JOIN shops sh ON sh.id = ft.shop_id
-      WHERE ft.transaction_date BETWEEN $1 AND $2
+      WHERE ft.created_at::date BETWEEN $1 AND $2
         ${userFilter}
       ORDER BY ft.created_at DESC
     `, params);
