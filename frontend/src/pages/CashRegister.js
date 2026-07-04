@@ -169,8 +169,10 @@ export default function CashRegister() {
             {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
           {shopId && (
-            <button className="btn btn-ghost" onClick={() => { setTransferForm({...transferForm, from_shop_id: shopId}); setShowTransfer(true); }}>🔄 Transfer Cash</button>
-            {isAdmin && <button className="btn btn-ghost" onClick={() => setShowManual(true)}>+ Cash Entry</button>}
+            <>
+              <button className="btn btn-ghost" onClick={() => { setTransferForm({...transferForm, from_shop_id: shopId}); setShowTransfer(true); }}>🔄 Transfer Cash</button>
+              {isAdmin && <button className="btn btn-ghost" onClick={() => setShowManual(true)}>+ Cash Entry</button>}
+            </>
           )}
           {shopId && !isOpen && (
             <button className="btn btn-primary" onClick={() => setShowOpen(true)}>🔓 Open Register</button>
