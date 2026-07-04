@@ -5,15 +5,16 @@ import api from '../utils/api';
 const fmt = n => `AED ${Math.round(parseFloat(n||0)).toLocaleString()}`;
 const fmtDate = d => d ? new Date(d).toLocaleDateString('en-AE',{day:'numeric',month:'short',year:'numeric'}) : '—';
 
-const TYPE_LABELS = { investor: '💼 Investor', card: '💳 Credit Card', fund: '🔄 Fund' };
-const TYPE_COLORS = { investor: '#2563eb', card: '#7c3aed', fund: '#059669' };
+const TYPE_LABELS = { bank: '🏦 Bank Account', investor: '💼 Investor', card: '💳 Credit Card', fund: '🔄 Fund' };
+const TYPE_COLORS = { bank: '#0369a1', investor: '#2563eb', card: '#7c3aed', fund: '#059669' };
 const SUB_TYPES = {
+  bank:     ['Current Account','Savings Account','Business Account'],
   investor: ['Business Investment','Short Term Loan'],
   card:     ['Credit Card','Debit Card'],
   fund:     ['Committee','Savings Box','Exchange Float','Other'],
 };
 
-const EMPTY_ACC  = { name:'', type:'investor', sub_type:'', opening_balance:'', notes:'', shop_id:'' };
+const EMPTY_ACC  = { name:'', type:'bank', sub_type:'', opening_balance:'', notes:'', shop_id:'' };
 const EMPTY_TXN  = { transaction_type:'out', amount:'', description:'', transaction_date: new Date().toISOString().split('T')[0], affects_cash: true };
 
 export default function Finance() {
@@ -93,7 +94,7 @@ export default function Finance() {
     } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
   };
 
-  const grouped = { investor: [], card: [], fund: [] };
+  const grouped = { bank: [], investor: [], card: [], fund: [] };
   accounts.forEach(a => { if (grouped[a.type]) grouped[a.type].push(a); });
 
   return (
@@ -110,6 +111,7 @@ export default function Finance() {
           </select>
           <select className="form-control" style={{width:'130px'}} value={filterType} onChange={e=>setFilterType(e.target.value)}>
             <option value="all">All Types</option>
+            <option value="bank">🏦 Bank</option>
             <option value="investor">💼 Investors</option>
             <option value="card">💳 Cards</option>
             <option value="fund">🔄 Funds</option>
