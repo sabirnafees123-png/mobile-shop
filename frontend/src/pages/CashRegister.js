@@ -8,6 +8,8 @@ const fmtDate = d => new Date(d).toLocaleDateString('en-AE');
 
 
 export default function CashRegister() {
+  const currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+  const isAdmin = currentUser?.role === 'admin';
   const [data, setData]             = useState(null);
   const [history, setHistory]       = useState([]);
   const [shops, setShops]           = useState([]);
@@ -20,6 +22,8 @@ export default function CashRegister() {
   const [notes, setNotes]           = useState('');
   const [saving, setSaving]         = useState(false);
   const [variance, setVariance]     = useState(null);
+  const [showManual, setShowManual] = useState(false);
+  const [manualForm, setManualForm] = useState({ entry_type:'in', amount:'', category:'', description:'', entry_date:'' });
 
 
   useEffect(() => {
@@ -59,6 +63,20 @@ export default function CashRegister() {
 
   const today = new Date().toISOString().split('T')[0];
   const [registerDate, setRegisterDate] = useState(today);
+
+  const handleManualEntry = async () => {
+    if (!manualForm.amount) return toast.error('Enter amount');
+    setSaving(true);
+    try {
+      const entryDate = manualForm.entry_date || new Date().toISOString().split('T')[0];
+      await api.post('/cash-register/manual-entry', { ...manualForm, entry_date: entryDate, shop_id: shopId });
+      toast.success(`Cash ${manualForm.entry_type === 'in' ? 'IN' : 'OUT'} recorded!`);
+      setShowManual(false);
+      setManualForm({ entry_type:'in', amount:'', category:'', description:'', entry_date:'' });
+      load(shopId);
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
+    finally { setSaving(false); }
+  };
 
   const handleOpen = async () => {
     setSaving(true);
@@ -152,6 +170,7 @@ export default function CashRegister() {
           </select>
           {shopId && (
             <button className="btn btn-ghost" onClick={() => { setTransferForm({...transferForm, from_shop_id: shopId}); setShowTransfer(true); }}>🔄 Transfer Cash</button>
+            {isAdmin && <button className="btn btn-ghost" onClick={() => setShowManual(true)}>+ Cash Entry</button>}
           )}
           {shopId && !isOpen && (
             <button className="btn btn-primary" onClick={() => setShowOpen(true)}>🔓 Open Register</button>
@@ -695,6 +714,63 @@ export default function CashRegister() {
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setShowDetail(false)}>Close</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Manual Cash Entry Modal — Admin Only */}
+      {showManual && isAdmin && (
+        <div className="modal-overlay" onClick={() => setShowManual(false)}>
+          <div className="modal" style={{maxWidth:'420px'}} onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <strong>💰 Manual Cash Entry</strong>
+              <button className="modal-close" onClick={() => setShowManual(false)}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label className="form-label">Type</label>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'8px'}}>
+                  {['in','out'].map(t => (
+                    <button key={t} type="button" onClick={() => setManualForm({...manualForm, entry_type:t})}
+                      style={{padding:'12px',border:`2px solid ${manualForm.entry_type===t?(t==='in'?'#059669':'#dc2626'):'#e2e8f0'}`,
+                        borderRadius:'8px',background:manualForm.entry_type===t?(t==='in'?'#f0fdf4':'#fff5f5'):'#fff',
+                        cursor:'pointer',fontWeight:700,color:manualForm.entry_type===t?(t==='in'?'#059669':'#dc2626'):'#64748b'}}>
+                      {t==='in'?'⬇️ Cash IN':'⬆️ Cash OUT'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Date</label>
+                <input type="date" className="form-control" value={manualForm.entry_date}
+                  onChange={e => setManualForm({...manualForm, entry_date:e.target.value})}
+                  max={new Date().toISOString().split('T')[0]} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Amount (AED) *</label>
+                <input type="number" className="form-control" value={manualForm.amount}
+                  onChange={e => setManualForm({...manualForm, amount:e.target.value})} placeholder="0.00" />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Category</label>
+                <input className="form-control" value={manualForm.category}
+                  onChange={e => setManualForm({...manualForm, category:e.target.value})}
+                  placeholder="e.g. Rent, Salary, Other Income..." />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Description</label>
+                <input className="form-control" value={manualForm.description}
+                  onChange={e => setManualForm({...manualForm, description:e.target.value})}
+                  placeholder="e.g. Blessing shop rent received" />
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button className="btn btn-ghost" onClick={() => setShowManual(false)}>Cancel</button>
+              <button className="btn btn-primary"
+                style={{background:manualForm.entry_type==='in'?'#059669':'#dc2626'}}
+                onClick={handleManualEntry} disabled={saving||!manualForm.amount}>
+                {saving?'Saving...':`Record Cash ${manualForm.entry_type==='in'?'IN':'OUT'}`}
+              </button>
             </div>
           </div>
         </div>
