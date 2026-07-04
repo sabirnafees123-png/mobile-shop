@@ -9,7 +9,7 @@ router.get('/', async (req, res) => {
     const { shop_id, type, status, obligation_model } = req.query;
     let sql = `
       SELECT o.*, s.name as shop_name,
-             ec.name as category_name,
+             CONCAT(ec.category, ' / ', COALESCE(ec.sub_category,'')) as category_name,
              ch.cheque_number, ch.bank
       FROM obligations o
       LEFT JOIN shops s               ON s.id  = o.shop_id
