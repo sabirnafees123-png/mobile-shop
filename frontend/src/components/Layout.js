@@ -492,13 +492,6 @@ const UsersIcon = () => (
     <circle cx="12" cy="7" r="4"/>
   </svg>
 );
-const FinanceIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="3" width="20" height="14" rx="2"/>
-    <path d="M8 21h8"/><line x1="12" y1="17" x2="12" y2="21"/>
-    <path d="M7 10h.01M12 7v6M17 10h.01"/>
-  </svg>
-);
 const UserLogIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
