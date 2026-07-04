@@ -23,11 +23,12 @@ export default function Layout({ children, user, onLogout }) {
     { path: '/suppliers',     label: 'Suppliers',     icon: SuppliersIcon,    roles: ['admin','staff','accountant'] },
     { path: '/customers',     label: 'Customers',     icon: CustomersIcon,    roles: ['admin','staff','accountant'] },
     { path: '/expenses',      label: 'Expenses',      icon: ExpensesIcon,     roles: ['admin','accountant'] },
-    { path: '/finance',       label: 'Finance',       icon: FinanceIcon,      roles: ['admin','accountant'] },
     { path: '/cheques',       label: 'Cheques',       icon: ChequesIcon,      roles: ['admin','accountant'] },
     { path: '/cash-register', label: 'Cash Register', icon: CashIcon,         roles: ['admin','accountant'] },
     { path: '/transfers',     label: 'Transfers',     icon: TransfersIcon,    roles: ['admin','staff'] },
     { path: '/obligations',   label: 'Obligations',   icon: ObligationsIcon,  roles: ['admin','accountant'] },
+    { path: '/finance',       label: 'Finance',       icon: FinanceIcon,      roles: ['admin','accountant'] },
+    { path: '/user-log',      label: 'User Log',      icon: UserLogIcon,      roles: ['admin'] },
     { path: '/reports',       label: 'Reports',       icon: ReportsIcon,      roles: ['admin','accountant'] },
     { path: '/attendance',    label: 'Attendance',    icon: AttendanceIcon,   roles: ['admin','staff','accountant'] },
     { path: '/stock-count',   label: 'Stock Count',   icon: StockCountIcon,   roles: ['admin','accountant'] },
@@ -35,9 +36,9 @@ export default function Layout({ children, user, onLogout }) {
   ];
 
   const roleConfig = {
-    admin:      { color: '#b45309', bg: '#fef3c7', label: 'Admin' },      // Gold accents
-    accountant: { color: '#0f766e', bg: '#ccfbf1', label: 'Accountant' }, // Teal
-    staff:      { color: '#1e3a8a', bg: '#eff6ff', label: 'Staff' },      // Royal Blue
+    admin:      { color: '#6366f1', bg: '#eef2ff', label: 'Admin' },
+    accountant: { color: '#0ea5e9', bg: '#e0f2fe', label: 'Accountant' },
+    staff:      { color: '#f59e0b', bg: '#fef3c7', label: 'Staff' },
   };
 
   const visibleItems = navItems.filter(item => item.roles.includes(user?.role));
@@ -60,23 +61,21 @@ export default function Layout({ children, user, onLogout }) {
         .sidebar-overlay {
           display: none;
           position: fixed; inset: 0;
-          background: rgba(15,23,42,0.3);
+          background: rgba(15,23,42,0.45);
           z-index: 40;
-          backdrop-filter: blur(4px);
+          backdrop-filter: blur(2px);
         }
         .sidebar-overlay.open { display: block; }
 
-        /* ── Sidebar (Clean White) ── */
+        /* ── Sidebar ── */
         .sidebar-v2 {
           position: fixed; top: 0; left: 0; bottom: 0;
           width: 240px;
-          background: #ffffff;
-          border-right: 1px solid rgba(15, 23, 42, 0.08);
+          background: #0f172a;
           display: flex; flex-direction: column;
           transition: width 0.25s cubic-bezier(.4,0,.2,1), transform 0.25s cubic-bezier(.4,0,.2,1);
           z-index: 50;
           overflow: hidden;
-          box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.02), 0 2px 4px -1px rgba(0, 0, 0, 0.02);
         }
         .sidebar-v2.collapsed { width: 68px; }
 
@@ -89,33 +88,33 @@ export default function Layout({ children, user, onLogout }) {
         .sb-brand {
           display: flex; align-items: center; gap: 10px;
           padding: 20px 16px 18px;
-          border-bottom: 1px solid rgba(15, 23, 42, 0.06);
+          border-bottom: 1px solid rgba(255,255,255,0.07);
           flex-shrink: 0;
           min-height: 64px;
         }
         .sb-logo {
           width: 36px; height: 36px; border-radius: 10px;
-          background: linear-gradient(135deg, #1e3a8a, #3b82f6);
+          background: linear-gradient(135deg, #6366f1, #818cf8);
           display: flex; align-items: center; justify-content: center;
           flex-shrink: 0;
-          box-shadow: 0 4px 12px rgba(30, 58, 138, 0.2);
+          box-shadow: 0 4px 12px rgba(99,102,241,0.4);
         }
         .sb-logo svg { width: 20px; height: 20px; }
         .sb-brand-text { overflow: hidden; transition: opacity 0.2s, width 0.25s; white-space: nowrap; }
-        .sb-brand-text h2 { font-size: 15px; font-weight: 800; color: #1e3a8a; letter-spacing: -0.5px; }
-        .sb-brand-text p  { font-size: 10px; color: #64748b; margin-top: 2px; letter-spacing: 0.5px; font-weight: 600; }
+        .sb-brand-text h2 { font-size: 15px; font-weight: 700; color: #f1f5f9; letter-spacing: -0.3px; }
+        .sb-brand-text p  { font-size: 10px; color: #64748b; margin-top: 1px; letter-spacing: 0.3px; }
         .collapsed .sb-brand-text { opacity: 0; width: 0; }
 
         /* Collapse toggle */
         .sb-toggle {
           margin-left: auto; flex-shrink: 0;
           width: 24px; height: 24px; border-radius: 6px;
-          background: rgba(15, 23, 42, 0.04);
+          background: rgba(255,255,255,0.06);
           border: none; cursor: pointer;
           display: flex; align-items: center; justify-content: center;
-          color: #64748b; transition: background 0.15s, color 0.15s;
+          color: #94a3b8; transition: background 0.15s, color 0.15s;
         }
-        .sb-toggle:hover { background: rgba(30, 58, 138, 0.08); color: #1e3a8a; }
+        .sb-toggle:hover { background: rgba(255,255,255,0.12); color: #f1f5f9; }
         .collapsed .sb-toggle { margin-left: 0; }
 
         @media (max-width: 768px) { .sb-toggle { display: none; } }
@@ -123,35 +122,34 @@ export default function Layout({ children, user, onLogout }) {
         /* Nav */
         .sb-nav {
           flex: 1; overflow-y: auto; overflow-x: hidden;
-          padding: 12px 8px;
+          padding: 10px 8px;
           scrollbar-width: thin;
-          scrollbar-color: rgba(15, 23, 42, 0.1) transparent;
+          scrollbar-color: rgba(255,255,255,0.1) transparent;
         }
         .sb-nav::-webkit-scrollbar { width: 4px; }
-        .sb-nav::-webkit-scrollbar-thumb { background: rgba(15, 23, 42, 0.1); border-radius: 2px; }
+        .sb-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
 
         .nav-item-v2 {
           display: flex; align-items: center; gap: 10px;
-          padding: 9px 12px; border-radius: 8px;
+          padding: 9px 10px; border-radius: 8px;
           text-decoration: none;
-          color: #475569;
+          color: #94a3b8;
           font-size: 13.5px; font-weight: 500;
           transition: background 0.15s, color 0.15s;
           margin-bottom: 2px;
           white-space: nowrap;
           position: relative;
         }
-        .nav-item-v2:hover { background: rgba(30, 58, 138, 0.04); color: #1e3a8a; }
+        .nav-item-v2:hover { background: rgba(255,255,255,0.07); color: #e2e8f0; }
         .nav-item-v2.active {
-          background: rgba(30, 58, 138, 0.06);
-          color: #1e3a8a;
-          font-weight: 600;
+          background: rgba(99,102,241,0.18);
+          color: #a5b4fc;
         }
-        .nav-item-v2.active .nav-icon-wrap { color: #1e3a8a; }
+        .nav-item-v2.active .nav-icon-wrap { color: #818cf8; }
         .nav-item-v2 .active-bar {
           display: none; position: absolute; left: 0; top: 20%; bottom: 20%;
           width: 3px; border-radius: 0 3px 3px 0;
-          background: #b45309;
+          background: #6366f1;
         }
         .nav-item-v2.active .active-bar { display: block; }
 
@@ -172,11 +170,11 @@ export default function Layout({ children, user, onLogout }) {
           content: attr(data-label);
           position: absolute; left: calc(100% + 10px); top: 50%;
           transform: translateY(-50%);
-          background: #0f172a; color: #f1f5f9;
+          background: #1e293b; color: #f1f5f9;
           font-size: 12px; font-weight: 500;
           padding: 5px 10px; border-radius: 6px;
           white-space: nowrap;
-          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+          box-shadow: 0 4px 12px rgba(0,0,0,0.3);
           z-index: 100;
           pointer-events: none;
         }
@@ -184,15 +182,13 @@ export default function Layout({ children, user, onLogout }) {
         /* User footer */
         .sb-footer {
           padding: 12px 8px;
-          border-top: 1px solid rgba(15, 23, 42, 0.06);
+          border-top: 1px solid rgba(255,255,255,0.07);
           flex-shrink: 0;
-          background: #ffffff;
         }
         .sb-user {
           display: flex; align-items: center; gap: 10px;
           padding: 8px 10px; border-radius: 8px;
-          background: rgba(15, 23, 42, 0.02);
-          border: 1px solid rgba(15, 23, 42, 0.04);
+          background: rgba(255,255,255,0.05);
           overflow: hidden;
           margin-bottom: 6px;
         }
@@ -204,20 +200,20 @@ export default function Layout({ children, user, onLogout }) {
           letter-spacing: 0.5px;
         }
         .sb-user-info { overflow: hidden; transition: opacity 0.2s, width 0.25s; white-space: nowrap; }
-        .sb-user-info .u-name { font-size: 12.5px; font-weight: 600; color: #0f172a; overflow: hidden; text-overflow: ellipsis; }
-        .sb-user-info .u-role { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; margin-top: 1px; }
+        .sb-user-info .u-name { font-size: 12.5px; font-weight: 600; color: #e2e8f0; overflow: hidden; text-overflow: ellipsis; }
+        .sb-user-info .u-role { font-size: 10px; font-weight: 600; letter-spacing: 0.5px; margin-top: 1px; }
         .collapsed .sb-user-info { opacity: 0; width: 0; }
         .collapsed .sb-user { justify-content: center; }
 
         .sb-logout {
           width: 100%; padding: 8px 10px; border-radius: 8px;
-          background: rgba(190,18,60,0.04);
-          border: 1px solid rgba(190,18,60,0.12);
-          color: #be123c; font-size: 12.5px; font-weight: 600;
+          background: rgba(239,68,68,0.08);
+          border: 1px solid rgba(239,68,68,0.15);
+          color: #f87171; font-size: 12.5px; font-weight: 500;
           cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 7px;
           transition: background 0.15s, color 0.15s;
         }
-        .sb-logout:hover { background: rgba(190,18,60,0.1); color: #be123c; }
+        .sb-logout:hover { background: rgba(239,68,68,0.15); color: #fca5a5; }
         .collapsed .sb-logout { padding: 8px; }
         .sb-logout-label { transition: opacity 0.2s, width 0.25s; overflow: hidden; white-space: nowrap; }
         .collapsed .sb-logout-label { opacity: 0; width: 0; }
@@ -240,8 +236,8 @@ export default function Layout({ children, user, onLogout }) {
         .topbar-v2 {
           height: 64px; padding: 0 24px;
           display: flex; align-items: center; justify-content: space-between;
-          background: #ffffff;
-          border-bottom: 1px solid rgba(15, 23, 42, 0.08);
+          background: #fff;
+          border-bottom: 1px solid #e2e8f0;
           position: sticky; top: 0; z-index: 30;
           flex-shrink: 0;
         }
@@ -260,11 +256,11 @@ export default function Layout({ children, user, onLogout }) {
         .topbar-title { font-size: 15px; font-weight: 600; color: #0f172a; }
         .topbar-right { display: flex; align-items: center; gap: 10px; }
         .topbar-badge {
-          padding: 4px 12px; border-radius: 20px;
-          font-size: 11px; font-weight: 700; letter-spacing: 0.5px;
+          padding: 4px 10px; border-radius: 20px;
+          font-size: 11px; font-weight: 600; letter-spacing: 0.4px;
         }
-        .topbar-welcome { font-size: 13px; color: #64748b; }
-        .topbar-welcome strong { color: #0f172a; }
+        .topbar-welcome { font-size: 13px; color: #94a3b8; }
+        .topbar-welcome strong { color: #334155; }
 
         /* Page content */
         .page-content-v2 {
@@ -461,6 +457,16 @@ const ObligationsIcon = () => (
     <path d="M9 16l2 2 4-4"/>
   </svg>
 );
+const UserLogIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/>
+  </svg>
+);
+const FinanceIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>
+  </svg>
+);
 const ReportsIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/>
@@ -483,12 +489,5 @@ const UsersIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
     <circle cx="12" cy="7" r="4"/>
-  </svg>
-);
-const FinanceIcon = () => (
-  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="3" width="20" height="14" rx="2"/>
-    <path d="M8 21h8"/><line x1="12" y1="17" x2="12" y2="21"/>
-    <path d="M7 10h.01M12 7v6M17 10h.01"/>
   </svg>
 );

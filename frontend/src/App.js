@@ -18,6 +18,7 @@ import Reports      from './pages/Reports';
 import CashRegister from './pages/CashRegister';
 import Obligations from './pages/Obligations';
 import Finance     from './pages/Finance';
+import UserLog     from './pages/UserLog';
 import Transfers from './pages/Transfers';
 import Attendance from './pages/Attendance';
 import StockCount from './pages/StockCount';
