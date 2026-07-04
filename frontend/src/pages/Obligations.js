@@ -136,7 +136,7 @@ export default function Obligations() {
             <option value='pending'>Pending</option>
             <option value='paid'>Paid</option>
           </select>
-          <button className='btn-primary' onClick={openAdd}>+ Add Obligation</button>
+          <button className='btn btn-primary' onClick={openAdd}>+ Add Obligation</button>
         </div>
       </div>
 
@@ -163,6 +163,36 @@ export default function Obligations() {
           <div className='sub'>{fmt(confirmedObs.reduce((s, o) => s + parseFloat(o.amount || 0), 0))}</div>
         </div>
       </div>
+
+      {/* ── Month-wise Summary ── */}
+      {(() => {
+        const monthMap = {};
+        obligations.filter(o => o.status === 'pending').forEach(o => {
+          if (!o.due_date) return;
+          const m = o.due_date.slice(0, 7); // YYYY-MM
+          if (!monthMap[m]) monthMap[m] = 0;
+          monthMap[m] += parseFloat(o.amount || 0);
+        });
+        const months = Object.keys(monthMap).sort();
+        if (!months.length) return null;
+        return (
+          <div style={{marginBottom:'20px',padding:'14px 16px',background:'var(--bg-card,#fff)',border:'1px solid var(--border)',borderRadius:'10px'}}>
+            <div style={{fontWeight:700,fontSize:'.88rem',color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:'10px'}}>📅 Monthly Breakdown (Pending)</div>
+            <div style={{display:'flex',gap:'10px',flexWrap:'wrap'}}>
+              {months.map(m => {
+                const [y,mo] = m.split('-');
+                const label = new Date(parseInt(y), parseInt(mo)-1, 1).toLocaleString('en-AE',{month:'short',year:'numeric'});
+                return (
+                  <div key={m} style={{padding:'8px 16px',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:'8px',textAlign:'center',minWidth:'100px'}}>
+                    <div style={{fontSize:'.78rem',color:'#1e40af',fontWeight:600}}>{label}</div>
+                    <div style={{fontSize:'1rem',fontWeight:700,color:'#1d4ed8',marginTop:'2px'}}>AED {Math.round(monthMap[m]).toLocaleString()}</div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── Explanation Banner ── */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
@@ -311,7 +341,7 @@ export default function Obligations() {
                   <label>Category</label>
                   <select value={form.category_id} onChange={e => setForm({ ...form, category_id: e.target.value })}>
                     <option value=''>— Select —</option>
-                    {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {categories.map(c => <option key={c.id} value={c.id}>{c.category}{c.sub_category ? ' / ' + c.sub_category : ''}</option>)}
                   </select>
                 </div>
                 <div className='form-group' style={{ flex: 1 }}>
