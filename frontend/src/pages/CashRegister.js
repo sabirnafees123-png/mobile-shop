@@ -601,6 +601,20 @@ export default function CashRegister() {
                     </div>
                   )}
 
+                  {/* Bank / Finance Receipts */}
+                  {detailData.bank_receipts?.total > 0 && (
+                    <div style={{marginBottom:'12px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',fontWeight:700,color:'#0369a1',marginBottom:'4px'}}>
+                        <span>🏦 Bank / Finance</span><span>+ {fmt(detailData.bank_receipts.total)}</span>
+                      </div>
+                      {detailData.bank_receipts.items.map((i,idx) => (
+                        <div key={idx} style={{display:'flex',justifyContent:'space-between',paddingLeft:'16px',color:'#64748b',marginBottom:'2px'}}>
+                          <span>{i.account_name}{i.description?` — ${i.description}`:''}</span><span>{fmt(i.amount)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
                   {/* Cash In Manual */}
                   {detailData.manual_in.total > 0 && (
                     <div style={{marginBottom:'12px'}}>

@@ -58,7 +58,8 @@ export default function Finance() {
 
   const handleSaveAccount = async () => {
     if (!accForm.name)    return toast.error('Name required');
-    if (!accForm.shop_id) return toast.error('Shop required');
+    if (!accForm.type)    return toast.error('Type required');
+    if (['card','fund'].includes(accForm.type) && !accForm.shop_id) return toast.error('Shop required for this account type');
     setSaving(true);
     try {
       await api.post('/finance/accounts', accForm);
@@ -234,9 +235,9 @@ export default function Finance() {
             </div>
             <div className="modal-body">
               <div className="form-group">
-                <label className="form-label">Shop *</label>
+                <label className="form-label">Shop {['card','fund'].includes(accForm.type) ? '*' : '(Optional)'}</label>
                 <select className="form-control" value={accForm.shop_id} onChange={e=>setAccForm({...accForm,shop_id:e.target.value})}>
-                  <option value="">— Select —</option>
+                  <option value="">— All Shops / Business Level —</option>
                   {shops.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>

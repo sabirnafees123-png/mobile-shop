@@ -24,7 +24,7 @@ router.post('/accounts', async (req, res) => {
     const { name, type, sub_type, opening_balance, notes, shop_id } = req.body;
     if (!name)    return res.status(400).json({ success: false, message: 'Name required' });
     if (!type)    return res.status(400).json({ success: false, message: 'Type required' });
-    if (!shop_id) return res.status(400).json({ success: false, message: 'Shop required' });
+    if (['card','fund'].includes(type) && !shop_id) return res.status(400).json({ success: false, message: 'Shop required for this account type' });
     const ob = parseFloat(opening_balance) || 0;
     const result = await query(
       `INSERT INTO finance_accounts (name, type, sub_type, opening_balance, balance, notes, shop_id)
