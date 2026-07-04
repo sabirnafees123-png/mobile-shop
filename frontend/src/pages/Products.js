@@ -36,6 +36,8 @@ const typeBadgeColor = (t) => ({
 }[t] || { bg: '#f3f4f6', color: '#374151' });
 
 export default function Products() {
+  const currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+  const isAdmin = currentUser?.role === 'admin';
   const [products, setProducts]         = useState([]);
   const [loading, setLoading]           = useState(true);
   const [showModal, setShowModal]       = useState(false);
@@ -238,7 +240,7 @@ export default function Products() {
                       </td>
                       <td style={{ whiteSpace: 'nowrap' }}>
                         <button className="btn btn-ghost btn-sm" title="View Transactions" onClick={() => openTx(p)}>📋</button>
-                        <button className="btn btn-ghost btn-sm" title="Stock Adjustment" onClick={() => openAdj(p)}>⚖️</button>
+                        <button className="btn btn-ghost btn-sm" title="Stock Adjustment" onClick={() => openAdj(p)} style={{display: isAdmin ? '' : 'none'}}>⚖️</button>
                         <button className="btn btn-ghost btn-sm" onClick={() => openEdit(p)}>✏️</button>
                         <button className="btn btn-ghost btn-sm" style={{ color: 'var(--accent-red)' }} onClick={() => handleDelete(p.id)}>🗑️</button>
                       </td>

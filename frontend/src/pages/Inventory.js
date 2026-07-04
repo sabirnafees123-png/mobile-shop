@@ -42,7 +42,7 @@ function AdjustModal({ item, onClose, onDone }) {
             <div style={{fontSize:'.8rem',color:'var(--text-muted)'}}>Current Stock — {item.shop_name}</div>
           </div>
           <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px',marginBottom:'12px'}}>
-            {[['in','📥','Stock In'],['out','📤','Stock Out'],['adjustment','🔧','Set Exact']].map(([k,icon,label])=>(
+            {[['in','📥','Stock In'],['out','📤','Stock Out'],['adjustment','🔧','Set Exact']].filter(([k])=> isAdmin || k !== 'adjustment').map(([k,icon,label])=>(
               <button key={k} onClick={()=>setType(k)} style={{padding:'10px',borderRadius:'8px',
                 border:`2px solid ${type===k?'var(--accent)':'var(--border)'}`,
                 background:type===k?'var(--bg-secondary)':'transparent',cursor:'pointer',textAlign:'center'}}>
@@ -174,6 +174,8 @@ function MovementsModal({ productId, productName, onClose }) {
 }
 
 export default function Inventory() {
+  const currentUser = JSON.parse(localStorage.getItem('user') || 'null');
+  const isAdmin = currentUser?.role === 'admin';
   const [inventory, setInventory]       = useState([]);
   const [stats, setStats]               = useState(null);
   const [shops, setShops]               = useState([]);
