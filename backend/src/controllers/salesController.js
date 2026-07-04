@@ -552,26 +552,13 @@ exports.returnSale = async (req, res) => {
     // Record cash refund — single entry only (no double counting)
     if (invoice.payment_method === 'cash' && returnAmt > 0) {
       const today = new Date().toISOString().split('T')[0];
-      const saleDate = invoice.sale_date instanceof Date
-        ? invoice.sale_date.toISOString().split('T')[0]
-        : String(invoice.sale_date).split('T')[0];
 
-      // Register must be open for the original sale date to process return
-      const retRegCheck = await client.query(
-        `SELECT status FROM cash_register WHERE register_date = $1 AND shop_id = $2 LIMIT 1`,
-        [saleDate, invoice.shop_id]
-      );
-      const retRegStatus = retRegCheck.rows[0]?.status;
-      if (retRegStatus === 'closed') {
-        throw new Error(`Register for ${saleDate} is closed. Please reopen the register for that date first to process this return.`);
-      }
-      if (!retRegStatus) {
-        throw new Error(`Register for ${saleDate} is not open. Please open the register for that date first.`);
-      }
+      // Record cash refund as manual OUT entry — don't touch total_sales_cash
+      // (sale already counted in cash sales, return shows separately in detail view)
       await client.query(
-        `UPDATE cash_register SET total_sales_cash = GREATEST(total_sales_cash - $1, 0)
-         WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
-        [returnAmt, saleDate, invoice.shop_id]
+        `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
+         VALUES ($1, $2, 'out', $3, 'Return', $4)`,
+        [invoice.shop_id, today, returnAmt, `Cash refund — ${invoice.invoice_number} return`]
       );
     }
 
