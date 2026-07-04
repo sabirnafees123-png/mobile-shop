@@ -127,7 +127,8 @@ export default function UserLog() {
           <table style={{width:'100%',borderCollapse:'collapse',fontSize:'.85rem'}}>
             <thead>
               <tr style={{background:'var(--bg-secondary)',borderBottom:'2px solid var(--border)'}}>
-                <th style={{padding:'10px 14px',textAlign:'left',fontWeight:600,color:'var(--text-muted)',fontSize:'.75rem',textTransform:'uppercase'}}>Time</th>
+                <th style={{padding:'10px 14px',textAlign:'left',fontWeight:600,color:'var(--text-muted)',fontSize:'.75rem',textTransform:'uppercase'}}>Created At</th>
+                <th style={{padding:'10px 14px',textAlign:'left',fontWeight:600,color:'var(--text-muted)',fontSize:'.75rem',textTransform:'uppercase'}}>Txn Date</th>
                 <th style={{padding:'10px 14px',textAlign:'left',fontWeight:600,color:'var(--text-muted)',fontSize:'.75rem',textTransform:'uppercase'}}>User</th>
                 <th style={{padding:'10px 14px',textAlign:'left',fontWeight:600,color:'var(--text-muted)',fontSize:'.75rem',textTransform:'uppercase'}}>Type</th>
                 <th style={{padding:'10px 14px',textAlign:'left',fontWeight:600,color:'var(--text-muted)',fontSize:'.75rem',textTransform:'uppercase'}}>Reference</th>
@@ -147,6 +148,7 @@ export default function UserLog() {
                   <React.Fragment key={i}>
                     <tr style={{borderBottom:'1px solid var(--border)',background: i%2===0 ? 'transparent' : 'var(--bg-secondary)'}}>
                       <td style={{padding:'10px 14px',whiteSpace:'nowrap',color:'var(--text-muted)',fontSize:'.8rem'}}>{fmtTime(log.time)}</td>
+                      <td style={{padding:'10px 14px',whiteSpace:'nowrap',fontSize:'.82rem',fontWeight:600,color:'#d97706'}}>{log.transaction_date||'—'}</td>
                       <td style={{padding:'10px 14px'}}>
                         <span style={{fontWeight:600}}>{log.user_name || '—'}</span>
                       </td>

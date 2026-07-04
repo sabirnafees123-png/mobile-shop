@@ -16,6 +16,7 @@ router.get('/', async (req, res) => {
     const sales = await query(`
       SELECT
         si.created_at as time,
+        si.sale_date as transaction_date,
         u.name as user_name,
         'sale' as type,
         si.invoice_number as reference,
@@ -39,6 +40,7 @@ router.get('/', async (req, res) => {
     const purchases = await query(`
       SELECT
         p.created_at as time,
+        p.purchase_date as transaction_date,
         u.name as user_name,
         'purchase' as type,
         p.purchase_number as reference,
@@ -60,6 +62,7 @@ router.get('/', async (req, res) => {
     const expenses = await query(`
       SELECT
         e.created_at as time,
+        e.expense_date as transaction_date,
         u.name as user_name,
         'expense' as type,
         CONCAT(e.category, ' / ', COALESCE(e.sub_category,'')) as reference,
@@ -81,6 +84,7 @@ router.get('/', async (req, res) => {
     const finance = await query(`
       SELECT
         ft.created_at as time,
+        ft.transaction_date as transaction_date,
         u.name as user_name,
         'finance' as type,
         fa.name as reference,
