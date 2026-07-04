@@ -128,13 +128,13 @@ exports.createPurchase = async (req, res) => {
 
     // Create purchase header
     const purchase = await client.query(
-      `INSERT INTO purchases (purchase_number, supplier_id, purchase_date, total_amount, amount_paid, payment_status, notes, shop_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING *`,
+      `INSERT INTO purchases (purchase_number, supplier_id, purchase_date, total_amount, amount_paid, payment_status, notes, shop_id, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
       [purchaseNumber, supplier_id,
        purchase_date || new Date().toISOString().split('T')[0],
        totalAmount, amount_paid,
        amount_paid >= totalAmount ? 'paid' : amount_paid > 0 ? 'partial' : 'unpaid',
-       notes, parseInt(items[0].shop_id)]
+       notes, parseInt(items[0].shop_id), req.user?.id||null]
     );
     const purchaseId = purchase.rows[0].id;
 

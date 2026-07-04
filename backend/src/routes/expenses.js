@@ -35,11 +35,11 @@ router.post('/', checkRegisterLock, async (req, res) => {
     if (!shop_id) return res.status(400).json({ success: false, message: 'shop_id required' });
     const result = await query(
       `INSERT INTO expenses (category, sub_category, description, amount, payment_method,
-         expense_date, receipt_number, notes, payee, expense_type, status, shop_id)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING *`,
+         expense_date, receipt_number, notes, payee, expense_type, status, shop_id, user_id)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *`,
       [category||null, sub_category||null, description, amount, payment_method||'cash',
        expense_date||new Date().toISOString().split('T')[0],
-       receipt_number, notes, payee, expense_type||'one-time', status||'paid', shop_id]
+       receipt_number, notes, payee, expense_type||'one-time', status||'paid', shop_id, req.user?.id||null]
     );
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
