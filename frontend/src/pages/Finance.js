@@ -234,13 +234,15 @@ export default function Finance() {
               <button className="modal-close" onClick={()=>setShowAccModal(false)}>✕</button>
             </div>
             <div className="modal-body">
+              {['card','fund'].includes(accForm.type) && (
               <div className="form-group">
-                <label className="form-label">Shop {['card','fund'].includes(accForm.type) ? '*' : '(Optional)'}</label>
+                <label className="form-label">Shop *</label>
                 <select className="form-control" value={accForm.shop_id} onChange={e=>setAccForm({...accForm,shop_id:e.target.value})}>
                   <option value="">— All Shops / Business Level —</option>
                   {shops.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
+              )}
               <div className="form-group">
                 <label className="form-label">Type *</label>
                 <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px'}}>
