@@ -201,11 +201,13 @@ export default function Attendance({ user }) {
                     <tr key={r.user_id}>
                       <td>
                         <div style={{fontWeight:600}}>{r.user_name}</div>
-                        {r.shift_start && (
-                          <div style={{fontSize:'.72rem',color:'var(--text-muted)'}}>
-                            {fmtTime(r.shift_start)} — {fmtTime(r.shift_end)}
-                            {r.break_start && ` · Break ${fmtTime(r.break_start)}–${fmtTime(r.break_end)}`}
+                        {r.shift_start ? (
+                          <div style={{fontSize:'.72rem',color:'var(--text-muted)',marginTop:'2px'}}>
+                            🕐 {fmtTime(r.shift_start)} — {fmtTime(r.shift_end)}
+                            {r.break_start && ` · ☕ ${fmtTime(r.break_start)}–${fmtTime(r.break_end)}`}
                           </div>
+                        ) : (
+                          <div style={{fontSize:'.72rem',color:'#f59e0b',marginTop:'2px'}}>⚠️ No shift set</div>
                         )}
                         {r.is_late && <span className="late-badge">⏰ Late {r.late_minutes}m</span>}
                       </td>
