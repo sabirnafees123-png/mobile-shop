@@ -39,7 +39,7 @@ router.get('/', async (req, res) => {
     const purchases = await query(`
       SELECT
         p.created_at as time,
-        u.name as user_name,
+        NULL as user_name,
         'purchase' as type,
         p.purchase_number as reference,
         p.total_amount as amount,
@@ -49,11 +49,9 @@ router.get('/', async (req, res) => {
         p.id as record_id,
         s.name as extra
       FROM purchases p
-      LEFT JOIN users u ON u.id = p.created_by
       LEFT JOIN shops sh ON sh.id = p.shop_id
       LEFT JOIN suppliers s ON s.id = p.supplier_id
       WHERE p.purchase_date BETWEEN $1 AND $2
-        ${userFilter}
       ORDER BY p.created_at DESC
     `, params);
 
