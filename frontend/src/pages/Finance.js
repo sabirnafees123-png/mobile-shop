@@ -98,6 +98,10 @@ export default function Finance() {
   const grouped = { bank: [], investor: [], card: [], fund: [] };
   accounts.forEach(a => { if (grouped[a.type]) grouped[a.type].push(a); });
 
+  const totalIn  = transactions.filter(t => t.transaction_type === 'in').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+  const totalOut = transactions.filter(t => t.transaction_type === 'out').reduce((s, t) => s + parseFloat(t.amount || 0), 0);
+  const balance  = parseFloat(selected?.balance || 0);
+
   return (
     <div className="page-container">
       {/* ── Header ── */}
@@ -171,55 +175,79 @@ export default function Finance() {
 
         {/* ── Transactions Panel ── */}
         {selected && (
-          <div>
-            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
-              <div>
-                <strong style={{fontSize:'1rem'}}>{selected.name}</strong>
-                <div style={{fontSize:'.78rem',color:'var(--text-muted)'}}>{selected.sub_type || TYPE_LABELS[selected.type]}</div>
+          <div style={{background:'var(--bg-card)',border:'1px solid var(--border)',borderRadius:'14px',overflow:'hidden'}}>
+            {/* Header */}
+            <div style={{padding:'16px 18px',borderBottom:'1px solid var(--border)',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:'10px'}}>
+              <div style={{display:'flex',gap:'12px',alignItems:'center',minWidth:0}}>
+                <div style={{width:'38px',height:'38px',borderRadius:'10px',flexShrink:0,background:TYPE_COLORS[selected.type]+'18',display:'flex',alignItems:'center',justifyContent:'center',fontSize:'1.05rem'}}>
+                  {TYPE_LABELS[selected.type]?.split(' ')[0]}
+                </div>
+                <div style={{minWidth:0}}>
+                  <div style={{fontWeight:700,fontSize:'1rem',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{selected.name}</div>
+                  <div style={{fontSize:'.78rem',color:'var(--text-muted)'}}>{selected.sub_type || TYPE_LABELS[selected.type].split(' ').slice(1).join(' ')}</div>
+                </div>
               </div>
-              <div style={{display:'flex',gap:'8px'}}>
+              <div style={{display:'flex',gap:'8px',flexShrink:0}}>
                 <button className="btn btn-ghost btn-sm" onClick={()=>setSelected(null)}>✕ Close</button>
                 <button className="btn btn-primary btn-sm" onClick={()=>{ setTxnForm(EMPTY_TXN); setShowTxnModal(true); }}>+ Transaction</button>
               </div>
             </div>
 
-            {/* Balance summary */}
-            <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:'8px',marginBottom:'16px'}}>
-              {[
-                ['Total IN',  transactions.filter(t=>t.transaction_type==='in').reduce((s,t)=>s+parseFloat(t.amount||0),0),  '#059669'],
-                ['Total OUT', transactions.filter(t=>t.transaction_type==='out').reduce((s,t)=>s+parseFloat(t.amount||0),0), '#dc2626'],
-                ['Balance',   parseFloat(selected.balance||0), TYPE_COLORS[selected.type]],
-              ].map(([label, val, color]) => (
-                <div key={label} style={{padding:'10px',background:'var(--bg-secondary)',borderRadius:'8px',textAlign:'center'}}>
-                  <div style={{fontSize:'.72rem',color:'var(--text-muted)',marginBottom:'2px'}}>{label}</div>
-                  <div style={{fontWeight:700,color,fontSize:'.9rem'}}>{fmt(val)}</div>
+            <div style={{padding:'18px'}}>
+              {/* IN / OUT */}
+              <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px',marginBottom:'10px'}}>
+                <div style={{padding:'12px 14px',background:'#f0fdf4',border:'1px solid #bbf7d0',borderRadius:'10px'}}>
+                  <div style={{fontSize:'.7rem',fontWeight:700,color:'#15803d',letterSpacing:'.04em',marginBottom:'4px'}}>↓ TOTAL IN</div>
+                  <div style={{fontWeight:700,fontSize:'1.05rem',color:'#15803d'}}>{fmt(totalIn)}</div>
                 </div>
-              ))}
-            </div>
+                <div style={{padding:'12px 14px',background:'#fff5f5',border:'1px solid #fecaca',borderRadius:'10px'}}>
+                  <div style={{fontSize:'.7rem',fontWeight:700,color:'#dc2626',letterSpacing:'.04em',marginBottom:'4px'}}>↑ TOTAL OUT</div>
+                  <div style={{fontWeight:700,fontSize:'1.05rem',color:'#dc2626'}}>{fmt(totalOut)}</div>
+                </div>
+              </div>
 
-            {/* Transaction list */}
-            <div style={{maxHeight:'500px',overflowY:'auto'}}>
-              {transactions.length === 0 ? (
-                <div style={{textAlign:'center',padding:'2rem',color:'var(--text-muted)'}}>No transactions yet</div>
-              ) : transactions.map(t => (
-                <div key={t.id} style={{
-                  display:'flex',justifyContent:'space-between',alignItems:'center',
-                  padding:'10px 12px',borderRadius:'8px',marginBottom:'6px',
-                  background: t.transaction_type==='in' ? '#f0fdf4' : '#fff5f5',
-                  border: `1px solid ${t.transaction_type==='in' ? '#bbf7d0' : '#fecaca'}`
-                }}>
-                  <div>
-                    <div style={{fontWeight:600,fontSize:'.88rem',color: t.transaction_type==='in'?'#059669':'#dc2626'}}>
-                      {t.transaction_type==='in'?'⬇ IN':'⬆ OUT'} — {fmt(t.amount)}
-                    </div>
-                    <div style={{fontSize:'.78rem',color:'var(--text-muted)',marginTop:'2px'}}>
-                      {fmtDate(t.transaction_date)}{t.description ? ` — ${t.description}` : ''}
-                    </div>
-                    {!t.affects_cash && <div style={{fontSize:'.72rem',color:'#d97706',marginTop:'2px'}}>⚠️ Cash register not affected</div>}
+              {/* Balance — emphasized */}
+              <div style={{padding:'14px 16px',background:'var(--bg-secondary)',borderRadius:'10px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'22px'}}>
+                <span style={{fontSize:'.82rem',fontWeight:600,color:'var(--text-muted)'}}>Current Balance</span>
+                <span style={{fontWeight:800,fontSize:'1.3rem',color: balance < 0 ? '#dc2626' : TYPE_COLORS[selected.type]}}>{fmt(balance)}</span>
+              </div>
+
+              {/* Transaction list */}
+              <div style={{fontSize:'.75rem',fontWeight:700,color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:'10px'}}>
+                Transactions
+              </div>
+              <div style={{maxHeight:'440px',overflowY:'auto',display:'flex',flexDirection:'column',gap:'6px'}}>
+                {transactions.length === 0 ? (
+                  <div style={{textAlign:'center',padding:'2.5rem 1rem',color:'var(--text-muted)'}}>
+                    <div style={{fontSize:'1.6rem',marginBottom:'6px'}}>📭</div>
+                    <div style={{fontSize:'.85rem'}}>No transactions yet</div>
                   </div>
-                  <button onClick={()=>deleteTxn(t.id)} style={{background:'none',border:'none',color:'#dc2626',cursor:'pointer',fontSize:'1rem',padding:'4px'}}>🗑️</button>
-                </div>
-              ))}
+                ) : transactions.map(t => {
+                  const isIn = t.transaction_type === 'in';
+                  return (
+                    <div key={t.id} style={{
+                      display:'flex',justifyContent:'space-between',alignItems:'center',gap:'10px',
+                      padding:'12px 14px',borderRadius:'10px',
+                      background:'var(--bg-card)',border:'1px solid var(--border)'
+                    }}>
+                      <div style={{display:'flex',gap:'12px',alignItems:'center',minWidth:0}}>
+                        <div style={{width:'32px',height:'32px',borderRadius:'8px',flexShrink:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:'.9rem',fontWeight:700,background:isIn?'#dcfce7':'#fee2e2',color:isIn?'#16a34a':'#dc2626'}}>
+                          {isIn ? '↓' : '↑'}
+                        </div>
+                        <div style={{minWidth:0}}>
+                          <div style={{fontWeight:600,fontSize:'.86rem'}}>{fmtDate(t.transaction_date)}</div>
+                          {t.description && <div style={{fontSize:'.78rem',color:'var(--text-muted)',marginTop:'1px',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{t.description}</div>}
+                          {!t.affects_cash && <div style={{fontSize:'.7rem',color:'#d97706',marginTop:'2px'}}>⚠️ Not in cash register</div>}
+                        </div>
+                      </div>
+                      <div style={{display:'flex',alignItems:'center',gap:'10px',flexShrink:0}}>
+                        <span style={{fontWeight:700,fontSize:'.92rem',color:isIn?'#16a34a':'#dc2626'}}>{isIn?'+':'-'}{fmt(t.amount)}</span>
+                        <button onClick={()=>deleteTxn(t.id)} title="Delete" style={{background:'none',border:'none',color:'var(--text-muted)',cursor:'pointer',fontSize:'.95rem',padding:'4px'}}>🗑️</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         )}
