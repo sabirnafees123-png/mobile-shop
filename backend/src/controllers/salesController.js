@@ -576,17 +576,10 @@ exports.returnSale = async (req, res) => {
       [note || 'Customer return', returnAmt, invoiceId]
     );
 
-    // Record cash refund — single entry only (no double counting)
-    if (invoice.payment_method === 'cash' && returnAmt > 0) {
-      // Posted on the invoice's original sale date (checked above to ensure that
-      // day's register isn't closed) — don't touch total_sales_cash
-      // (sale already counted in cash sales, return shows separately in detail view)
-      await client.query(
-        `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
-         VALUES ($1, $2, 'out', $3, 'Return', $4)`,
-        [invoice.shop_id, saleDateStr, returnAmt, `Cash refund — ${invoice.invoice_number} return`]
-      );
-    }
+    // No separate Cash Out entry for the refund — the "Returns" section
+    // (sales_invoices with payment_status='returned') already deducts this
+    // amount from the day's closing balance. Adding a cash_manual_entries
+    // entry as well would double-count the same refund.
 
     await client.query('COMMIT');
     res.json({ success: true, message: 'Return processed successfully' });

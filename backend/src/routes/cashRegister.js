@@ -11,7 +11,7 @@ router.get('/detail', async (req, res) => {
     if (!shop_id || !date) return res.status(400).json({ success: false, message: 'shop_id and date required' });
 
     const [sales, returns, expenses, purchases, manualEntries, regRow, bankReceipts] = await Promise.all([
-      query(`SELECT invoice_number, total_amount, amount_paid, COALESCE(exchange_trade_in_value,0) as exchange_trade_in_value, is_exchange FROM sales_invoices WHERE shop_id=$1 AND sale_date=$2 AND payment_method='cash' AND payment_status!='returned' ORDER BY invoice_number`, [shop_id, date]),
+      query(`SELECT invoice_number, total_amount, amount_paid, COALESCE(exchange_trade_in_value,0) as exchange_trade_in_value, is_exchange FROM sales_invoices WHERE shop_id=$1 AND sale_date=$2 AND payment_method='cash' ORDER BY invoice_number`, [shop_id, date]),
       query(`SELECT invoice_number, amount_paid FROM sales_invoices WHERE shop_id=$1 AND sale_date=$2 AND payment_method='cash' AND payment_status='returned' ORDER BY invoice_number`, [shop_id, date]),
       query(`SELECT COALESCE(e.category, 'Uncategorized') as category_name, e.amount, e.description FROM expenses e WHERE e.shop_id=$1 AND e.expense_date=$2 AND e.payment_method='cash' ORDER BY e.amount DESC`, [shop_id, date]),
       query(`
