@@ -401,6 +401,12 @@ exports.markPaymentReceived = async (req, res) => {
     // How customer is paying NOW (cash/card/tabby/tamara/bank_transfer)
     const method = received_method || 'cash';
 
+    // Invoice was created with payment_method='pending' (method not decided at sale time).
+    // Lock it in to the method actually used now — otherwise this invoice's payment_method
+    // stays 'pending' forever and never gets picked up by Cash Register reports, which
+    // filter strictly on payment_method='cash'.
+    const newPaymentMethod = invoice.payment_method === 'pending' ? method : invoice.payment_method;
+
     const newAmountPaid = parseFloat(invoice.amount_paid) + amountNow;
     const newAmountDue  = parseFloat(invoice.total_amount) - newAmountPaid;
 
@@ -419,14 +425,15 @@ exports.markPaymentReceived = async (req, res) => {
          amount_paid           = $2,
          amount_due            = $3,
          payment_received_date = $4,
-         payment_received_by   = $5
-       WHERE id = $6`,
-      [newStatus, newAmountPaid, Math.max(newAmountDue, 0), recDate, req.user?.id || null, invoiceId]
+         payment_received_by   = $5,
+         payment_method        = $6
+       WHERE id = $7`,
+      [newStatus, newAmountPaid, Math.max(newAmountDue, 0), recDate, req.user?.id || null, newPaymentMethod, invoiceId]
     );
 
     if (amountNow > 0) {
       if (method === 'cash') {
-        // Cash payment — register MUST be open, else throw error
+        // Cash payment — register for the date it's being received MUST be open
         const regCheck = await client.query(
           `SELECT status FROM cash_register
            WHERE register_date = $1 AND shop_id = $2 LIMIT 1`,
@@ -441,11 +448,15 @@ exports.markPaymentReceived = async (req, res) => {
           throw new Error(`Register for ${recDate} is not open. Please open the register for that date first.`);
         }
 
+        // Record as a manual cash-in entry on the date it was actually received.
+        // (The Cash Register report's live "cash sales" figure is aggregated from
+        // sales_invoices grouped by sale_date — a payment collected later on a
+        // different date would never show up there. cash_manual_entries is what
+        // the report actually reads for same-day cash movements like this.)
         await client.query(
-          `UPDATE cash_register
-           SET total_sales_cash = total_sales_cash + $1
-           WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
-          [amountNow, recDate, invoice.shop_id]
+          `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
+           VALUES ($1, $2, 'in', $3, 'Payment Received', $4)`,
+          [invoice.shop_id, recDate, amountNow, `Payment received (cash) — ${invoice.invoice_number}`]
         );
       } else {
         // Non-cash (card/tabby/tamara/bank_transfer) — manual entry for reconciliation only
