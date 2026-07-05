@@ -381,6 +381,12 @@ select.form-control { cursor: pointer; }
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
   gap: 1.25rem;
 }
+.form-row {
+  display: flex;
+  gap: 1.25rem;
+  flex-wrap: wrap;
+}
+.form-row .form-group { flex: 1; min-width: 160px; margin-bottom: 1.25rem; }
 /* ── Page Header ── */
 .page-header {
   display: flex;

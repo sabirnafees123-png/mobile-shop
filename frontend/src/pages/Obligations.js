@@ -7,12 +7,9 @@ import ShopSelector from '../components/ShopSelector';
 const fmt     = n => `AED ${Math.round(parseFloat(n || 0)).toLocaleString()}`;
 const fmtDate = d => { try { return new Date(d).toLocaleDateString('en-AE'); } catch { return d; } };
 
-const urgencyColor = u =>
-  u === 'overdue'  ? '#dc2626' :
-  u === 'due_soon' ? '#d97706' : '#059669';
-
 const mkEmpty = () => ({
   shop_id: '',
+  shop_allocation: 'single',       // 'single' | 'both' | 'split_equal'
   obligation_model: 'confirmed',   // 'cheque' | 'confirmed'
   type: 'payable',
   title: '',
@@ -22,14 +19,15 @@ const mkEmpty = () => ({
   status: 'pending',
   notes: '',
   category_id: '',
-  cheque_id: '',
+  cheque_number: '',
+  bank: '',
+  payee_payer: '',
   is_recurring: false,
   recurrence_period: '',
 });
 
 export default function Obligations() {
   const [obligations, setObligations] = useState([]);
-  const [cheques, setCheques]         = useState([]);
   const [categories, setCategories]   = useState([]);
   const [shops, setShops]             = useState([]);
   const [loading, setLoading]         = useState(true);
@@ -49,13 +47,11 @@ export default function Obligations() {
     const qs = params.length ? `?${params.join('&')}` : '';
     Promise.all([
       api.get(`/obligations${qs}`),
-      api.get('/cheques'),
       api.get('/expenses/categories'),
       api.get('/shops'),
     ])
-      .then(([o, ch, cat, sh]) => {
+      .then(([o, cat, sh]) => {
         setObligations(o.data?.data || []);
-        setCheques(ch.data?.data || []);
         setCategories(cat.data?.data || []);
         setShops(sh.data?.data || []);
       })
@@ -70,12 +66,12 @@ export default function Obligations() {
     setForm({ ...mkEmpty(), shop_id: shops.length === 1 ? shops[0].id : (filterShop || '') });
     setShowModal(true);
   };
-  const openEdit = (o) => { setEditing(o); setForm({ ...o, amount: o.amount?.toString() }); setShowModal(true); };
+  const openEdit = (o) => { setEditing(o); setForm({ ...mkEmpty(), ...o, amount: o.amount?.toString() }); setShowModal(true); };
 
   const handleSubmit = async () => {
     if (!form.title)    return toast.error('Title is required');
     if (!form.due_date) return toast.error('Due date is required');
-    if (!form.shop_id)  return toast.error('Please select a shop');
+    if (form.shop_allocation === 'single' && !form.shop_id) return toast.error('Please select a shop, or choose Both/Split');
     try {
       const payload = { ...form, amount: parseFloat(form.amount || 0) };
       if (editing) {
@@ -119,18 +115,20 @@ export default function Obligations() {
         <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
           <ShopSelector shops={shops} value={filterShop} onChange={setFilterShop} includeAll={true} label='Shop' />
           <select
+            className='form-control'
             value={filterModel}
             onChange={e => setFilterModel(e.target.value)}
-            style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--surface)', fontSize: '0.9rem' }}
+            style={{ width: 'auto' }}
           >
             <option value=''>All Types</option>
             <option value='cheque'>Cheque-backed</option>
             <option value='confirmed'>Confirmed Liabilities</option>
           </select>
           <select
+            className='form-control'
             value={filterStatus}
             onChange={e => setFilterStatus(e.target.value)}
-            style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--surface)', fontSize: '0.9rem' }}
+            style={{ width: 'auto' }}
           >
             <option value=''>All Statuses</option>
             <option value='pending'>Pending</option>
@@ -141,7 +139,7 @@ export default function Obligations() {
       </div>
 
       {/* ── Summary ── */}
-      <div className='stat-grid' style={{ marginBottom: '20px' }}>
+      <div className='stat-grid'>
         <div className='stat-card red'>
           <div className='label'>Total Pending</div>
           <div className='value'>{fmt(totalPending)}</div>
@@ -176,16 +174,23 @@ export default function Obligations() {
         const months = Object.keys(monthMap).sort();
         if (!months.length) return null;
         return (
-          <div style={{marginBottom:'20px',padding:'14px 16px',background:'var(--bg-card,#fff)',border:'1px solid var(--border)',borderRadius:'10px'}}>
-            <div style={{fontWeight:700,fontSize:'.88rem',color:'var(--text-muted)',textTransform:'uppercase',letterSpacing:'.05em',marginBottom:'10px'}}>📅 Monthly Breakdown (Pending)</div>
-            <div style={{display:'flex',gap:'10px',flexWrap:'wrap'}}>
+          <div className='card' style={{ padding: '1.25rem 1.5rem', marginBottom: '1.5rem' }}>
+            <div className='card-title' style={{ fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.6px', marginBottom: '1rem' }}>
+              Monthly Breakdown — Pending
+            </div>
+            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap' }}>
               {months.map(m => {
-                const [y,mo] = m.split('-');
-                const label = new Date(parseInt(y), parseInt(mo)-1, 1).toLocaleString('en-AE',{month:'short',year:'numeric'});
+                const [y, mo] = m.split('-');
+                const label = new Date(parseInt(y), parseInt(mo) - 1, 1).toLocaleString('en-AE', { month: 'short', year: 'numeric' });
                 return (
-                  <div key={m} style={{padding:'8px 16px',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:'8px',textAlign:'center',minWidth:'100px'}}>
-                    <div style={{fontSize:'.78rem',color:'#1e40af',fontWeight:600}}>{label}</div>
-                    <div style={{fontSize:'1rem',fontWeight:700,color:'#1d4ed8',marginTop:'2px'}}>AED {Math.round(monthMap[m]).toLocaleString()}</div>
+                  <div key={m} style={{
+                    padding: '0.65rem 1rem', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)',
+                    textAlign: 'center', minWidth: '110px', background: 'var(--bg-primary)',
+                  }}>
+                    <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.4px' }}>{label}</div>
+                    <div style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-primary)', marginTop: '2px', fontFamily: "'Plus Jakarta Sans', sans-serif" }}>
+                      {fmt(monthMap[m])}
+                    </div>
                   </div>
                 );
               })}
@@ -194,21 +199,25 @@ export default function Obligations() {
         );
       })()}
 
-      {/* ── Explanation Banner ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
-        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '12px 16px' }}>
-          <div style={{ fontWeight: 700, color: '#1d4ed8', marginBottom: '4px' }}>📄 Cheque-backed Obligations</div>
-          <div style={{ fontSize: '0.85rem', color: '#1e40af' }}>Payments tied to a physical cheque — supplier payments, post-dated cheques, rent. Track cheque number, bank, and status.</div>
+      {/* ── Explanation ── */}
+      <div className='card' style={{ padding: '1rem 1.5rem', marginBottom: '1.5rem', display: 'flex', gap: '2rem', flexWrap: 'wrap' }}>
+        <div style={{ flex: 1, minWidth: '220px' }}>
+          <span className='badge badge-blue' style={{ marginBottom: '6px' }}>Cheque-backed</span>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '6px' }}>
+            Payments tied to a physical cheque — supplier payments, post-dated cheques, rent.
+          </div>
         </div>
-        <div style={{ background: '#fefce8', border: '1px solid #fde68a', borderRadius: '8px', padding: '12px 16px' }}>
-          <div style={{ fontWeight: 700, color: '#92400e', marginBottom: '4px' }}>📋 Confirmed Liabilities</div>
-          <div style={{ fontSize: '0.85rem', color: '#78350f' }}>Fixed charges with no cheque — salaries, visa fees, license renewal, utilities. Confirmed commitments paid by cash/transfer.</div>
+        <div style={{ flex: 1, minWidth: '220px' }}>
+          <span className='badge badge-yellow' style={{ marginBottom: '6px' }}>Confirmed Liability</span>
+          <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', marginTop: '6px' }}>
+            Fixed charges with no cheque — salaries, visa fees, license renewal, utilities.
+          </div>
         </div>
       </div>
 
       {loading ? <div className='loading'>Loading...</div> : (
-        <div className='table-container'>
-          <table className='table'>
+        <div className='table-wrapper'>
+          <table>
             <thead>
               <tr>
                 <th>Type</th>
@@ -225,52 +234,45 @@ export default function Obligations() {
             </thead>
             <tbody>
               {obligations.length === 0 ? (
-                <tr><td colSpan={10} style={{ textAlign: 'center', color: 'var(--text-muted)', padding: '32px' }}>No obligations found</td></tr>
+                <tr><td colSpan={10}><div className='empty-state'>No obligations found</div></td></tr>
               ) : obligations.map(o => {
                 const today = new Date().toISOString().split('T')[0];
                 const isOverdue = o.status === 'pending' && o.due_date < today;
                 return (
-                  <tr key={o.id} style={{ opacity: o.status === 'paid' ? 0.6 : 1 }}>
+                  <tr key={o.id} style={{ opacity: o.status === 'paid' ? 0.55 : 1 }}>
                     <td>
-                      <span style={{
-                        background: o.obligation_model === 'cheque' ? '#dbeafe' : '#fef9c3',
-                        color:      o.obligation_model === 'cheque' ? '#1d4ed8' : '#854d0e',
-                        padding: '2px 8px', borderRadius: '12px', fontSize: '0.78rem', fontWeight: 600,
-                      }}>
-                        {o.obligation_model === 'cheque' ? '📄 Cheque' : '📋 Confirmed'}
+                      <span className={`badge ${o.obligation_model === 'cheque' ? 'badge-blue' : 'badge-yellow'}`}>
+                        {o.obligation_model === 'cheque' ? 'Cheque' : 'Confirmed'}
                       </span>
                     </td>
                     <td><strong>{o.title}</strong></td>
                     <td>
-                      <span style={{ background: 'var(--surface-alt)', padding: '2px 8px', borderRadius: '6px', fontSize: '0.8rem' }}>
-                        {o.shop_name || '—'}
-                      </span>
+                      <span className='badge badge-gray'>{o.shop_name || 'Both / Split'}</span>
                     </td>
-                    <td style={{ fontSize: '0.85rem' }}>{o.category_name || '—'}</td>
-                    <td>{o.person_name || '—'}</td>
-                    <td style={{ color: isOverdue ? '#dc2626' : 'inherit', fontWeight: isOverdue ? 700 : 400 }}>
+                    <td style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>{o.category_name?.trim().replace(/^\/|\/$/g, '').trim() || '—'}</td>
+                    <td>{o.person_name || o.payee_payer || '—'}</td>
+                    <td style={{ color: isOverdue ? 'var(--accent-red)' : 'inherit', fontWeight: isOverdue ? 700 : 400 }}>
                       {fmtDate(o.due_date)}
-                      {isOverdue && <span style={{ marginLeft: '4px', fontSize: '0.75rem', color: '#dc2626' }}>OVERDUE</span>}
+                      {isOverdue && <span className='badge badge-red' style={{ marginLeft: '6px' }}>Overdue</span>}
                     </td>
-                    <td style={{ fontWeight: 600 }}>{fmt(o.amount)}</td>
+                    <td style={{ fontWeight: 700 }}>{fmt(o.amount)}</td>
                     <td style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>
                       {o.cheque_number ? `${o.bank || ''} #${o.cheque_number}` : '—'}
                     </td>
                     <td>
-                      <span style={{
-                        color: o.status === 'paid' ? '#059669' : isOverdue ? '#dc2626' : '#d97706',
-                        fontWeight: 600, fontSize: '0.8rem', textTransform: 'uppercase',
-                      }}>
+                      <span className={`badge ${o.status === 'paid' ? 'badge-green' : isOverdue ? 'badge-red' : 'badge-yellow'}`}>
                         {o.status}
                       </span>
-                      {o.is_recurring && <span style={{ marginLeft: '4px', fontSize: '0.75rem', color: 'var(--text-muted)' }}>↻</span>}
+                      {o.is_recurring && <span style={{ marginLeft: '6px', fontSize: '0.75rem', color: 'var(--text-muted)' }} title='Recurring'>↻</span>}
                     </td>
                     <td>
-                      {o.status === 'pending' && (
-                        <button className='btn-sm' style={{ background: '#059669', color: 'white', marginRight: '4px' }} onClick={() => markDone(o)}>✓ Paid</button>
-                      )}
-                      <button className='btn-sm' onClick={() => openEdit(o)}>Edit</button>
-                      <button className='btn-sm btn-danger' style={{ marginLeft: '4px' }} onClick={() => handleDelete(o.id)}>Del</button>
+                      <div style={{ display: 'flex', gap: '6px' }}>
+                        {o.status === 'pending' && (
+                          <button className='btn btn-success btn-sm' onClick={() => markDone(o)}>Paid</button>
+                        )}
+                        <button className='btn btn-ghost btn-sm' onClick={() => openEdit(o)}>Edit</button>
+                        <button className='btn btn-danger btn-sm' onClick={() => handleDelete(o.id)}>Delete</button>
+                      </div>
                     </td>
                   </tr>
                 );
@@ -283,53 +285,78 @@ export default function Obligations() {
       {/* ── Add/Edit Modal ── */}
       {showModal && (
         <div className='modal-overlay' onClick={() => setShowModal(false)}>
-          <div className='modal' style={{ maxWidth: '640px', width: '95%' }} onClick={e => e.stopPropagation()}>
+          <div className='modal' style={{ maxWidth: '640px' }} onClick={e => e.stopPropagation()}>
             <div className='modal-header'>
-              <h3>{editing ? 'Edit Obligation' : 'Add Obligation'}</h3>
-              <button className='modal-close' onClick={() => setShowModal(false)}>×</button>
+              <strong>{editing ? 'Edit Obligation' : 'Add Obligation'}</strong>
+              <button className='modal-close' onClick={() => setShowModal(false)}>✕</button>
             </div>
-            <div className='modal-body' style={{ maxHeight: '75vh', overflowY: 'auto' }}>
+            <div className='modal-body'>
 
               {/* Model toggle — most important choice */}
-              <div style={{ marginBottom: '16px' }}>
-                <label style={{ fontWeight: 600, display: 'block', marginBottom: '8px' }}>Obligation Type</label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <div className='form-group'>
+                <label className='form-label'>Obligation Type</label>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                   {[
-                    { val: 'confirmed', label: '📋 Confirmed Liability', sub: 'Salary, visa, license, utilities — no cheque' },
-                    { val: 'cheque',    label: '📄 Cheque-backed',        sub: 'Backed by a physical cheque' },
+                    { val: 'confirmed', label: 'Confirmed Liability', sub: 'Salary, visa, license, utilities — no cheque' },
+                    { val: 'cheque',    label: 'Cheque-backed',        sub: 'Backed by a physical cheque' },
                   ].map(opt => (
                     <div
                       key={opt.val}
                       onClick={() => setForm({ ...form, obligation_model: opt.val })}
                       style={{
-                        border: `2px solid ${form.obligation_model === opt.val ? 'var(--primary)' : 'var(--border)'}`,
-                        borderRadius: '10px', padding: '12px', cursor: 'pointer',
-                        background: form.obligation_model === opt.val ? 'var(--primary-light, #eff6ff)' : 'var(--surface)',
+                        border: `1.5px solid ${form.obligation_model === opt.val ? 'var(--accent)' : 'var(--border)'}`,
+                        borderRadius: 'var(--radius-sm)', padding: '0.85rem 1rem', cursor: 'pointer',
+                        background: form.obligation_model === opt.val ? 'var(--accent-light)' : 'transparent',
                       }}
                     >
-                      <div style={{ fontWeight: 700 }}>{opt.label}</div>
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '2px' }}>{opt.sub}</div>
+                      <div style={{ fontWeight: 700, fontSize: '0.9rem', color: form.obligation_model === opt.val ? 'var(--accent)' : 'var(--text-primary)' }}>{opt.label}</div>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '2px' }}>{opt.sub}</div>
                     </div>
                   ))}
                 </div>
               </div>
 
+              {/* Shop allocation */}
               <div className='form-group'>
-                <label>Shop <span style={{ color: '#dc2626' }}>*</span></label>
-                <select value={form.shop_id} onChange={e => setForm({ ...form, shop_id: e.target.value })}>
-                  <option value=''>— Select Shop —</option>
-                  {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                </select>
+                <label className='form-label'>Shop Allocation</label>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '8px', marginBottom: '10px' }}>
+                  {[
+                    { val: 'single',      label: '1 Shop',      sub: 'Assign to one shop' },
+                    { val: 'both',        label: 'Both Shops',  sub: 'Company level' },
+                    { val: 'split_equal', label: 'Split 50/50', sub: 'Divide equally' },
+                  ].map(opt => (
+                    <div key={opt.val} onClick={() => setForm({ ...form, shop_allocation: opt.val })}
+                      style={{
+                        border: `1.5px solid ${form.shop_allocation === opt.val ? 'var(--accent)' : 'var(--border)'}`,
+                        borderRadius: 'var(--radius-sm)', padding: '0.55rem', textAlign: 'center', cursor: 'pointer',
+                        background: form.shop_allocation === opt.val ? 'var(--accent-light)' : 'transparent',
+                      }}>
+                      <div style={{ fontWeight: 600, fontSize: '0.82rem', color: form.shop_allocation === opt.val ? 'var(--accent)' : 'var(--text-primary)' }}>{opt.label}</div>
+                      <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{opt.sub}</div>
+                    </div>
+                  ))}
+                </div>
+                {form.shop_allocation === 'single' && (
+                  <select className='form-control' value={form.shop_id} onChange={e => setForm({ ...form, shop_id: e.target.value })}>
+                    <option value=''>— Select Shop —</option>
+                    {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                )}
+                {form.shop_allocation === 'split_equal' && (
+                  <div style={{ fontSize: '0.82rem', color: 'var(--text-muted)', padding: '0.65rem', background: 'var(--bg-secondary)', borderRadius: 'var(--radius-sm)' }}>
+                    {fmt(parseFloat(form.amount || 0) / 2)} will be allocated to each shop
+                  </div>
+                )}
               </div>
 
               <div className='form-row'>
                 <div className='form-group' style={{ flex: 2 }}>
-                  <label>Title <span style={{ color: '#dc2626' }}>*</span></label>
-                  <input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder='e.g. March Salary, Shop License Renewal' />
+                  <label className='form-label'>Title *</label>
+                  <input className='form-control' value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder='e.g. March Salary, Shop License Renewal' />
                 </div>
                 <div className='form-group'>
-                  <label>Type</label>
-                  <select value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
+                  <label className='form-label'>Type</label>
+                  <select className='form-control' value={form.type} onChange={e => setForm({ ...form, type: e.target.value })}>
                     <option value='payable'>Payable</option>
                     <option value='receivable'>Receivable</option>
                   </select>
@@ -337,31 +364,31 @@ export default function Obligations() {
               </div>
 
               <div className='form-row'>
-                <div className='form-group' style={{ flex: 1 }}>
-                  <label>Category</label>
-                  <select value={form.category_id} onChange={e => setForm({ ...form, category_id: e.target.value })}>
+                <div className='form-group'>
+                  <label className='form-label'>Category</label>
+                  <select className='form-control' value={form.category_id} onChange={e => setForm({ ...form, category_id: e.target.value })}>
                     <option value=''>— Select —</option>
                     {categories.map(c => <option key={c.id} value={c.id}>{c.category}{c.sub_category ? ' / ' + c.sub_category : ''}</option>)}
                   </select>
                 </div>
-                <div className='form-group' style={{ flex: 1 }}>
-                  <label>Person / Party</label>
-                  <input value={form.person_name} onChange={e => setForm({ ...form, person_name: e.target.value })} placeholder='Supplier, employee name...' />
+                <div className='form-group'>
+                  <label className='form-label'>Person / Party</label>
+                  <input className='form-control' value={form.person_name} onChange={e => setForm({ ...form, person_name: e.target.value })} placeholder='Supplier, employee name...' />
                 </div>
               </div>
 
               <div className='form-row'>
                 <div className='form-group'>
-                  <label>Due Date <span style={{ color: '#dc2626' }}>*</span></label>
-                  <input type='date' value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} />
+                  <label className='form-label'>Due Date *</label>
+                  <input type='date' className='form-control' value={form.due_date} onChange={e => setForm({ ...form, due_date: e.target.value })} />
                 </div>
                 <div className='form-group'>
-                  <label>Amount (AED)</label>
-                  <input type='number' value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} placeholder='0' />
+                  <label className='form-label'>Amount (AED)</label>
+                  <input type='number' className='form-control' value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} placeholder='0' />
                 </div>
                 <div className='form-group'>
-                  <label>Status</label>
-                  <select value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>
+                  <label className='form-label'>Status</label>
+                  <select className='form-control' value={form.status} onChange={e => setForm({ ...form, status: e.target.value })}>
                     <option value='pending'>Pending</option>
                     <option value='paid'>Paid</option>
                   </select>
@@ -370,35 +397,38 @@ export default function Obligations() {
 
               {/* Cheque fields — only shown for cheque model */}
               {form.obligation_model === 'cheque' && (
-                <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '8px', padding: '12px', marginBottom: '12px' }}>
-                  <div style={{ fontWeight: 600, marginBottom: '8px', color: '#1d4ed8' }}>Cheque Details</div>
-                  <div className='form-group'>
-                    <label>Link to Cheque</label>
-                    <select value={form.cheque_id} onChange={e => setForm({ ...form, cheque_id: e.target.value })}>
-                      <option value=''>— Select Cheque (optional) —</option>
-                      {cheques.map(ch => (
-                        <option key={ch.id} value={ch.id}>
-                          #{ch.cheque_number} · {ch.bank} · {fmt(ch.amount)} · {fmtDate(ch.due_date)}
-                        </option>
-                      ))}
-                    </select>
+                <div className='card' style={{ padding: '1rem', marginBottom: '1.25rem', background: 'var(--bg-secondary)' }}>
+                  <div className='form-label' style={{ marginBottom: '0.75rem', color: 'var(--accent)' }}>Cheque Details</div>
+                  <div className='form-row'>
+                    <div className='form-group'>
+                      <label className='form-label'>Cheque Number</label>
+                      <input className='form-control' value={form.cheque_number} onChange={e => setForm({ ...form, cheque_number: e.target.value })} placeholder='e.g. 000123' />
+                    </div>
+                    <div className='form-group'>
+                      <label className='form-label'>Bank</label>
+                      <input className='form-control' value={form.bank} onChange={e => setForm({ ...form, bank: e.target.value })} placeholder='Bank name' />
+                    </div>
+                  </div>
+                  <div className='form-group' style={{ marginBottom: 0 }}>
+                    <label className='form-label'>Payee / Payer</label>
+                    <input className='form-control' value={form.payee_payer} onChange={e => setForm({ ...form, payee_payer: e.target.value })} placeholder='Name on the cheque' />
                   </div>
                 </div>
               )}
 
               {/* Confirmed liability — recurring option */}
               {form.obligation_model === 'confirmed' && (
-                <div style={{ background: '#fefce8', border: '1px solid #fde68a', borderRadius: '8px', padding: '12px', marginBottom: '12px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginBottom: '8px' }}>
+                <div className='card' style={{ padding: '1rem', marginBottom: '1.25rem', background: 'var(--bg-secondary)' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', cursor: 'pointer', marginBottom: form.is_recurring ? '0.75rem' : 0 }}>
                     <input
                       type='checkbox'
                       checked={form.is_recurring}
                       onChange={e => setForm({ ...form, is_recurring: e.target.checked })}
                     />
-                    <span style={{ fontWeight: 600, color: '#92400e' }}>Recurring charge</span>
+                    <span className='form-label' style={{ marginBottom: 0 }}>Recurring charge</span>
                   </label>
                   {form.is_recurring && (
-                    <select value={form.recurrence_period} onChange={e => setForm({ ...form, recurrence_period: e.target.value })}>
+                    <select className='form-control' value={form.recurrence_period} onChange={e => setForm({ ...form, recurrence_period: e.target.value })}>
                       <option value=''>Select period</option>
                       <option value='monthly'>Monthly</option>
                       <option value='quarterly'>Quarterly</option>
@@ -408,14 +438,14 @@ export default function Obligations() {
                 </div>
               )}
 
-              <div className='form-group'>
-                <label>Notes</label>
-                <input value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
+              <div className='form-group' style={{ marginBottom: 0 }}>
+                <label className='form-label'>Notes</label>
+                <input className='form-control' value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
               </div>
             </div>
             <div className='modal-footer'>
-              <button className='btn-secondary' onClick={() => setShowModal(false)}>Cancel</button>
-              <button className='btn-primary' onClick={handleSubmit}>{editing ? 'Update' : 'Add'}</button>
+              <button className='btn btn-ghost' onClick={() => setShowModal(false)}>Cancel</button>
+              <button className='btn btn-primary' onClick={handleSubmit}>{editing ? 'Update' : 'Add'}</button>
             </div>
           </div>
         </div>
