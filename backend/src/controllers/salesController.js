@@ -489,6 +489,22 @@ exports.returnSale = async (req, res) => {
     const invoice = inv.rows[0];
     if (invoice.payment_status === 'returned') throw new Error('Invoice already returned');
 
+    // Return must post cash movement on the invoice's original sale date.
+    // If that day's cash register is already closed, block the return entirely.
+    const saleDateStr = invoice.sale_date instanceof Date
+      ? invoice.sale_date.toISOString().split('T')[0]
+      : invoice.sale_date;
+    const regCheck = await client.query(
+      `SELECT status FROM cash_register WHERE register_date = $1 AND shop_id = $2`,
+      [saleDateStr, invoice.shop_id]
+    );
+    if (regCheck.rows[0]?.status === 'closed') {
+      throw new Error(
+        `Cannot return this invoice — the cash register for ${saleDateStr} is closed. ` +
+        `Please reopen that day's register before processing this return.`
+      );
+    }
+
     const items = await client.query('SELECT * FROM sale_items WHERE invoice_id = $1', [invoiceId]);
 
     // Fetch service flags for all returned items in one query
@@ -551,14 +567,13 @@ exports.returnSale = async (req, res) => {
 
     // Record cash refund — single entry only (no double counting)
     if (invoice.payment_method === 'cash' && returnAmt > 0) {
-      const today = new Date().toISOString().split('T')[0];
-
-      // Record cash refund as manual OUT entry — don't touch total_sales_cash
+      // Posted on the invoice's original sale date (checked above to ensure that
+      // day's register isn't closed) — don't touch total_sales_cash
       // (sale already counted in cash sales, return shows separately in detail view)
       await client.query(
         `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
          VALUES ($1, $2, 'out', $3, 'Return', $4)`,
-        [invoice.shop_id, today, returnAmt, `Cash refund — ${invoice.invoice_number} return`]
+        [invoice.shop_id, saleDateStr, returnAmt, `Cash refund — ${invoice.invoice_number} return`]
       );
     }
 
