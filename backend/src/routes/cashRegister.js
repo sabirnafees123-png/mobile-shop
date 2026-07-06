@@ -209,7 +209,7 @@ router.get('/history', async (req, res) => {
     const [salesData, expensesData, purchasesData, manualData] = await Promise.all([
       query(`
         SELECT sale_date::text as d,
-          COALESCE(SUM(CASE WHEN payment_method='cash' AND payment_status!='returned' THEN amount_paid ELSE 0 END),0) as cash_sales,
+          COALESCE(SUM(CASE WHEN payment_method='cash' THEN amount_paid ELSE 0 END),0) as cash_sales,
           COALESCE(SUM(CASE WHEN payment_status='returned' AND payment_method='cash' THEN amount_paid ELSE 0 END),0) as cash_returns,
           COALESCE(SUM(CASE WHEN payment_status!='returned' THEN total_amount - COALESCE(exchange_trade_in_value,0) ELSE 0 END),0) as gross_sales,
           COALESCE(SUM(CASE WHEN payment_status!='returned' THEN COALESCE(exchange_trade_in_value,0) ELSE 0 END),0) as trade_in
