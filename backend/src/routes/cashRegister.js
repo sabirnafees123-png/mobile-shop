@@ -338,16 +338,28 @@ router.post('/recalculate', async (req, res) => {
 });
 
 // ── POST /api/v1/cash-register/manual-entry ──────────────────────────────────
+const ALLOWED_MANUAL_CATEGORIES = [
+  'Commettie',
+  'Savings',
+  'Blessing Workshop rent',
+  'Room Rent Received',
+  'Blessing Shop Rent Received',
+  'Mashriq Bank transaction',
+];
+
 router.post('/manual-entry', checkRegisterLock, async (req, res) => {
   try {
     const { shop_id, entry_type, amount, category, description, entry_date } = req.body;
     if (!shop_id || !entry_type || !amount) return res.status(400).json({ success: false, message: 'shop_id, entry_type, amount required' });
     if (!['in', 'out'].includes(entry_type)) return res.status(400).json({ success: false, message: 'entry_type must be in or out' });
+    if (!category || !ALLOWED_MANUAL_CATEGORIES.includes(category)) {
+      return res.status(400).json({ success: false, message: `Category must be one of: ${ALLOWED_MANUAL_CATEGORIES.join(', ')}` });
+    }
 
     const result = await query(
       `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description, created_by)
        VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
-      [shop_id, entry_date || new Date().toISOString().split('T')[0], entry_type, parseFloat(amount), category || null, description || null, req.user?.id]
+      [shop_id, entry_date || new Date().toISOString().split('T')[0], entry_type, parseFloat(amount), category, description || null, req.user?.id]
     );
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) {

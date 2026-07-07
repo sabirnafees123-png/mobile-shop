@@ -10,6 +10,8 @@ const fmtDate = d => new Date(d).toLocaleDateString('en-AE');
 export default function CashRegister() {
   const currentUser = JSON.parse(localStorage.getItem('user') || 'null');
   const isAdmin = currentUser?.role === 'admin';
+  // Manual Cash In/Out — allowed for admins, plus Waqas specifically (by name)
+  const canManualEntry = isAdmin || currentUser?.name?.toLowerCase().includes('waqas');
   const [data, setData]             = useState(null);
   const [history, setHistory]       = useState([]);
   const [shops, setShops]           = useState([]);
@@ -66,6 +68,7 @@ export default function CashRegister() {
 
   const handleManualEntry = async () => {
     if (!manualForm.amount) return toast.error('Enter amount');
+    if (!manualForm.category) return toast.error('Select a category');
     setSaving(true);
     try {
       const entryDate = manualForm.entry_date || new Date().toISOString().split('T')[0];
@@ -171,7 +174,7 @@ export default function CashRegister() {
           {shopId && (
             <>
               <button className="btn btn-ghost" onClick={() => { setTransferForm({...transferForm, from_shop_id: shopId}); setShowTransfer(true); }}>🔄 Transfer Cash</button>
-              {isAdmin && <button className="btn btn-ghost" onClick={() => setShowManual(true)}>+ Cash Entry</button>}
+              {canManualEntry && <button className="btn btn-ghost" onClick={() => setShowManual(true)}>+ Cash Entry</button>}
             </>
           )}
           {shopId && !isOpen && (
@@ -721,7 +724,7 @@ export default function CashRegister() {
         </div>
       )}
       {/* Manual Cash Entry Modal — Admin Only */}
-      {showManual && isAdmin && (
+      {showManual && canManualEntry && (
         <div className="modal-overlay" onClick={() => setShowManual(false)}>
           <div className="modal" style={{maxWidth:'420px'}} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
@@ -754,23 +757,30 @@ export default function CashRegister() {
                   onChange={e => setManualForm({...manualForm, amount:e.target.value})} placeholder="0.00" />
               </div>
               <div className="form-group">
-                <label className="form-label">Category</label>
-                <input className="form-control" value={manualForm.category}
-                  onChange={e => setManualForm({...manualForm, category:e.target.value})}
-                  placeholder="e.g. Rent, Salary, Other Income..." />
+                <label className="form-label">Category *</label>
+                <select className="form-control" value={manualForm.category}
+                  onChange={e => setManualForm({...manualForm, category:e.target.value})}>
+                  <option value="">— Select Category —</option>
+                  <option value="Commettie">Commettie</option>
+                  <option value="Savings">Savings</option>
+                  <option value="Blessing Workshop rent">Blessing Workshop rent</option>
+                  <option value="Room Rent Received">Room Rent Received</option>
+                  <option value="Blessing Shop Rent Received">Blessing Shop Rent Received</option>
+                  <option value="Mashriq Bank transaction">Mashriq Bank transaction</option>
+                </select>
               </div>
               <div className="form-group">
-                <label className="form-label">Description</label>
+                <label className="form-label">Remarks</label>
                 <input className="form-control" value={manualForm.description}
                   onChange={e => setManualForm({...manualForm, description:e.target.value})}
-                  placeholder="e.g. Blessing shop rent received" />
+                  placeholder="Any additional note..." />
               </div>
             </div>
             <div className="modal-footer">
               <button className="btn btn-ghost" onClick={() => setShowManual(false)}>Cancel</button>
               <button className="btn btn-primary"
                 style={{background:manualForm.entry_type==='in'?'#059669':'#dc2626'}}
-                onClick={handleManualEntry} disabled={saving||!manualForm.amount}>
+                onClick={handleManualEntry} disabled={saving||!manualForm.amount||!manualForm.category}>
                 {saving?'Saving...':`Record Cash ${manualForm.entry_type==='in'?'IN':'OUT'}`}
               </button>
             </div>
