@@ -223,6 +223,8 @@ export default function Sales() {
   const [serialResults, setSerialResults]   = useState({});
   const [nameSearches, setNameSearches]     = useState({});
   const [nameResults, setNameResults]       = useState({});
+  const [serialDropPos, setSerialDropPos]   = useState({}); // {idx: {top,left,width}}
+  const [nameDropPos, setNameDropPos]       = useState({});
 
   // Return
   const [returnSearch, setReturnSearch]   = useState('');
@@ -299,8 +301,12 @@ useEffect(() => {
   const nameAborts   = useRef({});
 
   // Serial search — debounced 400ms
-  const searchSerial = (idx, val) => {
+  const searchSerial = (idx, val, inputEl) => {
     setSerialSearches(prev => ({ ...prev, [idx]: val }));
+    if (inputEl) {
+      const r = inputEl.getBoundingClientRect();
+      setSerialDropPos(prev => ({ ...prev, [idx]: { top: r.bottom, left: r.left, width: Math.max(r.width, 340) } }));
+    }
     if (serialTimers.current[idx]) clearTimeout(serialTimers.current[idx]);
     if (serialAborts.current[idx]) serialAborts.current[idx].abort();
     if (val.length < 2) { setSerialResults(prev => ({ ...prev, [idx]: [] })); return; }
@@ -315,8 +321,12 @@ useEffect(() => {
   };
 
   // Name search — debounced 400ms
-  const searchByName = (idx, val) => {
+  const searchByName = (idx, val, inputEl) => {
     setNameSearches(prev => ({ ...prev, [idx]: val }));
+    if (inputEl) {
+      const r = inputEl.getBoundingClientRect();
+      setNameDropPos(prev => ({ ...prev, [idx]: { top: r.bottom, left: r.left, width: Math.max(r.width, 360) } }));
+    }
     if (nameTimers.current[idx]) clearTimeout(nameTimers.current[idx]);
     if (nameAborts.current[idx]) nameAborts.current[idx].abort();
     if (val.length < 1) { setNameResults(prev => ({ ...prev, [idx]: [] })); return; }
@@ -718,10 +728,6 @@ useEffect(() => {
                 <button className="btn btn-ghost btn-sm" onClick={addItem}>+ Add Item</button>
               </div>
 
-              {/* ── Items table with horizontal scroll ── */}
-              <div style={{ overflowX:'auto', marginBottom:'0.5rem' }}>
-              <div style={{ minWidth:'760px' }}>
-
               {/* ── Column headers (shown once above items) ── */}
               <div style={{ display:'grid', gridTemplateColumns:'32px 1fr 1fr 100px 100px 70px 100px 28px', gap:'6px', padding:'0 4px 4px', borderBottom:'1px solid var(--border)', marginBottom:'6px' }}>
                 {['#','Serial / IMEI','Product Name','Cost','Rec. Price','Qty','Selling Price',''].map((h,idx) => (
@@ -730,7 +736,7 @@ useEffect(() => {
               </div>
 
               {form.items.map((item, i) => (
-                <div key={i} style={{ marginBottom:'8px' }}>
+                <div key={i} style={{ marginBottom:'8px', position:'relative', zIndex: form.items.length - i }}>
                   {/* ── Single row per item ── */}
                   <div style={{ display:'grid', gridTemplateColumns:'32px 1fr 1fr 100px 100px 70px 100px 28px', gap:'6px', alignItems:'center', padding:'4px', borderRadius:'6px', background: i%2===0 ? 'var(--bg-secondary)' : 'transparent' }}>
 
@@ -738,15 +744,16 @@ useEffect(() => {
                     <div style={{ fontSize:'.75rem', color:'var(--text-muted)', textAlign:'center', fontWeight:600 }}>{i+1}</div>
 
                     {/* Serial / IMEI search */}
-                    <div style={{position:'relative', zIndex: 50}}>
+                    <div style={{position:'relative'}}>
                       <input className="form-control"
                         placeholder="Scan or type serial..."
                         value={serialSearches[i]!==undefined ? serialSearches[i] : (item.serial_number||'')}
-                        onChange={e => searchSerial(i, e.target.value)}
+                        onChange={e => searchSerial(i, e.target.value, e.target)}
+                        onFocus={e => searchSerial(i, serialSearches[i]!==undefined ? serialSearches[i] : (item.serial_number||''), e.target)}
                         autoComplete="off"
                         style={{ fontFamily:'monospace', fontSize:'.78rem', padding:'5px 7px', height:'32px' }} />
-                      {(serialResults[i]||[]).length > 0 && (
-                        <div style={{position:'absolute',top:'100%',left:0,zIndex:200,width:'340px',background:'white',
+                      {(serialResults[i]||[]).length > 0 && serialDropPos[i] && (
+                        <div style={{position:'fixed',top:serialDropPos[i].top,left:serialDropPos[i].left,zIndex:2000,width:serialDropPos[i].width,background:'white',
                           border:'1px solid var(--border)',borderRadius:'8px',boxShadow:'0 4px 12px rgba(0,0,0,.15)',maxHeight:'200px',overflowY:'auto'}}>
                           {serialResults[i].map(p => (
                             <div key={p.id} onClick={() => selectSerialProduct(i,p)}
@@ -763,15 +770,16 @@ useEffect(() => {
                     </div>
 
                     {/* Product Name search */}
-                    <div style={{position:'relative', zIndex: 50}}>
+                    <div style={{position:'relative'}}>
                       <input className="form-control"
                         placeholder="Type product name..."
                         value={nameSearches[i]!==undefined ? nameSearches[i] : (item.product_name||'')}
-                        onChange={e => searchByName(i, e.target.value)}
+                        onChange={e => searchByName(i, e.target.value, e.target)}
+                        onFocus={e => searchByName(i, nameSearches[i]!==undefined ? nameSearches[i] : (item.product_name||''), e.target)}
                         autoComplete="off"
                         style={{ fontSize:'.78rem', padding:'5px 7px', height:'32px' }} />
-                      {(nameResults[i]||[]).length > 0 && (
-                        <div style={{position:'absolute',top:'100%',left:0,zIndex:200,width:'380px',background:'white',
+                      {(nameResults[i]||[]).length > 0 && nameDropPos[i] && (
+                        <div style={{position:'fixed',top:nameDropPos[i].top,left:nameDropPos[i].left,zIndex:2000,width:nameDropPos[i].width,background:'white',
                           border:'1px solid var(--border)',borderRadius:'8px',boxShadow:'0 4px 12px rgba(0,0,0,.15)',maxHeight:'220px',overflowY:'auto'}}>
                           {nameResults[i].map(p => (
                             <div key={p.id} onClick={() => selectSerialProduct(i,p)}
@@ -829,9 +837,6 @@ useEffect(() => {
                   )}
                 </div>
               ))}
-
-              </div>
-              </div>
 
               {/* Exchange */}
               <div style={{background:form.is_exchange?'#fef9c3':'var(--bg-secondary)',border:`1px solid ${form.is_exchange?'#fde68a':'var(--border)'}`,borderRadius:'8px',padding:'12px',marginBottom:'12px'}}>
