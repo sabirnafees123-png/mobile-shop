@@ -401,11 +401,14 @@ exports.markPaymentReceived = async (req, res) => {
     // How customer is paying NOW (cash/card/tabby/tamara/bank_transfer)
     const method = received_method || 'cash';
 
-    // Invoice was created with payment_method='pending' (method not decided at sale time).
-    // Lock it in to the method actually used now — otherwise this invoice's payment_method
-    // stays 'pending' forever and never gets picked up by Cash Register reports, which
-    // filter strictly on payment_method='cash'.
-    const newPaymentMethod = invoice.payment_method === 'pending' ? method : invoice.payment_method;
+    // NOTE: we intentionally do NOT change invoice.payment_method here.
+    // If we locked it to 'cash', this invoice would start matching the
+    // sale_date-based "Cash Sales" query (WHERE payment_method='cash'),
+    // double-counting the same amount that's already recorded via the
+    // cash_manual_entries entry below (on the actual receive date).
+    // Leaving payment_method as originally recorded keeps this invoice out
+    // of that query permanently — the only record of the cash received is
+    // the manual entry, dated correctly.
 
     const newAmountPaid = parseFloat(invoice.amount_paid) + amountNow;
     const newAmountDue  = parseFloat(invoice.total_amount) - newAmountPaid;
@@ -425,10 +428,9 @@ exports.markPaymentReceived = async (req, res) => {
          amount_paid           = $2,
          amount_due            = $3,
          payment_received_date = $4,
-         payment_received_by   = $5,
-         payment_method        = $6
-       WHERE id = $7`,
-      [newStatus, newAmountPaid, Math.max(newAmountDue, 0), recDate, req.user?.id || null, newPaymentMethod, invoiceId]
+         payment_received_by   = $5
+       WHERE id = $6`,
+      [newStatus, newAmountPaid, Math.max(newAmountDue, 0), recDate, req.user?.id || null, invoiceId]
     );
 
     if (amountNow > 0) {
@@ -448,16 +450,20 @@ exports.markPaymentReceived = async (req, res) => {
           throw new Error(`Register for ${recDate} is not open. Please open the register for that date first.`);
         }
 
-        // Record as a manual cash-in entry on the date it was actually received.
-        // (The Cash Register report's live "cash sales" figure is aggregated from
-        // sales_invoices grouped by sale_date — a payment collected later on a
-        // different date would never show up there. cash_manual_entries is what
-        // the report actually reads for same-day cash movements like this.)
-        await client.query(
-          `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
-           VALUES ($1, $2, 'in', $3, 'Payment Received', $4)`,
-          [invoice.shop_id, recDate, amountNow, `Payment received (cash) — ${invoice.invoice_number}`]
-        );
+        // Only add a manual cash-in entry if this invoice's payment_method was NOT
+        // already 'cash'. If it was already 'cash' (chosen at sale time, just
+        // partially paid), the sale_date-based "Cash Sales" query already counts
+        // its live amount_paid automatically — adding a manual entry here would
+        // double-count the same money. This only applies to invoices whose method
+        // was 'pending' (or something else) at sale time, where Cash Sales would
+        // never pick them up on its own.
+        if (invoice.payment_method !== 'cash') {
+          await client.query(
+            `INSERT INTO cash_manual_entries (shop_id, entry_date, entry_type, amount, category, description)
+             VALUES ($1, $2, 'in', $3, 'Payment Received', $4)`,
+            [invoice.shop_id, recDate, amountNow, `Payment received (cash) — ${invoice.invoice_number}`]
+          );
+        }
       } else {
         // Non-cash (card/tabby/tamara/bank_transfer) — manual entry for reconciliation only
         const methodLabel = method.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
