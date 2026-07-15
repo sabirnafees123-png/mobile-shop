@@ -622,7 +622,7 @@ export default function Purchases() {
       {/* ── New Purchase Modal ── */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" style={{ maxWidth: '1100px', width:'96vw', maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{ maxWidth: '1200px', width:'97vw', maxHeight: '92vh', overflowY: 'auto' }} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <strong>📦 New Purchase</strong>
               <button className="modal-close" onClick={() => setShowModal(false)}>✕</button>

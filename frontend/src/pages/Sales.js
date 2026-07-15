@@ -651,7 +651,7 @@ useEffect(() => {
       {/* ── New Sale Modal ── */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal" style={{maxWidth:'860px',maxHeight:'92vh',overflowY:'auto'}} onClick={e => e.stopPropagation()}>
+          <div className="modal" style={{maxWidth:'1100px', width:'96vw', maxHeight:'92vh',overflowY:'auto'}} onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <strong>🧾 New Sale</strong>
               <button className="modal-close" onClick={() => setShowModal(false)}>✕</button>
@@ -718,95 +718,108 @@ useEffect(() => {
                 <button className="btn btn-ghost btn-sm" onClick={addItem}>+ Add Item</button>
               </div>
 
+              {/* ── Items table with horizontal scroll ── */}
+              <div style={{ overflowX:'auto', marginBottom:'0.5rem' }}>
+              <div style={{ minWidth:'760px' }}>
+
+              {/* ── Column headers (shown once above items) ── */}
+              <div style={{ display:'grid', gridTemplateColumns:'32px 1fr 1fr 100px 100px 70px 100px 28px', gap:'6px', padding:'0 4px 4px', borderBottom:'1px solid var(--border)', marginBottom:'6px' }}>
+                {['#','Serial / IMEI','Product Name','Cost','Rec. Price','Qty','Selling Price',''].map((h,idx) => (
+                  <div key={idx} style={{ fontSize:'.72rem', color:'var(--text-muted)', fontWeight:600, textTransform:'uppercase', letterSpacing:'.03em' }}>{h}</div>
+                ))}
+              </div>
+
               {form.items.map((item, i) => (
-                <div key={i} style={{background:'var(--bg-secondary)',borderRadius:'8px',padding:'0.75rem',marginBottom:'0.5rem'}}>
-                  {/* Serial search */}
-                  <div style={{marginBottom:'8px',position:'relative'}}>
-                    <label className="form-label">🔍 Search by Serial / IMEI (scan or type)</label>
-                    <input className="form-control"
-                      placeholder="Scan barcode or type serial number..."
-                      value={serialSearches[i]!==undefined ? serialSearches[i] : (item.serial_number||'')}
-                      onChange={e => searchSerial(i, e.target.value)}
-                      autoComplete="off" />
-                    {(serialResults[i]||[]).length > 0 && (
-                      <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:100,background:'white',
-                        border:'1px solid var(--border)',borderRadius:'8px',boxShadow:'0 4px 12px rgba(0,0,0,.1)',maxHeight:'200px',overflowY:'auto'}}>
-                        {serialResults[i].map(p => (
-                          <div key={p.id} onClick={() => selectSerialProduct(i,p)}
-                            style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid var(--border)',fontSize:'.88rem'}}
-                            onMouseEnter={e=>e.currentTarget.style.background='#f8f9fc'}
-                            onMouseLeave={e=>e.currentTarget.style.background='white'}>
-                            <strong>{p.brand} {p.name}</strong>
-                            {p.serial_number && <span style={{color:'var(--text-muted)',marginLeft:'8px',fontSize:'.8rem',fontFamily:'monospace'}}>S/N: {p.serial_number}</span>}
-                            <span style={{marginLeft:'8px',color:'#059669',fontSize:'.82rem'}}>AED {Math.round(p.selling_price||0).toLocaleString()}</span>
-                            <span style={{marginLeft:'8px',color:'#92400e',fontSize:'.82rem'}}>Cost: AED {Math.round(p.base_cost||0).toLocaleString()}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                <div key={i} style={{ marginBottom:'8px' }}>
+                  {/* ── Single row per item ── */}
+                  <div style={{ display:'grid', gridTemplateColumns:'32px 1fr 1fr 100px 100px 70px 100px 28px', gap:'6px', alignItems:'center', padding:'4px', borderRadius:'6px', background: i%2===0 ? 'var(--bg-secondary)' : 'transparent' }}>
 
-                  {/* Name search */}
-                  <div style={{marginBottom:'8px',position:'relative'}}>
-                    <label className="form-label">🔍 Search by Product Name (type to filter)</label>
-                    <input className="form-control"
-                      placeholder="Type product name e.g. iPad, iPhone..."
-                      value={nameSearches[i]!==undefined ? nameSearches[i] : (item.product_name||'')}
-                      onChange={e => searchByName(i, e.target.value)}
-                      autoComplete="off" />
-                    {(nameResults[i]||[]).length > 0 && (
-                      <div style={{position:'absolute',top:'100%',left:0,right:0,zIndex:100,background:'white',
-                        border:'1px solid var(--border)',borderRadius:'8px',boxShadow:'0 4px 12px rgba(0,0,0,.1)',maxHeight:'220px',overflowY:'auto'}}>
-                        {nameResults[i].map(p => (
-                          <div key={p.id} onClick={() => selectSerialProduct(i,p)}
-                            style={{padding:'10px 14px',cursor:'pointer',borderBottom:'1px solid var(--border)',fontSize:'.88rem'}}
-                            onMouseEnter={e=>e.currentTarget.style.background='#f8f9fc'}
-                            onMouseLeave={e=>e.currentTarget.style.background='white'}>
-                            <strong>{p.brand} {p.name}</strong>
-                            {p.serial_number && <span style={{color:'var(--text-muted)',marginLeft:'8px',fontSize:'.8rem',fontFamily:'monospace'}}>S/N: {p.serial_number}</span>}
-                            <span style={{marginLeft:'8px',color:'#059669',fontSize:'.82rem'}}>AED {Math.round(p.selling_price||0).toLocaleString()}</span>
-                            {p.stock_qty !== undefined && (
-                              <span style={{marginLeft:'8px',color:p.stock_qty > 0 ? '#0f766e' : '#be123c',fontWeight:600,fontSize:'.82rem'}}>
-                                Stock: {p.stock_qty}
-                              </span>
-                            )}
-                            <span style={{marginLeft:'8px',color:'#92400e',fontSize:'.82rem'}}>Cost: AED {Math.round(p.base_cost||0).toLocaleString()}</span>
-                            <span style={{marginLeft:'8px',fontSize:'.75rem',background:'#f3f4f6',padding:'1px 6px',borderRadius:'4px'}}>{p.type||''}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
+                    {/* # badge */}
+                    <div style={{ fontSize:'.75rem', color:'var(--text-muted)', textAlign:'center', fontWeight:600 }}>{i+1}</div>
 
-                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr 1fr auto',gap:'8px',alignItems:'end'}}>
-                    <div className="form-group" style={{marginBottom:0}}>
-                      <label className="form-label">Cost Price</label>
-                      <input type="number" className="form-control" value={item.unit_cost||''} readOnly
-                        style={{background:'#fef3c7',color:'#92400e',cursor:'not-allowed',fontWeight:600}} />
+                    {/* Serial / IMEI search */}
+                    <div style={{position:'relative'}}>
+                      <input className="form-control"
+                        placeholder="Scan or type serial..."
+                        value={serialSearches[i]!==undefined ? serialSearches[i] : (item.serial_number||'')}
+                        onChange={e => searchSerial(i, e.target.value)}
+                        autoComplete="off"
+                        style={{ fontFamily:'monospace', fontSize:'.78rem', padding:'5px 7px', height:'32px' }} />
+                      {(serialResults[i]||[]).length > 0 && (
+                        <div style={{position:'absolute',top:'100%',left:0,zIndex:200,width:'340px',background:'white',
+                          border:'1px solid var(--border)',borderRadius:'8px',boxShadow:'0 4px 12px rgba(0,0,0,.15)',maxHeight:'200px',overflowY:'auto'}}>
+                          {serialResults[i].map(p => (
+                            <div key={p.id} onClick={() => selectSerialProduct(i,p)}
+                              style={{padding:'8px 12px',cursor:'pointer',borderBottom:'1px solid var(--border)',fontSize:'.83rem'}}
+                              onMouseEnter={e=>e.currentTarget.style.background='#f8f9fc'}
+                              onMouseLeave={e=>e.currentTarget.style.background='white'}>
+                              <strong>{p.brand} {p.name}</strong>
+                              {p.serial_number && <span style={{color:'var(--text-muted)',marginLeft:'6px',fontSize:'.75rem',fontFamily:'monospace'}}>{p.serial_number}</span>}
+                              <span style={{marginLeft:'6px',color:'#059669',fontSize:'.78rem'}}>AED {Math.round(p.selling_price||0).toLocaleString()}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div className="form-group" style={{marginBottom:0}}>
-                      <label className="form-label">Rec. Price</label>
-                      <input type="number" className="form-control" value={item.recommended_price||''} readOnly
-                        style={{background:'var(--bg-tertiary,#f3f4f6)',color:'var(--text-muted)',cursor:'not-allowed'}} />
+
+                    {/* Product Name search */}
+                    <div style={{position:'relative'}}>
+                      <input className="form-control"
+                        placeholder="Type product name..."
+                        value={nameSearches[i]!==undefined ? nameSearches[i] : (item.product_name||'')}
+                        onChange={e => searchByName(i, e.target.value)}
+                        autoComplete="off"
+                        style={{ fontSize:'.78rem', padding:'5px 7px', height:'32px' }} />
+                      {(nameResults[i]||[]).length > 0 && (
+                        <div style={{position:'absolute',top:'100%',left:0,zIndex:200,width:'380px',background:'white',
+                          border:'1px solid var(--border)',borderRadius:'8px',boxShadow:'0 4px 12px rgba(0,0,0,.15)',maxHeight:'220px',overflowY:'auto'}}>
+                          {nameResults[i].map(p => (
+                            <div key={p.id} onClick={() => selectSerialProduct(i,p)}
+                              style={{padding:'8px 12px',cursor:'pointer',borderBottom:'1px solid var(--border)',fontSize:'.83rem'}}
+                              onMouseEnter={e=>e.currentTarget.style.background='#f8f9fc'}
+                              onMouseLeave={e=>e.currentTarget.style.background='white'}>
+                              <strong>{p.brand} {p.name}</strong>
+                              {p.serial_number && <span style={{color:'var(--text-muted)',marginLeft:'6px',fontSize:'.75rem',fontFamily:'monospace'}}>S/N: {p.serial_number}</span>}
+                              <span style={{marginLeft:'6px',color:'#059669',fontSize:'.78rem'}}>AED {Math.round(p.selling_price||0).toLocaleString()}</span>
+                              {p.stock_qty !== undefined && (
+                                <span style={{marginLeft:'6px',color:p.stock_qty > 0 ? '#0f766e' : '#be123c',fontWeight:600,fontSize:'.78rem'}}>
+                                  Stock: {p.stock_qty}
+                                </span>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                     </div>
-                    <div className="form-group" style={{marginBottom:0}}>
-                      <label className="form-label">Qty</label>
-                      <input type="number" min="1" className="form-control" value={item.qty}
-                        onChange={e => updateItem(i,'qty',e.target.value)} />
-                    </div>
-                    <div className="form-group" style={{marginBottom:0}}>
-                      <label className="form-label">Selling Price</label>
-                      <input type="number" className="form-control" value={item.unit_price}
-                        onChange={e => updateItem(i,'unit_price',e.target.value)} placeholder="0" />
-                    </div>
-                    {form.items.length>1 && (
-                      <button onClick={() => removeItem(i)}
-                        style={{marginBottom:'2px',background:'none',border:'none',color:'var(--accent-red)',cursor:'pointer',fontSize:'1.2rem'}}>✕</button>
-                    )}
+
+                    {/* Cost Price */}
+                    <input type="number" className="form-control" value={item.unit_cost||''} readOnly
+                      style={{background:'#fef3c7',color:'#92400e',cursor:'not-allowed',fontWeight:600,fontSize:'.78rem',padding:'5px 6px',height:'32px'}} />
+
+                    {/* Rec. Price */}
+                    <input type="number" className="form-control" value={item.recommended_price||''} readOnly
+                      style={{background:'var(--bg-tertiary,#f3f4f6)',color:'var(--text-muted)',cursor:'not-allowed',fontSize:'.78rem',padding:'5px 6px',height:'32px'}} />
+
+                    {/* Qty */}
+                    <input type="number" min="1" className="form-control" value={item.qty}
+                      onChange={e => updateItem(i,'qty',e.target.value)}
+                      style={{fontSize:'.78rem',padding:'5px 6px',height:'32px'}} />
+
+                    {/* Selling Price */}
+                    <input type="number" className="form-control" value={item.unit_price}
+                      onChange={e => updateItem(i,'unit_price',e.target.value)} placeholder="0"
+                      style={{fontSize:'.78rem',padding:'5px 6px',height:'32px'}} />
+
+                    {/* Remove */}
+                    {form.items.length>1
+                      ? <button onClick={() => removeItem(i)}
+                          style={{background:'none',border:'none',color:'var(--accent-red)',cursor:'pointer',fontSize:'1rem',padding:0,textAlign:'center'}}>✕</button>
+                      : <div />
+                    }
                   </div>
                   {item.unit_price && item.qty && (
-                    <div style={{textAlign:'right',fontSize:'.8rem',color:'var(--text-muted)',marginTop:'4px'}}>
-                      Subtotal: AED {Math.round((parseFloat(item.qty)||0)*(parseFloat(item.unit_price)||0)).toLocaleString()}
+                    <div style={{textAlign:'right',fontSize:'.72rem',color:'var(--text-muted)',paddingRight:'34px',marginTop:'2px'}}>
+                      Subtotal: <strong style={{color:'var(--text-primary)'}}>AED {Math.round((parseFloat(item.qty)||0)*(parseFloat(item.unit_price)||0)).toLocaleString()}</strong>
                       {item.recommended_price && item.unit_price && (
                         <span style={{marginLeft:'12px',color:parseFloat(item.unit_price)>=parseFloat(item.recommended_price)?'var(--accent-green)':'var(--accent-red)'}}>
                           {parseFloat(item.unit_price)>=parseFloat(item.recommended_price)?'✅ Above rec.':'⚠️ Below rec.'}
@@ -816,6 +829,9 @@ useEffect(() => {
                   )}
                 </div>
               ))}
+
+              </div>
+              </div>
 
               {/* Exchange */}
               <div style={{background:form.is_exchange?'#fef9c3':'var(--bg-secondary)',border:`1px solid ${form.is_exchange?'#fde68a':'var(--border)'}`,borderRadius:'8px',padding:'12px',marginBottom:'12px'}}>
