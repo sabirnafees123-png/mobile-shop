@@ -702,7 +702,7 @@ export default function Purchases() {
               </div>
 
               {form.items.map((item, i) => (
-                <div key={i} style={{ position:'relative' }}>
+                <div key={i} style={{ position:'relative', zIndex: form.items.length - i }}>
                   {/* ── Single row per item ── */}
                   <div style={{ display:'grid', gridTemplateColumns:'32px 160px 90px 200px 100px 80px 80px 80px 50px 28px', gap:'6px', alignItems:'center', padding:'4px', borderRadius:'6px', background: i%2===0 ? 'var(--bg-secondary)' : 'transparent', marginBottom:'3px' }}>
 
@@ -710,7 +710,7 @@ export default function Purchases() {
                     <div style={{ fontSize:'.75rem', color:'var(--text-muted)', textAlign:'center', fontWeight:600 }}>{i+1}</div>
 
                     {/* Serial / IMEI */}
-                    <div style={{ position:'relative' }}>
+                    <div style={{ position:'relative', zIndex: 50 }}>
                       <input
                         className="form-control"
                         placeholder="Serial / IMEI"

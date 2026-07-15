@@ -738,7 +738,7 @@ useEffect(() => {
                     <div style={{ fontSize:'.75rem', color:'var(--text-muted)', textAlign:'center', fontWeight:600 }}>{i+1}</div>
 
                     {/* Serial / IMEI search */}
-                    <div style={{position:'relative'}}>
+                    <div style={{position:'relative', zIndex: 50}}>
                       <input className="form-control"
                         placeholder="Scan or type serial..."
                         value={serialSearches[i]!==undefined ? serialSearches[i] : (item.serial_number||'')}
@@ -763,7 +763,7 @@ useEffect(() => {
                     </div>
 
                     {/* Product Name search */}
-                    <div style={{position:'relative'}}>
+                    <div style={{position:'relative', zIndex: 50}}>
                       <input className="form-control"
                         placeholder="Type product name..."
                         value={nameSearches[i]!==undefined ? nameSearches[i] : (item.product_name||'')}
