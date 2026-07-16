@@ -179,8 +179,11 @@ const getMovements = async (req, res) => {
   try {
     const { product_id, limit = 50 } = req.query;
     let sql = `
-      SELECT sm.*, p.name as product_name, p.brand
-      FROM stock_movements sm JOIN products p ON sm.product_id = p.id WHERE 1=1
+      SELECT sm.*, p.name as product_name, p.brand, u.name as created_by_name
+      FROM stock_movements sm
+      JOIN products p ON sm.product_id = p.id
+      LEFT JOIN users u ON u.id = sm.created_by
+      WHERE 1=1
     `;
     const params = [];
     if (product_id) { params.push(product_id); sql += ` AND sm.product_id = $${params.length}`; }

@@ -130,21 +130,21 @@ function MovementsModal({ productId, productName, onClose }) {
   const [movements, setMovements] = useState([]);
   const [loading, setLoading]     = useState(true);
   useEffect(() => {
-    api.get('/inventory/movements', { params: { product_id: productId, limit: 30 } })
+    api.get('/inventory/movements', { params: { product_id: productId, limit: 100 } })
       .then(r => setMovements(r.data.data))
       .catch(() => toast.error('Failed'))
       .finally(() => setLoading(false));
   }, [productId]);
   return (
     <div className="modal-overlay">
-      <div className="modal" style={{maxWidth:'500px'}} onClick={e=>e.stopPropagation()}>
+      <div className="modal" style={{maxWidth:'560px'}} onClick={e=>e.stopPropagation()}>
         <div className="modal-header">
-          <strong>📋 History — {productName}</strong>
+          <strong>📋 Product Ledger — {productName}</strong>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
-        <div className="modal-body" style={{maxHeight:'60vh',overflowY:'auto'}}>
+        <div className="modal-body" style={{maxHeight:'65vh',overflowY:'auto'}}>
           {loading ? <div className="loading">Loading…</div>
-          : movements.length === 0 ? <div className="empty-state">No movements</div>
+          : movements.length === 0 ? <div className="empty-state">No history yet for this product</div>
           : movements.map(m => (
             <div key={m.id} style={{display:'flex',justifyContent:'space-between',padding:'10px 12px',
               background:'var(--bg-secondary)',borderRadius:'8px',marginBottom:'8px'}}>
@@ -154,13 +154,21 @@ function MovementsModal({ productId, productName, onClose }) {
                   color:m.type==='in'?'#065f46':m.type==='out'?'#dc2626':'#1e40af'}}>
                   {m.type.toUpperCase()}
                 </span>
-                {m.note && <div style={{fontSize:'.8rem',color:'var(--text-muted)',marginTop:'2px'}}>{m.note}</div>}
+                {m.note && <div style={{fontSize:'.8rem',color:'var(--text-muted)',marginTop:'4px'}}>{m.note}</div>}
+                <div style={{fontSize:'.72rem',color:'var(--text-muted)',marginTop:'2px'}}>
+                  by {m.created_by_name || 'System'}
+                </div>
               </div>
-              <div style={{textAlign:'right'}}>
+              <div style={{textAlign:'right',flexShrink:0,marginLeft:'8px'}}>
                 <div style={{fontWeight:700,color:m.type==='out'?'#dc2626':'#059669'}}>
                   {m.type==='out'?'-':'+'}{m.quantity}
                 </div>
-                <div style={{fontSize:'.75rem',color:'var(--text-muted)'}}>{new Date(m.created_at).toLocaleDateString()}</div>
+                <div style={{fontSize:'.75rem',color:'var(--text-muted)'}}>
+                  {new Date(m.created_at).toLocaleDateString('en-AE',{day:'numeric',month:'short',year:'numeric'})}
+                </div>
+                <div style={{fontSize:'.7rem',color:'var(--text-muted)'}}>
+                  {new Date(m.created_at).toLocaleTimeString('en-AE',{hour:'2-digit',minute:'2-digit'})}
+                </div>
               </div>
             </div>
           ))}
@@ -463,8 +471,8 @@ export default function Inventory() {
                               </button>
                               <button onClick={()=>setMovementItem(item)}
                                 style={{padding:'3px 8px',borderRadius:'6px',border:'none',
-                                  background:'#dbeafe',color:'#1e40af',cursor:'pointer',fontSize:'.78rem'}}>
-                                📋
+                                  background:'#dbeafe',color:'#1e40af',cursor:'pointer',fontSize:'.78rem',fontWeight:600}}>
+                                📋 Ledger
                               </button>
                             </div>
                           </td>
