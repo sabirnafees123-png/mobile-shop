@@ -116,6 +116,12 @@ router.post('/import', async (req, res) => {
         }
 
         const qty = parseInt(row.quantity) || 0;
+        const existingInv = await query(
+          `SELECT quantity FROM inventory WHERE product_id=$1 AND shop_id=$2`,
+          [productId, finalShopId]
+        );
+        const oldQty = existingInv.rows.length ? parseInt(existingInv.rows[0].quantity) : 0;
+
         await query(
           `INSERT INTO inventory (product_id, shop_id, quantity, min_stock)
            VALUES ($1,$2,$3,5)
@@ -123,6 +129,16 @@ router.post('/import', async (req, res) => {
            DO UPDATE SET quantity = $3, last_updated = NOW()`,
           [productId, finalShopId, qty]
         );
+
+        const variance = qty - oldQty;
+        if (variance !== 0) {
+          await query(
+            `INSERT INTO stock_movements (product_id, type, quantity, note, created_by)
+             VALUES ($1,$2,$3,$4,$5)`,
+            [productId, variance > 0 ? 'in' : 'out', Math.abs(variance),
+             `CSV/Excel import — quantity set to ${qty}`, req.user?.id || null]
+          );
+        }
       } catch (rowErr) {
         errors.push(`"${row.product_name||row.name}": ${rowErr.message}`);
         skipped++;
