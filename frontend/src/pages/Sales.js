@@ -3,9 +3,18 @@ import React, { useEffect, useState, useRef } from 'react';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
 
+// Returns today's date in YYYY-MM-DD using the browser's LOCAL timezone.
+// (new Date().toISOString() uses UTC, which lags behind local date between
+// midnight and the local UTC offset — e.g. in Dubai/UAE, UTC+4, this caused
+// the Sale Date to default to "yesterday" between 12:00–3:59am local time.)
+const localToday = () => {
+  const d = new Date();
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().split('T')[0];
+};
+
 const EMPTY_FORM = () => ({
   customer_name: '', customer_phone: '+971',
-  sale_date: new Date().toISOString().split('T')[0],
+  sale_date: localToday(),
   payment_method: 'cash', amount_paid: '', discount: 0, notes: '',
   shop_id: '', pending_amount: '',
   is_exchange: false,
@@ -305,7 +314,18 @@ useEffect(() => {
     setSerialSearches(prev => ({ ...prev, [idx]: val }));
     if (inputEl) {
       const r = inputEl.getBoundingClientRect();
-      setSerialDropPos(prev => ({ ...prev, [idx]: { top: r.bottom, left: r.left, width: Math.max(r.width, 340) } }));
+      const dropHeight = 200; // matches maxHeight below
+      const spaceBelow = window.innerHeight - r.bottom;
+      const openUp = spaceBelow < dropHeight && r.top > dropHeight;
+      setSerialDropPos(prev => ({
+        ...prev,
+        [idx]: {
+          top: openUp ? undefined : r.bottom,
+          bottom: openUp ? (window.innerHeight - r.top) : undefined,
+          left: r.left,
+          width: Math.max(r.width, 340),
+        },
+      }));
     }
     if (serialTimers.current[idx]) clearTimeout(serialTimers.current[idx]);
     if (serialAborts.current[idx]) serialAborts.current[idx].abort();
@@ -325,7 +345,18 @@ useEffect(() => {
     setNameSearches(prev => ({ ...prev, [idx]: val }));
     if (inputEl) {
       const r = inputEl.getBoundingClientRect();
-      setNameDropPos(prev => ({ ...prev, [idx]: { top: r.bottom, left: r.left, width: Math.max(r.width, 360) } }));
+      const dropHeight = 220; // matches maxHeight below
+      const spaceBelow = window.innerHeight - r.bottom;
+      const openUp = spaceBelow < dropHeight && r.top > dropHeight;
+      setNameDropPos(prev => ({
+        ...prev,
+        [idx]: {
+          top: openUp ? undefined : r.bottom,
+          bottom: openUp ? (window.innerHeight - r.top) : undefined,
+          left: r.left,
+          width: Math.max(r.width, 360),
+        },
+      }));
     }
     if (nameTimers.current[idx]) clearTimeout(nameTimers.current[idx]);
     if (nameAborts.current[idx]) nameAborts.current[idx].abort();
@@ -464,7 +495,7 @@ useEffect(() => {
     // For payment_pending (Tabby/Tamara/Card), open the payment modal with date picker
     setShowPayment(sale);
     setPayAmount(Math.round(sale.amount_due || 0).toString());
-    setPayDate(new Date().toISOString().split('T')[0]);
+    setPayDate(localToday());
     setPayMethod('cash');
   };
 
@@ -473,7 +504,7 @@ useEffect(() => {
     try {
       await api.post(`/sales/${showPayment.id}/mark-received`, {
         partial_amount: parseFloat(payAmount),
-        received_date: payDate || new Date().toISOString().split('T')[0],
+        received_date: payDate || localToday(),
         received_method: payMethod,
       });
       toast.success('Payment updated!');
@@ -626,7 +657,7 @@ useEffect(() => {
                           )}
                           {(s.payment_status==='partial'||s.payment_status==='unpaid'||s.payment_status==='payment_pending') && (
   <button className="btn btn-sm" style={{background:'#fef3c7',color:'#92400e',border:'none',cursor:'pointer',fontSize:'.75rem',padding:'3px 8px',borderRadius:'6px'}}
-    onClick={() => { setShowPayment(s); setPayAmount(''); setPayDate(new Date().toISOString().split('T')[0]); setPayMethod('cash'); }}>💰 Pay</button>
+    onClick={() => { setShowPayment(s); setPayAmount(''); setPayDate(localToday()); setPayMethod('cash'); }}>💰 Pay</button>
 )}
                         </div>
                       </td>
@@ -753,7 +784,9 @@ useEffect(() => {
                         autoComplete="off"
                         style={{ fontFamily:'monospace', fontSize:'.78rem', padding:'5px 7px', height:'32px' }} />
                       {(serialResults[i]||[]).length > 0 && serialDropPos[i] && (
-                        <div style={{position:'fixed',top:serialDropPos[i].top,left:serialDropPos[i].left,zIndex:2000,width:serialDropPos[i].width,background:'white',
+                        <div style={{position:'fixed',
+                          ...(serialDropPos[i].top!==undefined ? {top:serialDropPos[i].top} : {bottom:serialDropPos[i].bottom}),
+                          left:serialDropPos[i].left,zIndex:2000,width:serialDropPos[i].width,background:'white',
                           border:'1px solid var(--border)',borderRadius:'8px',boxShadow:'0 4px 12px rgba(0,0,0,.15)',maxHeight:'200px',overflowY:'auto'}}>
                           {serialResults[i].map(p => (
                             <div key={p.id} onClick={() => selectSerialProduct(i,p)}
@@ -779,7 +812,9 @@ useEffect(() => {
                         autoComplete="off"
                         style={{ fontSize:'.78rem', padding:'5px 7px', height:'32px' }} />
                       {(nameResults[i]||[]).length > 0 && nameDropPos[i] && (
-                        <div style={{position:'fixed',top:nameDropPos[i].top,left:nameDropPos[i].left,zIndex:2000,width:nameDropPos[i].width,background:'white',
+                        <div style={{position:'fixed',
+                          ...(nameDropPos[i].top!==undefined ? {top:nameDropPos[i].top} : {bottom:nameDropPos[i].bottom}),
+                          left:nameDropPos[i].left,zIndex:2000,width:nameDropPos[i].width,background:'white',
                           border:'1px solid var(--border)',borderRadius:'8px',boxShadow:'0 4px 12px rgba(0,0,0,.15)',maxHeight:'220px',overflowY:'auto'}}>
                           {nameResults[i].map(p => (
                             <div key={p.id} onClick={() => selectSerialProduct(i,p)}
@@ -1009,7 +1044,7 @@ useEffect(() => {
                 <label className="form-label">📅 Date Received</label>
                 <input type="date" className="form-control" value={payDate}
                   onChange={e => setPayDate(e.target.value)}
-                  max={new Date().toISOString().split('T')[0]} />
+                  max={localToday()} />
               </div>
 
               {/* Payment Method */}
@@ -1107,7 +1142,7 @@ useEffect(() => {
                 <button className="btn btn-ghost" style={{color:'#d97706'}} onClick={() => {
                   setShowPayment(viewSale);
                   setPayAmount(Math.round(viewSale.amount_due||0).toString());
-                  setPayDate(new Date().toISOString().split('T')[0]);
+                  setPayDate(localToday());
                   setPayMethod('cash');
                   setViewSale(null);
                 }}>💰 Record Payment</button>
