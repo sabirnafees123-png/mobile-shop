@@ -262,6 +262,21 @@ exports.createPurchase = async (req, res) => {
       );
     }
 
+    // ── Log stock movements ('in') — one per item, skip service items ──
+    const movementItems = resolvedItems.filter(item => !serviceMap[item.finalProductId]);
+    if (movementItems.length > 0) {
+      const smValues = movementItems.map((_, i) => { const b = i*4; return `($${b+1},'in',$${b+2},$${b+3},$${b+4})`; }).join(',');
+      const smParams = movementItems.flatMap(item => [
+        item.finalProductId, item.qty || 1,
+        `Purchase ${purchaseNumber}${item.serial_number ? ' — ' + item.serial_number : ''}`,
+        req.user?.id || null,
+      ]);
+      await client.query(
+        `INSERT INTO stock_movements (product_id, type, quantity, note, created_by) VALUES ${smValues}`,
+        smParams
+      );
+    }
+
     // Update supplier balance — only net due affects balance
     const amountDue  = totalAmount - amount_paid;
     const supplier   = await client.query('SELECT balance FROM suppliers WHERE id = $1', [supplier_id]);
