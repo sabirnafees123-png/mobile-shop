@@ -12,8 +12,15 @@ const getInventory = async (req, res) => {
 
     if (shop_id) { params.push(shop_id); whereClauses.push(`i.shop_id = $${params.length}`); }
     if (search) {
-      params.push(`%${search}%`);
-      whereClauses.push(`(p.name ILIKE $${params.length} OR p.brand ILIKE $${params.length} OR p.serial_number ILIKE $${params.length} OR p.color ILIKE $${params.length})`);
+      const normalized = search.replace(/\s+/g, '');
+      params.push(`%${normalized}%`);
+      whereClauses.push(`(
+        REPLACE(p.name, ' ', '') ILIKE $${params.length} OR
+        REPLACE(p.brand, ' ', '') ILIKE $${params.length} OR
+        p.serial_number ILIKE $${params.length} OR
+        REPLACE(p.color, ' ', '') ILIKE $${params.length} OR
+        REPLACE(CONCAT(p.brand,' ',p.name), ' ', '') ILIKE $${params.length}
+      )`);
     }
     if (type)  { params.push(type); whereClauses.push(`p.type = $${params.length}`); }
     if (from)  { params.push(from); whereClauses.push(`i.last_updated >= $${params.length}`); }

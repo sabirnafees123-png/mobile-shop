@@ -190,7 +190,7 @@ export default function Inventory() {
   const [pagination, setPagination]     = useState({ total:0, page:1, pages:1, limit:50 });
   const [loading, setLoading]           = useState(true);
   const [importing, setImporting]       = useState(false);
-  const [expandedRows, setExpandedRows] = useState({});
+
   const [adjustItem, setAdjustItem]     = useState(null);
   const [editPriceItem, setEditPriceItem] = useState(null);
   const [movementItem, setMovementItem] = useState(null);
@@ -277,7 +277,7 @@ export default function Inventory() {
     finally { setImporting(false); e.target.value = ''; }
   };
 
-  const toggleRow = (id) => setExpandedRows(prev => ({ ...prev, [id]: !prev[id] }));
+
 
   const stockStatus = (qty, min) => {
     if (qty === 0)  return { label:'Out of Stock', color:'#dc2626', bg:'#fee2e2' };
@@ -395,7 +395,6 @@ export default function Inventory() {
               <table style={{width:'100%',borderCollapse:'collapse',fontSize:'.88rem'}}>
                 <thead>
                   <tr style={{background:'#f8f9fc',borderBottom:'2px solid #e8eaf0'}}>
-                    <th style={{padding:'10px 8px',width:'32px'}}></th>
                     <th style={{padding:'10px 12px',textAlign:'left',fontSize:'.75rem',color:'#6b7280',fontWeight:600,textTransform:'uppercase'}}>Serial / IMEI</th>
                     <th style={{padding:'10px 12px',textAlign:'left',fontSize:'.75rem',color:'#6b7280',fontWeight:600,textTransform:'uppercase'}}>Product</th>
                     <th style={{padding:'10px 12px',textAlign:'left',fontSize:'.75rem',color:'#6b7280',fontWeight:600,textTransform:'uppercase'}}>Color</th>
@@ -408,28 +407,25 @@ export default function Inventory() {
                 <tbody>
                   {inventory.map(item => {
                     const status   = stockStatus(item.quantity, item.min_stock);
-                    const expanded = expandedRows[item.id];
                     return (
-                      <React.Fragment key={item.id}>
-                        <tr style={{borderBottom:'1px solid #f1f2f6',cursor:'pointer'}}
+                      <tr key={item.id} style={{borderBottom:'1px solid #f1f2f6'}}
                           onMouseEnter={e=>e.currentTarget.style.background='#fafbff'}
                           onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
-                          {/* Expand button */}
-                          <td style={{padding:'10px 8px',textAlign:'center'}}>
-                            <button onClick={()=>toggleRow(item.id)}
-                              style={{background:'none',border:'none',cursor:'pointer',
-                                fontSize:'1rem',color:'var(--accent)',fontWeight:700,
-                                width:'24px',height:'24px',borderRadius:'4px',
-                                display:'flex',alignItems:'center',justifyContent:'center'}}>
-                              {expanded ? '−' : '+'}
-                            </button>
-                          </td>
                           <td style={{padding:'10px 12px',fontFamily:'monospace',fontSize:'.82rem',fontWeight:600}}>
                             {item.serial_number || <span style={{color:'#9ca3af'}}>—</span>}
                           </td>
                           <td style={{padding:'10px 12px'}}>
                             <div style={{fontWeight:600,color:'#1a1a2e'}}>{item.name}</div>
                             {item.type && <div style={{fontSize:'.72rem',color:'#6b7280'}}>{item.type}</div>}
+                            <div style={{display:'flex',flexWrap:'wrap',gap:'8px',marginTop:'4px'}}>
+                              <span style={{fontSize:'.72rem',color:'#92400e'}}>Cost: <strong>AED {Math.round(item.base_cost||0).toLocaleString()}</strong></span>
+                              <span style={{fontSize:'.72rem',color:'#059669'}}>Sell: <strong>AED {Math.round(item.selling_price||0).toLocaleString()}</strong></span>
+                              <span style={{fontSize:'.72rem',color:'#6366f1'}}>
+                                Margin: <strong>AED {Math.round((item.selling_price||0)-(item.base_cost||0)).toLocaleString()}</strong>
+                                {item.base_cost > 0 && ` (${Math.round(((item.selling_price-item.base_cost)/item.base_cost)*100)}%)`}
+                              </span>
+                              {item.category && <span style={{fontSize:'.72rem',color:'#6b7280'}}>{item.category}</span>}
+                            </div>
                           </td>
                           <td style={{padding:'10px 12px'}}>
                             {item.color ? (
@@ -456,6 +452,9 @@ export default function Inventory() {
                               fontWeight:600,background:status.bg,color:status.color}}>
                               {status.label}
                             </span>
+                            <div style={{fontSize:'.68rem',color:'#9ca3af',marginTop:'4px'}}>
+                              Updated {item.last_updated ? new Date(item.last_updated).toLocaleDateString('en-AE') : '—'}
+                            </div>
                           </td>
                           <td style={{padding:'10px 12px'}}>
                             <div style={{display:'flex',gap:'4px'}}>
@@ -476,44 +475,7 @@ export default function Inventory() {
                               </button>
                             </div>
                           </td>
-                        </tr>
-                        {/* Expanded detail row */}
-                        {expanded && (
-                          <tr style={{background:'#f8f9fc',borderBottom:'1px solid #e8eaf0'}}>
-                            <td colSpan={8} style={{padding:'16px 24px'}}>
-                              <div style={{display:'grid',gridTemplateColumns:'repeat(5,1fr)',gap:'16px',fontSize:'.85rem'}}>
-                                <div>
-                                  <div style={{color:'#6b7280',fontSize:'.75rem',marginBottom:'4px'}}>COST PRICE</div>
-                                  <div style={{fontWeight:700,color:'#92400e',fontSize:'1rem'}}>AED {Math.round(item.base_cost||0).toLocaleString()}</div>
-                                </div>
-                                <div>
-                                  <div style={{color:'#6b7280',fontSize:'.75rem',marginBottom:'4px'}}>SELLING PRICE</div>
-                                  <div style={{fontWeight:700,color:'#059669',fontSize:'1rem'}}>AED {Math.round(item.selling_price||0).toLocaleString()}</div>
-                                </div>
-                                <div>
-                                  <div style={{color:'#6b7280',fontSize:'.75rem',marginBottom:'4px'}}>MARGIN</div>
-                                  <div style={{fontWeight:700,color:'#6366f1',fontSize:'1rem'}}>
-                                    AED {Math.round((item.selling_price||0)-(item.base_cost||0)).toLocaleString()}
-                                    {item.base_cost > 0 && (
-                                      <span style={{fontSize:'.78rem',marginLeft:'4px'}}>
-                                        ({Math.round(((item.selling_price-item.base_cost)/item.base_cost)*100)}%)
-                                      </span>
-                                    )}
-                                  </div>
-                                </div>
-                                <div>
-                                  <div style={{color:'#6b7280',fontSize:'.75rem',marginBottom:'4px'}}>CATEGORY</div>
-                                  <div style={{fontWeight:600}}>{item.category||'—'}</div>
-                                </div>
-                                <div>
-                                  <div style={{color:'#6b7280',fontSize:'.75rem',marginBottom:'4px'}}>LAST UPDATED</div>
-                                  <div style={{fontWeight:600}}>{new Date(item.last_updated).toLocaleDateString('en-AE')}</div>
-                                </div>
-                              </div>
-                            </td>
-                          </tr>
-                        )}
-                      </React.Fragment>
+                      </tr>
                     );
                   })}
                 </tbody>
