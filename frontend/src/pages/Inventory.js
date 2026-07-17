@@ -7,7 +7,7 @@ import api from '../utils/api';
 const fmt = n => `AED ${Math.round(Number(n||0)).toLocaleString()}`;
 const PRODUCT_TYPES = ['New (Box Pack)','Used','Refurbished','Parts','Accessories','Wholesale'];
 
-function AdjustModal({ item, onClose, onDone }) {
+function AdjustModal({ item, onClose, onDone, isAdmin }) {
   const [type, setType]       = useState('in');
   const [qty, setQty]         = useState('');
   const [note, setNote]       = useState('');
@@ -293,7 +293,7 @@ export default function Inventory() {
 
   return (
     <div style={{padding:'24px',background:'#f8f9fc',minHeight:'100vh'}}>
-      {adjustItem    && <AdjustModal    item={adjustItem}    onClose={()=>setAdjustItem(null)}    onDone={()=>fetchInventory(page)} />}
+      {adjustItem    && <AdjustModal    item={adjustItem}    onClose={()=>setAdjustItem(null)}    onDone={()=>fetchInventory(page)} isAdmin={isAdmin} />}
       {editPriceItem && <EditPriceModal item={editPriceItem} onClose={()=>setEditPriceItem(null)} onDone={()=>fetchInventory(page)} />}
       {movementItem  && <MovementsModal productId={movementItem.product_id} productName={movementItem.name} onClose={()=>setMovementItem(null)} />}
       <input ref={fileInputRef} type="file" accept=".csv" style={{display:'none'}} onChange={handleImport} />
