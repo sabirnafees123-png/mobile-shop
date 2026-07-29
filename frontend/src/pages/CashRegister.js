@@ -767,6 +767,7 @@ export default function CashRegister() {
                   <option value="Room Rent Received">Room Rent Received</option>
                   <option value="Blessing Shop Rent Received">Blessing Shop Rent Received</option>
                   <option value="Mashriq Bank transaction">Mashriq Bank transaction</option>
+                  <option value="Pending Cash received">Pending Cash received</option>
                 </select>
               </div>
               <div className="form-group">
