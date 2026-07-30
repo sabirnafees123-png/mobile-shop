@@ -346,6 +346,8 @@ const ALLOWED_MANUAL_CATEGORIES = [
   'Blessing Shop Rent Received',
   'Mashriq Bank transaction',
   'Pending Cash received',
+  'Card Sales',
+  'Bank Transfer Sales',
 ];
 
 router.post('/manual-entry', checkRegisterLock, async (req, res) => {
