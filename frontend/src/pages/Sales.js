@@ -212,6 +212,7 @@ export default function Sales() {
   const [shops, setShops]             = useState([]);
   const [loading, setLoading]         = useState(true);
   const [showModal, setShowModal]     = useState(false);
+  const [costEditable, setCostEditable] = useState(false);
   const [showReturn, setShowReturn]   = useState(false);
   const [showPayment, setShowPayment] = useState(null);
   const [viewSale, setViewSale]       = useState(null);
@@ -756,7 +757,14 @@ useEffect(() => {
               {/* Items */}
               <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',margin:'1rem 0 0.5rem'}}>
                 <strong>Items</strong>
-                <button className="btn btn-ghost btn-sm" onClick={addItem}>+ Add Item</button>
+                <div style={{display:'flex',alignItems:'center',gap:'12px'}}>
+                  <label style={{display:'flex',alignItems:'center',gap:'6px',fontSize:'.8rem',color:'#92400e',cursor:'pointer',userSelect:'none'}}>
+                    <input type="checkbox" checked={costEditable}
+                      onChange={e => setCostEditable(e.target.checked)} />
+                    Enable cost editing
+                  </label>
+                  <button className="btn btn-ghost btn-sm" onClick={addItem}>+ Add Item</button>
+                </div>
               </div>
 
               {/* ── Column headers (shown once above items) ── */}
@@ -836,8 +844,12 @@ useEffect(() => {
                     </div>
 
                     {/* Cost Price */}
-                    <input type="number" className="form-control" value={item.unit_cost||''} readOnly
-                      style={{background:'#fef3c7',color:'#92400e',cursor:'not-allowed',fontWeight:600,fontSize:'.78rem',padding:'5px 6px',height:'32px'}} />
+                    <input type="number" className="form-control" value={item.unit_cost||''}
+                      readOnly={!costEditable}
+                      onChange={e => costEditable && updateItem(i,'unit_cost',e.target.value)}
+                      style={costEditable
+                        ? {background:'#fff7ed',color:'#92400e',border:'1px solid #f59e0b',fontWeight:600,fontSize:'.78rem',padding:'5px 6px',height:'32px'}
+                        : {background:'#fef3c7',color:'#92400e',cursor:'not-allowed',fontWeight:600,fontSize:'.78rem',padding:'5px 6px',height:'32px'}} />
 
                     {/* Rec. Price */}
                     <input type="number" className="form-control" value={item.recommended_price||''} readOnly

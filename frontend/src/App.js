@@ -127,21 +127,21 @@ export default function App() {
             <ProtectedRoute>
               <Layout user={user} onLogout={handleLogout}>
                 <Routes>
-                  <Route path="/" element={<Dashboard />} />
-		  <Route path="/products" element={<Products />} />
+                  <Route path="/" element={user?.role === 'staff' ? <Navigate to="/inventory" replace /> : <Dashboard />} />
+		  <Route path="/products" element={<ProtectedRoute allowedRoles={['admin','accountant']}><Products /></ProtectedRoute>} />
                   <Route path="/inventory" element={<Inventory />} />
-                  <Route path="/purchases" element={<Purchases />} />
-                  <Route path="/sales" element={<Sales />} />
-                  <Route path="/suppliers" element={<Suppliers />} />
-                  <Route path="/customers" element={<Customers />} />
-		  <Route path="/reports"       element={<Reports />} />
-		  <Route path="/cash-register" element={<CashRegister />} />
-		  <Route path="/obligations" element={<Obligations />} />
-		  <Route path="/finance" element={<Finance />} />
-		  <Route path="/user-log" element={<UserLog />} />
-		  <Route path="/transfers" element={<Transfers />} />
-		  <Route path="/attendance" element={<Attendance user={user} />} />
-		  <Route path="/stock-count" element={<StockCount user={user} />} />
+                  <Route path="/purchases" element={<ProtectedRoute allowedRoles={['admin','accountant']}><Purchases /></ProtectedRoute>} />
+                  <Route path="/sales" element={<ProtectedRoute allowedRoles={['admin','accountant']}><Sales /></ProtectedRoute>} />
+                  <Route path="/suppliers" element={<ProtectedRoute allowedRoles={['admin','accountant']}><Suppliers /></ProtectedRoute>} />
+                  <Route path="/customers" element={<ProtectedRoute allowedRoles={['admin','accountant']}><Customers /></ProtectedRoute>} />
+		  <Route path="/reports"       element={<ProtectedRoute allowedRoles={['admin','accountant']}><Reports /></ProtectedRoute>} />
+		  <Route path="/cash-register" element={<ProtectedRoute allowedRoles={['admin','accountant']}><CashRegister /></ProtectedRoute>} />
+		  <Route path="/obligations" element={<ProtectedRoute allowedRoles={['admin','accountant']}><Obligations /></ProtectedRoute>} />
+		  <Route path="/finance" element={<ProtectedRoute allowedRoles={['admin','accountant']}><Finance /></ProtectedRoute>} />
+		  <Route path="/user-log" element={<ProtectedRoute allowedRoles={['admin']}><UserLog /></ProtectedRoute>} />
+		  <Route path="/transfers" element={<ProtectedRoute allowedRoles={['admin','accountant']}><Transfers /></ProtectedRoute>} />
+		  <Route path="/attendance" element={<ProtectedRoute allowedRoles={['admin','accountant']}><Attendance user={user} /></ProtectedRoute>} />
+		  <Route path="/stock-count" element={<ProtectedRoute allowedRoles={['admin','accountant']}><StockCount user={user} /></ProtectedRoute>} />
 
                   {/* Expenses: admin and accountant only */}
                   <Route

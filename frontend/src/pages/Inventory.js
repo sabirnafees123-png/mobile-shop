@@ -126,6 +126,102 @@ function EditPriceModal({ item, onClose, onDone }) {
   );
 }
 
+function ExpressSaleModal({ item, onClose, onDone, isAdmin }) {
+  const [qty, setQty]             = useState(1);
+  const [sellPrice, setSellPrice] = useState(item?.selling_price || '');
+  const [costPrice, setCostPrice] = useState(item?.base_cost || '');
+  const [costEditable, setCostEditable] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [saving, setSaving]       = useState(false);
+  if (!item) return null;
+
+  const total = (parseFloat(sellPrice) || 0) * (parseInt(qty) || 0);
+
+  const handleSubmit = async () => {
+    const q = parseInt(qty);
+    if (!q || q <= 0) return toast.error('Enter a valid quantity');
+    if (q > item.quantity) return toast.error(`Only ${item.quantity} in stock`);
+    if (!sellPrice || parseFloat(sellPrice) <= 0) return toast.error('Enter a selling price');
+    setSaving(true);
+    try {
+      const res = await api.post('/sales', {
+        shop_id: item.shop_id,
+        payment_method: paymentMethod,
+        amount_paid: total,
+        discount: 0,
+        notes: 'Express sale — created from Inventory',
+        items: [{
+          product_id: item.product_id,
+          qty: q,
+          unit_cost: parseFloat(costPrice) || 0,
+          unit_price: parseFloat(sellPrice) || 0,
+          serial_number: item.serial_number || undefined,
+        }],
+      });
+      toast.success(`Invoice ${res.data?.data?.invoice_number || ''} created!`);
+      onDone(); onClose();
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed to create invoice'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal" style={{maxWidth:'420px'}} onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <strong>🧾 Express Invoice — {item.name}</strong>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div style={{textAlign:'center',padding:'12px',background:'var(--bg-secondary)',borderRadius:'8px',marginBottom:'16px'}}>
+            <div style={{fontSize:'1.6rem',fontWeight:700}}>{item.quantity} in stock</div>
+            <div style={{fontSize:'.8rem',color:'var(--text-muted)'}}>{item.shop_name}{item.serial_number ? ` — S/N ${item.serial_number}` : ''}</div>
+          </div>
+          <div className="form-group" style={{marginBottom:'12px'}}>
+            <label className="form-label">Quantity</label>
+            <input type="number" min="1" max={item.quantity} className="form-control" value={qty}
+              onChange={e=>setQty(e.target.value)} />
+          </div>
+          <div className="form-group" style={{marginBottom:'12px'}}>
+            <label className="form-label">Selling Price (AED) — per unit</label>
+            <input type="number" className="form-control" value={sellPrice}
+              onChange={e=>setSellPrice(e.target.value)} placeholder="0" />
+          </div>
+          <div className="form-group" style={{marginBottom:'12px'}}>
+            <label className="form-label" style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+              <span>Cost Price (AED) — per unit</span>
+              <label style={{display:'flex',alignItems:'center',gap:'4px',fontWeight:400,fontSize:'.72rem',cursor:'pointer'}}>
+                <input type="checkbox" checked={costEditable} onChange={e=>setCostEditable(e.target.checked)} />
+                Edit
+              </label>
+            </label>
+            <input type="number" className="form-control" value={costPrice}
+              readOnly={!costEditable}
+              onChange={e=>costEditable && setCostPrice(e.target.value)}
+              style={!costEditable ? {background:'#fef3c7',color:'#92400e',cursor:'not-allowed'} : {background:'#fff7ed',border:'1px solid #f59e0b'}} />
+          </div>
+          <div className="form-group" style={{marginBottom:'12px'}}>
+            <label className="form-label">Payment Method</label>
+            <select className="form-control" value={paymentMethod} onChange={e=>setPaymentMethod(e.target.value)}>
+              <option value="cash">Cash</option>
+              <option value="card">Card</option>
+              <option value="bank_transfer">Bank Transfer</option>
+            </select>
+          </div>
+          <div style={{display:'flex',justifyContent:'space-between',padding:'10px 12px',background:'#eff6ff',borderRadius:'8px',fontSize:'.9rem',fontWeight:600}}>
+            <span>Total</span><span>{fmt(total)}</span>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={handleSubmit} disabled={saving}>
+            {saving?'Creating…':'Create Invoice'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MovementsModal({ productId, productName, onClose }) {
   const [movements, setMovements] = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -192,6 +288,7 @@ export default function Inventory() {
   const [importing, setImporting]       = useState(false);
 
   const [adjustItem, setAdjustItem]     = useState(null);
+  const [expressItem, setExpressItem]   = useState(null);
   const [editPriceItem, setEditPriceItem] = useState(null);
   const [movementItem, setMovementItem] = useState(null);
 
@@ -294,6 +391,7 @@ export default function Inventory() {
   return (
     <div style={{padding:'24px',background:'#f8f9fc',minHeight:'100vh'}}>
       {adjustItem    && <AdjustModal    item={adjustItem}    onClose={()=>setAdjustItem(null)}    onDone={()=>fetchInventory(page)} isAdmin={isAdmin} />}
+      {expressItem   && <ExpressSaleModal item={expressItem} onClose={()=>setExpressItem(null)}   onDone={()=>fetchInventory(page)} isAdmin={isAdmin} />}
       {editPriceItem && <EditPriceModal item={editPriceItem} onClose={()=>setEditPriceItem(null)} onDone={()=>fetchInventory(page)} />}
       {movementItem  && <MovementsModal productId={movementItem.product_id} productName={movementItem.name} onClose={()=>setMovementItem(null)} />}
       <input ref={fileInputRef} type="file" accept=".csv" style={{display:'none'}} onChange={handleImport} />
@@ -458,6 +556,13 @@ export default function Inventory() {
                           </td>
                           <td style={{padding:'10px 12px'}}>
                             <div style={{display:'flex',gap:'4px'}}>
+                              {item.quantity > 0 && (
+                                <button onClick={()=>setExpressItem(item)}
+                                  style={{padding:'3px 8px',borderRadius:'6px',border:'none',
+                                    background:'#e0e7ff',color:'#3730a3',cursor:'pointer',fontSize:'.78rem',fontWeight:600}}>
+                                  🧾 Express
+                                </button>
+                              )}
                               <button onClick={()=>setAdjustItem(item)}
                                 style={{padding:'3px 8px',borderRadius:'6px',border:'none',
                                   background:'#d1fae5',color:'#065f46',cursor:'pointer',fontSize:'.78rem'}}>
