@@ -6,33 +6,33 @@ require('dotenv').config();
 
 const app = express();
 
+const ALLOWED_ORIGINS = [
+  'https://mobile-shop-snowy.vercel.app',
+  'https://mobile-shop-ttur.vercel.app',
+  'https://frontend-chi-jet-38.vercel.app',
+  'http://localhost:3000',
+];
+
+// ── Manual CORS — set FIRST, before helmet or anything else, so headers
+// always go out even on preflight/OPTIONS requests on Vercel serverless.
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (ALLOWED_ORIGINS.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+  next();
+});
+
 app.use(helmet({
   crossOriginResourcePolicy: false
 }));
-app.use(cors({
-  origin: [
-  'https://mobile-shop-snowy.vercel.app',   // ← your real frontend
-  'https://mobile-shop-ttur.vercel.app',
-  'https://frontend-chi-jet-38.vercel.app',
-  'http://localhost:3000'
-],
-
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
-app.options('*', cors({
-  origin: [
-  'https://mobile-shop-snowy.vercel.app',   // ← your real frontend
-  'https://mobile-shop-ttur.vercel.app',
-  'https://frontend-chi-jet-38.vercel.app',
-  'http://localhost:3000'
-],
-
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));app.use(morgan('dev'));
+app.use(morgan('dev'));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
