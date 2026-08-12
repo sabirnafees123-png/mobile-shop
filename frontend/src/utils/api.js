@@ -1,7 +1,7 @@
 import axios from 'axios';
 import toast from 'react-hot-toast';
 
-const API_URL = process.env.REACT_APP_API_URL || 'https://backend-three-topaz-7fqfk1arnt.vercel.app';
+const API_URL = process.env.REACT_APP_API_URL || 'https://mobile-shop-backend-sjuj.onrender.com';
 
 const api = axios.create({
   baseURL: `${API_URL}/api/v1`,
