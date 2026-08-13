@@ -10,6 +10,7 @@ const ALLOWED_ORIGINS = [
   'https://mobile-shop-snowy.vercel.app',
   'https://mobile-shop-ttur.vercel.app',
   'https://frontend-chi-jet-38.vercel.app',
+  'https://lucky-frangollo-af3c89.netlify.app',
   'http://localhost:3000',
 ];
 
