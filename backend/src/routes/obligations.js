@@ -9,12 +9,10 @@ router.get('/', async (req, res) => {
     const { shop_id, type, status, obligation_model } = req.query;
     let sql = `
       SELECT o.*, s.name as shop_name,
-             CONCAT(ec.category, ' / ', COALESCE(ec.sub_category,'')) as category_name,
-             ch.cheque_number, ch.bank
+             CONCAT(ec.category, ' / ', COALESCE(ec.sub_category,'')) as category_name
       FROM obligations o
       LEFT JOIN shops s               ON s.id  = o.shop_id
       LEFT JOIN expense_categories ec ON ec.id = o.category_id
-      LEFT JOIN cheques ch             ON ch.id = o.cheque_id
       WHERE 1=1
     `;
     const params = [];
@@ -38,7 +36,6 @@ router.get('/upcoming', async (req, res) => {
     let sql = `
       SELECT o.*, s.name as shop_name,
              ec.name as category_name,
-             ch.cheque_number, ch.bank,
              CASE
                WHEN o.due_date < $1 THEN 'overdue'
                WHEN o.due_date <= $2 THEN 'due_soon'
@@ -47,7 +44,6 @@ router.get('/upcoming', async (req, res) => {
       FROM obligations o
       LEFT JOIN shops s               ON s.id  = o.shop_id
       LEFT JOIN expense_categories ec ON ec.id = o.category_id
-      LEFT JOIN cheques ch             ON ch.id = o.cheque_id
       WHERE o.status = 'pending'
     `;
     const params = [today, next30];
@@ -64,27 +60,35 @@ router.post('/', async (req, res) => {
   try {
     const {
       shop_id, type, title, person_name, due_date, amount, status, notes,
-      obligation_model, cheque_id, category_id, is_recurring, recurrence_period,
+      obligation_model, category_id, is_recurring, recurrence_period,
+      cheque_number, bank, payee_payer, shop_allocation,
     } = req.body;
 
     if (!title || !due_date || !type)
       return res.status(400).json({ success: false, message: 'Title, type and due_date required' });
 
     const model = obligation_model || 'confirmed';
+    const allocation = shop_allocation || 'single';
+    // shop_id is optional — null when allocation covers both shops or is split
+    const finalShopId = (allocation === 'both' || allocation === 'split_equal') ? null : (shop_id || null);
 
     const result = await query(`
       INSERT INTO obligations
         (shop_id, type, title, person_name, due_date, amount, status, notes,
-         obligation_model, cheque_id, category_id, is_recurring, recurrence_period)
-      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) RETURNING *
+         obligation_model, category_id, is_recurring, recurrence_period,
+         cheque_number, bank, payee_payer, shop_allocation)
+      VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *
     `, [
-      shop_id || null, type, title, person_name || null, due_date,
+      finalShopId, type, title, person_name || null, due_date,
       amount || 0, status || 'pending', notes || null,
       model,
-      model === 'cheque' ? (cheque_id || null) : null,
       category_id || null,
       is_recurring || false,
       recurrence_period || null,
+      model === 'cheque' ? (cheque_number || null) : null,
+      model === 'cheque' ? (bank || null) : null,
+      model === 'cheque' ? (payee_payer || null) : null,
+      allocation,
     ]);
     res.status(201).json({ success: true, data: result.rows[0] });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
@@ -95,24 +99,32 @@ router.put('/:id', async (req, res) => {
   try {
     const {
       shop_id, type, title, person_name, due_date, amount, status, notes,
-      obligation_model, cheque_id, category_id, is_recurring, recurrence_period,
+      obligation_model, category_id, is_recurring, recurrence_period,
+      cheque_number, bank, payee_payer, shop_allocation,
     } = req.body;
     const model = obligation_model || 'confirmed';
+    const allocation = shop_allocation || 'single';
+    const finalShopId = (allocation === 'both' || allocation === 'split_equal') ? null : (shop_id || null);
+
     const result = await query(`
       UPDATE obligations SET
         shop_id=$1, type=$2, title=$3, person_name=$4,
         due_date=$5, amount=$6, status=$7, notes=$8,
-        obligation_model=$9, cheque_id=$10, category_id=$11,
-        is_recurring=$12, recurrence_period=$13
-      WHERE id=$14 RETURNING *
+        obligation_model=$9, category_id=$10,
+        is_recurring=$11, recurrence_period=$12,
+        cheque_number=$13, bank=$14, payee_payer=$15, shop_allocation=$16
+      WHERE id=$17 RETURNING *
     `, [
-      shop_id || null, type, title, person_name || null,
+      finalShopId, type, title, person_name || null,
       due_date, amount || 0, status || 'pending', notes || null,
       model,
-      model === 'cheque' ? (cheque_id || null) : null,
       category_id || null,
       is_recurring || false,
       recurrence_period || null,
+      model === 'cheque' ? (cheque_number || null) : null,
+      model === 'cheque' ? (bank || null) : null,
+      model === 'cheque' ? (payee_payer || null) : null,
+      allocation,
       req.params.id,
     ]);
     if (!result.rows.length)

@@ -225,7 +225,34 @@ const getInventoryStats = async (req, res) => {
   }
 };
 
+// GET category-wise stock value (cost price x quantity), grouped by shop + category
+const getCategoryStats = async (req, res) => {
+  try {
+    const { shop_id } = req.query;
+    let sql = `
+      SELECT
+        s.id                                                       AS shop_id,
+        COALESCE(s.name, 'Unknown')                                AS shop_name,
+        COALESCE(NULLIF(TRIM(p.category), ''), 'Uncategorized')    AS category,
+        COALESCE(SUM(i.quantity), 0)                               AS total_qty,
+        COALESCE(SUM(i.quantity * COALESCE(p.base_cost, 0)), 0)    AS total_value
+      FROM inventory i
+      JOIN products p ON p.id = i.product_id
+      LEFT JOIN shops s ON s.id = i.shop_id
+      WHERE p.is_active = true AND i.quantity > 0
+    `;
+    const params = [];
+    if (shop_id) { params.push(shop_id); sql += ` AND i.shop_id = $${params.length}`; }
+    sql += ` GROUP BY s.id, s.name, category ORDER BY s.name, category`;
+    const result = await query(sql, params);
+    res.json({ success: true, data: result.rows });
+  } catch (err) {
+    console.error('getCategoryStats error:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
 module.exports = {
   getInventory, getInventoryByProduct, adjustStock, updateMinStock,
-  updateCostPrice, getMovements, getInventoryStats
+  updateCostPrice, getMovements, getInventoryStats, getCategoryStats
 };

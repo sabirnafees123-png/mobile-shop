@@ -3,11 +3,12 @@ const express = require('express');
 const router  = express.Router();
 const {
   getInventory, getInventoryByProduct, adjustStock,
-  updateMinStock, updateCostPrice, getMovements, getInventoryStats
+  updateMinStock, updateCostPrice, getMovements, getInventoryStats, getCategoryStats
 } = require('../controllers/inventoryController');
 
 router.get('/',              getInventory);
 router.get('/stats',         getInventoryStats);
+router.get('/category-stats', getCategoryStats);
 router.get('/movements',     getMovements);
 router.post('/update-price', updateCostPrice);
 

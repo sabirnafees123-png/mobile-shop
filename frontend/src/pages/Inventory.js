@@ -277,11 +277,50 @@ function MovementsModal({ productId, productName, onClose }) {
   );
 }
 
+function ActionsMenu({ item, onExpress, onAdjust, onPrice, onLedger }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef();
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+  const items = [
+    item.quantity > 0 && { label: '🧾 Express Sale', action: onExpress },
+    { label: '± Adjust Stock', action: onAdjust },
+    { label: '💰 Edit Price',  action: onPrice },
+    { label: '📋 Ledger',      action: onLedger },
+  ].filter(Boolean);
+  return (
+    <div ref={ref} style={{position:'relative',display:'inline-block'}}>
+      <button onClick={()=>setOpen(o=>!o)}
+        style={{padding:'4px 10px',borderRadius:'6px',border:'1px solid #e8eaf0',background:'#fff',cursor:'pointer',fontSize:'1rem',lineHeight:1,color:'#374151'}}>
+        ⋮
+      </button>
+      {open && (
+        <div style={{position:'absolute',right:0,top:'110%',background:'#fff',border:'1px solid #e8eaf0',
+          borderRadius:'8px',boxShadow:'0 4px 14px rgba(0,0,0,.10)',minWidth:'170px',zIndex:20,overflow:'hidden'}}>
+          {items.map((it,i)=>(
+            <button key={i} onClick={()=>{ it.action(); setOpen(false); }}
+              style={{display:'block',width:'100%',textAlign:'left',padding:'9px 14px',border:'none',
+                background:'transparent',cursor:'pointer',fontSize:'.82rem',color:'#374151'}}
+              onMouseEnter={e=>e.currentTarget.style.background='#f8f9fc'}
+              onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Inventory() {
   const currentUser = JSON.parse(localStorage.getItem('user') || 'null');
   const isAdmin = currentUser?.role === 'admin';
   const [inventory, setInventory]       = useState([]);
   const [stats, setStats]               = useState(null);
+  const [categoryStats, setCategoryStats] = useState([]);
   const [shops, setShops]               = useState([]);
   const [pagination, setPagination]     = useState({ total:0, page:1, pages:1, limit:50 });
   const [loading, setLoading]           = useState(true);
@@ -321,13 +360,15 @@ export default function Inventory() {
       if (filterFrom)   params.from    = filterFrom;
       if (filterTo)     params.to      = filterTo;
 
-      const [invRes, statsRes] = await Promise.all([
+      const [invRes, statsRes, catStatsRes] = await Promise.all([
         api.get('/inventory', { params }),
         api.get('/inventory/stats', { params: shopId ? { shop_id: shopId } : {} }),
+        api.get('/inventory/category-stats', { params: shopId ? { shop_id: shopId } : {} }),
       ]);
       setInventory(invRes.data.data || []);
       setPagination(invRes.data.pagination || { total:0, page:1, pages:1, limit:50 });
       setStats(statsRes.data.data);
+      setCategoryStats(catStatsRes.data.data || []);
     } catch { toast.error('Failed to load inventory'); }
     finally { setLoading(false); }
   }, [search, filterStatus, shopId, filterType, filterFrom, filterTo, page, limitPerPage, hideZero]);
@@ -495,6 +536,7 @@ export default function Inventory() {
                   <tr style={{background:'#f8f9fc',borderBottom:'2px solid #e8eaf0'}}>
                     <th style={{padding:'10px 12px',textAlign:'left',fontSize:'.75rem',color:'#6b7280',fontWeight:600,textTransform:'uppercase'}}>Serial / IMEI</th>
                     <th style={{padding:'10px 12px',textAlign:'left',fontSize:'.75rem',color:'#6b7280',fontWeight:600,textTransform:'uppercase'}}>Product</th>
+                    <th style={{padding:'10px 12px',textAlign:'right',fontSize:'.75rem',color:'#6b7280',fontWeight:600,textTransform:'uppercase'}}>Cost Price</th>
                     <th style={{padding:'10px 12px',textAlign:'left',fontSize:'.75rem',color:'#6b7280',fontWeight:600,textTransform:'uppercase'}}>Color</th>
                     <th style={{padding:'10px 12px',textAlign:'left',fontSize:'.75rem',color:'#6b7280',fontWeight:600,textTransform:'uppercase'}}>Shop</th>
                     <th style={{padding:'10px 12px',textAlign:'left',fontSize:'.75rem',color:'#6b7280',fontWeight:600,textTransform:'uppercase'}}>In Stock</th>
@@ -516,7 +558,6 @@ export default function Inventory() {
                             <div style={{fontWeight:600,color:'#1a1a2e'}}>{item.name}</div>
                             {item.type && <div style={{fontSize:'.72rem',color:'#6b7280'}}>{item.type}</div>}
                             <div style={{display:'flex',flexWrap:'wrap',gap:'8px',marginTop:'4px'}}>
-                              <span style={{fontSize:'.72rem',color:'#92400e'}}>Cost: <strong>AED {Math.round(item.base_cost||0).toLocaleString()}</strong></span>
                               <span style={{fontSize:'.72rem',color:'#059669'}}>Sell: <strong>AED {Math.round(item.selling_price||0).toLocaleString()}</strong></span>
                               <span style={{fontSize:'.72rem',color:'#6366f1'}}>
                                 Margin: <strong>AED {Math.round((item.selling_price||0)-(item.base_cost||0)).toLocaleString()}</strong>
@@ -524,6 +565,9 @@ export default function Inventory() {
                               </span>
                               {item.category && <span style={{fontSize:'.72rem',color:'#6b7280'}}>{item.category}</span>}
                             </div>
+                          </td>
+                          <td style={{padding:'10px 12px',textAlign:'right',fontWeight:600,color:'#92400e'}}>
+                            AED {Math.round(item.base_cost||0).toLocaleString()}
                           </td>
                           <td style={{padding:'10px 12px'}}>
                             {item.color ? (
@@ -555,30 +599,11 @@ export default function Inventory() {
                             </div>
                           </td>
                           <td style={{padding:'10px 12px'}}>
-                            <div style={{display:'flex',gap:'4px'}}>
-                              {item.quantity > 0 && (
-                                <button onClick={()=>setExpressItem(item)}
-                                  style={{padding:'3px 8px',borderRadius:'6px',border:'none',
-                                    background:'#e0e7ff',color:'#3730a3',cursor:'pointer',fontSize:'.78rem',fontWeight:600}}>
-                                  🧾 Express
-                                </button>
-                              )}
-                              <button onClick={()=>setAdjustItem(item)}
-                                style={{padding:'3px 8px',borderRadius:'6px',border:'none',
-                                  background:'#d1fae5',color:'#065f46',cursor:'pointer',fontSize:'.78rem'}}>
-                                ± Adjust
-                              </button>
-                              <button onClick={()=>setEditPriceItem(item)}
-                                style={{padding:'3px 8px',borderRadius:'6px',border:'none',
-                                  background:'#fef3c7',color:'#92400e',cursor:'pointer',fontSize:'.78rem'}}>
-                                💰 Price
-                              </button>
-                              <button onClick={()=>setMovementItem(item)}
-                                style={{padding:'3px 8px',borderRadius:'6px',border:'none',
-                                  background:'#dbeafe',color:'#1e40af',cursor:'pointer',fontSize:'.78rem',fontWeight:600}}>
-                                📋 Ledger
-                              </button>
-                            </div>
+                            <ActionsMenu item={item}
+                              onExpress={()=>setExpressItem(item)}
+                              onAdjust={()=>setAdjustItem(item)}
+                              onPrice={()=>setEditPriceItem(item)}
+                              onLedger={()=>setMovementItem(item)} />
                           </td>
                       </tr>
                     );

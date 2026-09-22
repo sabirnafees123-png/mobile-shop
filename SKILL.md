@@ -1,344 +1,201 @@
-# Mobile Shop Management System — Project SKILL File
-## Last Updated: July 2026
-## GitHub: https://github.com/sabirnafees123-png/mobile-shop
-## Stack: React Frontend, Node/Express Backend, PostgreSQL (Supabase), Vercel
+---
+name: mobile-shop-system
+description: Operating manual for the Mobile Shop Management System (AlAman/Blessing/Wholesale) — a React/Node/Express/Supabase(Postgres) app for a used-phone retail business in the UAE. Use this whenever the user asks about their shop system: entering sales/purchases backfill, fixing invoices, stock counts, database structure, or asks for SQL/scripts for this project. Also covers how the user shares local files and how batch scripts are run on their Windows PC.
+---
+
+# Mobile Shop Management System — Operating Manual
+
+This is a running business tool for a used-mobile-phone retail operation with 3 shops:
+**AlAman (shop_id=1)**, **Blessing (shop_id=2)**, **Wholesale (shop_id=3)**.
+
+Repo: `https://github.com/sabirnafees123-png/mobile-shop.git`
+Stack: React frontend, Node/Express backend, PostgreSQL via Supabase.
+
+**Hosting (as of this doc):**
+- Frontend: Netlify — `https://lucky-frangollo-af3c89.netlify.app`
+- Backend: Render — `https://mobile-shop-backend-sjuj.onrender.com`
+  (Render free tier sleeps after 15 min idle — first request after a gap takes 30-60s)
+- ⚠️ Vercel was abandoned for both frontend and backend — its Hobby-tier automatic
+  bot/DDoS "challenge" system randomly 403-blocked legitimate traffic (including
+  login) with no reliable way to disable it on the free plan. Don't suggest moving
+  back to Vercel unless the user asks.
 
 ---
 
-## ⚠️ BEFORE MAKING ANY CHANGE — READ THIS FILE FIRST
+## 1. How This Project's Conversations Work
 
-### Change Protocol:
-1. Read relevant section below
-2. Identify ALL tables/files affected
-3. Tell user: what will change, what are the side effects
-4. Get confirmation
-5. Then make the change
+The user is not a developer — communicate in Roman Urdu/Hindi (matching their
+language), give copy-pasteable commands, and explain *why* before doing anything
+that touches live data.
 
----
+**Core working pattern for any bulk data-entry task (backfilling old sales/purchases,
+stock counts, etc.):**
 
-## 🏪 SHOPS
-| ID | Name |
-|----|------|
-| 1 | AlAman |
-| 2 | Blessing |
+1. **Read the raw data the user pastes/uploads carefully.** It's usually a messy
+   handwritten-register transcription or a spreadsheet with inconsistent formatting
+   (combo items, "2 pcs" cost splits, missing costs, ambiguous names).
+2. **Flag every ambiguity BEFORE processing** — don't guess silently. Multiple past
+   rounds of guessing wrong (fuzzy name-matching mismatches like "iPhone 17 Pro" ↔
+   "iPhone 11 Pro", "iPad Mini 2" ↔ "iPad Pro 2nd Gen") caused real, costly errors
+   that had to be manually found and fixed later. **Always ask, never assume**, for:
+   - Combo/multi-item bills — how to split the total across items
+   - "2 pcs"/"3 pcs" cost notation — total for all pieces, or per-piece?
+   - Missing cost prices
+   - Suspicious matches (different model number, big date gap, brand mismatch)
+   - Which shop, which date range
+3. **Match against system inventory using exact identifiers only** — last-4-digits
+   of serial/IMEI, or full serial/IMEI exact match. Never trust fuzzy token/name
+   matching alone; it has repeatedly produced false-positive matches. If matching
+   by name is unavoidable, manually eyeball every match before using it — don't
+   trust an automated score.
+4. **Cost/sell price policy:** the user's sheet's own cost/sell numbers are ALWAYS
+   used, never the system's stored price — even when an item matches an existing
+   product. This is a standing rule, confirmed multiple times.
+5. **Prefer creating data via the real backend API (a Node.js batch script), not
+   raw SQL**, whenever the operation is "create a sale" or "create a purchase".
+   The API's controllers handle side effects raw SQL would otherwise have to
+   replicate by hand and risks getting wrong: creating/matching products, updating
+   `inventory`, logging `stock_movements`, updating `supplier_ledger` /
+   `customers.balance`, and cash register totals. Reserve raw SQL for: pure
+   corrections to existing rows, register housekeeping, and stock-count
+   backup/wipe/reload operations.
+6. **Dry run first, always.** Every batch script defaults to a dry run (prints what
+   it would do, changes nothing) and only executes for real with an explicit
+   `--live` flag. Review the dry run output line by line before approving `--live`.
+7. **Registers must be OPEN for every date a sale/purchase will be dated.** Check
+   and open missing registers before running any batch script — the app blocks
+   writes to a date with no open register.
+8. **Sales require a cost price > 0 — this is a hard backend rule** (added
+   deliberately, see `salesController.js`). A sale with a missing/zero cost is
+   rejected outright, by design, to protect gross-margin accuracy. If a purchase
+   is entered with cost=0 for a genuinely free/bundled item (adapters, cables),
+   that's fine for *purchases*; but that product can't be *sold* until its cost is
+   set above 0.
+9. **Before any bulk update/wipe of inventory (e.g. loading a fresh stock count),
+   always take a full backup table first**, e.g.:
+   ```sql
+   CREATE TABLE inventory_backup_<label>_<date> AS
+   SELECT i.*, p.name, p.brand, p.serial_number, p.base_cost, p.selling_price,
+          s.name as shop_name, NOW() as backed_up_at
+   FROM inventory i JOIN products p ON p.id = i.product_id
+   LEFT JOIN shops s ON s.id = i.shop_id
+   WHERE i.shop_id = <shop_id>;   -- omit WHERE to back up all shops
+   ```
+   Wrap the actual wipe+reload in `BEGIN; ... COMMIT;` so a mid-way error rolls
+   back everything automatically — nothing partial ever gets saved.
 
----
-
-## 👥 USER ROLES & ACCESS
-| Role | Access |
-|------|--------|
-| admin | Everything including Users page, Cash Entry button, Stock Adjustment |
-| accountant | Everything except Users page (Waqas = accountant) |
-| staff | Limited — no Finance, no Reports, no Cash Register admin features |
-
-### Admin-Only Features (do NOT open to other roles without explicit request):
-- Users page (`/users`)
-- `+ Cash Entry` button in Cash Register
-- Stock Adjustment button (⚖️) in Products/Inventory
-- User Log was admin-only, now also accountant
-
----
-
-## 🗄️ DATABASE TABLES & KEY COLUMNS
-
-### `sales_invoices`
-- `user_id` → tracks who created invoice
-- `sale_date` → user-entered date (can be back date)
-- `created_at` → actual system timestamp
-- `payment_method`: cash | card | bank_transfer | tabby | tamara | pending | exchange
-- `payment_status`: paid | unpaid | partial | payment_pending | returned
-- `shop_id` → 1=AlAman, 2=Blessing
-
-### `sale_items`
-- Links to `sales_invoices` via `invoice_id`
-- Has `unit_cost`, `unit_price`, `qty`, `serial_number`
-
-### `purchases`
-- `created_by` → UUID (recently added — old records will be NULL)
-- `purchase_date` → user-entered date
-- `created_at` → actual timestamp
-- `shop_id` → purchase header shop
-- ⚠️ purchase_items can have DIFFERENT shop_id than purchase header
-
-### `purchase_items`
-- `shop_id` → which shop the item goes to (can differ from purchase.shop_id)
-- Used for inventory upsert
-
-### `products`
-- `is_service` → boolean — if TRUE: NO inventory tracking, NO stock deduction on sale
-- `is_active` → soft delete flag
-- `serial_number` → unique identifier (IMEI)
-
-### `inventory`
-- Unique constraint: `(product_id, shop_id)`
-- `quantity` = 0 → product hidden from Inventory page
-- Service products (`is_service=true`) should NOT have inventory rows
-
-### `stock_movements`
-- Type: in | out | sale | purchase | return | adjustment | damage | found | opening_stock
-- Every inventory change should log here
-
-### `cash_register`
-- One row per (shop_id, register_date)
-- `status`: open | closed
-- `total_sales_cash` → only CASH sales
-- `total_expenses` → only CASH expenses + supplier cash payments
-- ⚠️ Digital payments (card/tabby/tamara/bank) do NOT go here
-
-### `cash_manual_entries`
-- Manual IN/OUT entries — admin only via Cash Register page
-- Also used for: non-cash payment tracking (card/tabby received)
-- `entry_type`: in | out
-- `category`: 'Shop Transfer' is special — used for inter-shop transfers
-
-### `supplier_ledger`
-- `transaction_type`: purchase | payment
-- `amount`: positive for purchase (debit), negative for payment (credit)
-- `balance_after` = running supplier balance
-- ⚠️ Purchase entry must use `totalAmount` NOT `amountDue`
-
-### `finance_accounts`
-- `type`: bank | investor | card | fund
-- `shop_id` → NULL for bank/investor (business-level), required for card/fund
-- Constraint: `type IN ('investor','card','fund','bank')`
-
-### `finance_transactions`
-- `affects_cash` → if true, updates cash_register when recording
-- `transaction_type`: in | out
-- `created_by` → user who recorded
-
-### `expense_categories`
-- Columns: `id`, `category`, `sub_category`, `is_active`
-- ⚠️ NO `name` column — always use `category` and `sub_category`
-
-### `user_shifts`
-- Unique constraint on `user_id`
-- `shift_start`, `shift_end`, `break_start`, `break_end` → TIME type, nullable
-- `grace_minutes` → late threshold
-
-### `attendance`
-- Unique constraint: `(user_id, date)`
-- `is_late`, `late_minutes` → calculated on save
-- `status`: present | absent | annual_leave | half_day | wfh
-
-### `obligations`
-- `obligation_model`: cheque | confirmed
-- `category_id` → references `expense_categories.id`
-- ⚠️ Use `ec.category` and `ec.sub_category` NOT `ec.name` in queries
-
-### `finance_accounts`
-- `shop_id` is nullable — bank/investor have no shop
+**Known CSV-import gotchas** (Supabase's "Import from CSV" table creator often
+mis-types columns): a column you expect to be `uuid` or numeric may import as
+`text`, or vice-versa. If a query throws `operator does not exist: uuid = text` or
+`function ... does not exist` on a column, cast explicitly
+(`col::text`, `col::uuid`) rather than assuming the DDL you wrote was honored.
 
 ---
 
-## 💰 CASH REGISTER RULES (CRITICAL)
+## 2. Database Structure (Postgres, via Supabase)
 
-### What goes INTO cash_register.total_sales_cash:
-- Cash sales (payment_method='cash')
-- Cash payments received on pending invoices (received_method='cash')
-- Finance transactions with affects_cash=true (IN)
-- Manual cash entries (IN) — admin only
+Core tables and how they relate:
 
-### What goes INTO cash_register.total_expenses:
-- Cash expenses (payment_method='cash')
-- Supplier payments (cash)
-- Finance transactions with affects_cash=true (OUT)
-
-### What does NOT go into cash_register:
-- Card/Tabby/Tamara/Bank Transfer sales
-- Digital payment receipts (go to cash_manual_entries for tracking)
-- Bank account transactions
-
-### Register Lock Rule:
-- Register MUST be open to record any cash transaction
-- If closed → throw error, NO silent fallback to manual entries
-- This applies to: sales, purchases payment, returns, mark payment received
-
-### Return Cash Flow (CURRENT):
-- Return → record as `cash_manual_entries OUT` (refund)
-- Do NOT deduct from `total_sales_cash` — sale stays counted
-- Returns show separately in detail view
-
----
-
-## 🔄 KEY BUSINESS FLOWS
-
-### Sale Create Flow:
-1. Find/create customer
-2. Check inventory per item per shop (stockMap[product_id][shop_id])
-3. INSERT sales_invoices
-4. INSERT sale_items (batch)
-5. UPDATE inventory (batch, skip is_service=true products)
-6. INSERT stock_movements
-7. UPDATE customers.balance if credit
-8. UPDATE cash_register if cash payment (register must be open)
-
-### Purchase Create Flow:
-1. INSERT purchases (with created_by = req.user.id)
-2. Check existing serials (batch)
-3. Batch UPDATE existing products OR INSERT new ones
-4. INSERT purchase_items
-5. UPSERT inventory (skip is_service=true products)
-6. UPDATE supplier balance
-7. INSERT supplier_ledger (purchase = +totalAmount, payment = -amount_paid)
-8. UPDATE cash_register if cash paid (register must be open)
-
-### Mark Payment Received Flow:
-- Cash → UPDATE cash_register (register must be OPEN, else hard error)
-- Non-cash (card/tabby/tamara/bank) → INSERT cash_manual_entries IN only
-- Never silent fallback
-
-### Stock Validation:
-- Uses `stockMap[product_id][shop_id]` — per item per shop
-- is_service=true → skip validation
-- 0 stock → block sale
+- **`shops`** — id, name. Fixed 3 rows: 1=AlAman, 2=Blessing, 3=Wholesale.
+- **`products`** — the catalog. `id (uuid)`, `name`, `brand`, `serial_number`
+  (**unique** — inserting a duplicate serial throws a constraint violation),
+  `base_cost`, `selling_price`, `category`, `is_active`.
+- **`inventory`** — per-shop stock. `product_id + shop_id` is the natural key
+  (has an `ON CONFLICT (product_id, shop_id)` upsert target), `quantity`,
+  `min_stock`.
+- **`stock_movements`** — audit log of stock changes (`type`: in/out/adjustment,
+  `quantity`, `note`, `created_at`).
+- **`purchases`** + **`purchase_items`** — a purchase header (`purchase_number`,
+  `purchase_date`, `supplier_id`, `amount_paid`, `shop_id`) and its line items
+  (`product_id`, `qty`, `unit_cost`). ⚠️ `total_cost` on `purchase_items` is a
+  **generated column** — never `UPDATE` it directly, only `unit_cost`; the total
+  recalculates itself.
+- **`sales_invoices`** + **`sale_items`** — an invoice header (`invoice_number`,
+  `sale_date`, `shop_id`, `customer_id`, `subtotal`, `total_amount`,
+  `amount_paid`, `amount_due`, `payment_status`: unpaid/partial/paid,
+  `payment_method`, `is_exchange`, `exchange_product_name`,
+  `exchange_trade_in_value`) and its line items (`product_id`, `qty`,
+  `unit_cost`, `unit_price`). ⚠️ `total_price` and `profit` on `sale_items` are
+  **generated columns** — only `unit_price`/`unit_cost` are writable directly.
+- **`suppliers`** — `id`, `name`, `balance` (running debt owed to them).
+- **`supplier_ledger`** — one row per purchase/payment transaction against a
+  supplier (`transaction_type`: purchase/payment, `amount`, `balance_after`,
+  `description`, `reference_id`, `reference_type`).
+- **`customers`** — `id`, `name`, `phone`, `balance` (positive = they owe the shop).
+- **`cash_register`** — one row per `(shop_id, register_date)`, `status`
+  open/closed, `opening_balance`, `closing_balance`. Cash-sales totals are
+  computed **live** from `sales_invoices` at report time — not from a stored
+  running total — so correcting an invoice's `amount_paid`/`sale_date`
+  automatically corrects the register without a separate manual adjustment.
+- **`cash_manual_entries`** — manual cash in/out (`entry_type`: in/out, `amount`,
+  `category` — a fixed whitelist enforced in both frontend dropdown and backend
+  validation array; adding a new category means editing both
+  `frontend/src/pages/CashRegister.js` and
+  `backend/src/routes/cashRegister.js`).
+- **`users`** — `id`, `name`, `email`, `role` (admin/accountant/staff),
+  `is_active` (deactivate, never delete or rename, a departed employee's account
+  — deleting orphans their historical sale/purchase records, renaming corrupts
+  the audit trail on old records).
 
 ---
 
-## ⚡ PERFORMANCE RULES (DO NOT BREAK)
+## 3. How DB Commands Are Run
 
-- NEVER use `Promise.all` with queries on the SAME `client` (transaction)
-- Always use sequential `await client.query()` inside transactions
-- `Promise.all` is OK with `pool.query()` (outside transactions)
-- Debounce all search inputs (400ms) with AbortController
-- Batch INSERT/UPDATE for multiple items (never loop individual queries)
+The user has **no direct database client** — all SQL is run by them pasting it
+into the **Supabase SQL editor** in their browser and reading back the result,
+which they paste into the chat. Practical implications:
 
----
-
-## 🐛 KNOWN BUGS FIXED (do not reintroduce)
-
-1. **Double cash entry on return** — fixed: returns use manual_entries OUT only
-2. **Promise.all in transactions** — fixed in sales and purchases
-3. **Supplier ledger using amountDue** — fixed: must use totalAmount
-4. **ec.name column** — does not exist, use ec.category + ec.sub_category
-5. **Silent fallback when register closed** — removed: hard error thrown
-6. **Service products getting inventory** — fixed: check is_service before upsert
-7. **Stock validation using wrong shop** — fixed: per-item shop_id check
-8. **UNION ALL purchase_date double counting** — fixed in cashRegister detail
-9. **Serial search API flood** — fixed: debounce + AbortController
+- Every SQL block given to the user must be **complete and self-contained** —
+  they copy-paste the whole thing, they don't type anything extra.
+- For anything that changes data, wrap it in `BEGIN; ... COMMIT;`. If a query
+  inside errors, Postgres auto-rolls-back the whole transaction — reassure the
+  user of this when they're nervous about running something risky (nothing
+  partial ever lands; if it fails, nothing changed).
+- After any risky bulk operation, always give a verification `SELECT` (ideally
+  one single query so the user doesn't have to run several) that reports counts
+  matching what was expected, so the result can be checked at a glance.
+- Give the user credit for having Supabase's dashboard, not a terminal —
+  never suggest `psql` commands unless they specifically bring up a local Postgres
+  client.
 
 ---
 
-## 📁 FILE MAP
+## 4. Getting Files From the User's Local PC / Giving Them Runnable Commands
 
-### Backend Controllers:
-| File | Handles |
-|------|---------|
-| `salesController.js` | Create sale, return, mark payment received |
-| `purchasesController.js` | Create purchase, record payment |
-| `inventoryController.js` | Inventory adjustments |
-| `productsController.js` | Products CRUD |
-| `suppliersController.js` | Suppliers, ledger |
-| `salesReturn.js` | ⚠️ NOT used in routes — salesController.js handles returns |
+The user works on Windows (`C:\Users\AIMS TECH\...`), using CMD or PowerShell.
 
-### Backend Routes:
-| File | API Path |
-|------|---------|
-| `cashRegister.js` | /api/v1/cash-register |
-| `expenses.js` | /api/v1/expenses |
-| `finance.js` | /api/v1/finance |
-| `userLog.js` | /api/v1/user-log |
-| `attendance.js` | /api/v1/attendance + /shifts |
-| `obligations.js` | /api/v1/obligations |
+**Files flow one way at a time — there's no live sync:**
+- **User → Claude:** they upload files through the chat's attachment picker.
+  Uploaded files land in `/mnt/user-data/uploads/` in this environment.
+- **Claude → User:** files created with `create_file` and passed to
+  `present_files` appear as download cards in the chat; the user manually saves
+  them to a folder (commonly `Downloads`) on their PC.
 
-### Frontend Pages:
-| File | Page |
-|------|------|
-| `Sales.js` | Sales invoices |
-| `Purchases.js` | Purchase management + CSV upload |
-| `CashRegister.js` | Daily register, history, detail view |
-| `Finance.js` | Bank/Investor/Card/Fund accounts |
-| `UserLog.js` | Activity log by user |
-| `Attendance.js` | Daily attendance + shifts + report |
-| `Obligations.js` | Upcoming payments |
+**For anything that must run on their machine (Node.js batch scripts):**
+1. Build the script + any data file (e.g. `batch.js` + `batch_data.json` +
+   `package.json`) and present them together.
+2. Tell them explicitly to put all the files **in the same folder**.
+3. Give the exact commands, in order, assuming CMD (not bash) syntax:
+   ```cmd
+   cd Downloads
+   npm install
+   node batch.js
+   ```
+   (dry run first; only add `--live` once the dry-run output has been reviewed
+   and approved)
+4. If they already have a folder with `node_modules` installed from an earlier
+   script, tell them they can skip `npm install` and just drop the new `.js`/
+   `.json` files into that same folder — no need to resend `package.json` or
+   reinstall dependencies every time.
+5. Batch scripts should prompt for login email/password interactively (never
+   hardcode credentials in the script) and should be **resume-safe** — write a
+   local `*_log.json` after each successful step, and skip anything already
+   marked done on a re-run. This matters because scripts get re-run after fixing
+   a bug partway through a big batch.
+6. Windows-specific gotchas already hit in this project:
+   - PowerShell needs `&` prefix to run a quoted path (`pg_dump.exe` etc.);
+     CMD does not. Default to CMD-compatible instructions.
+   - `grep` doesn't exist in plain CMD — use `findstr` instead.
+   - Git Bash / CMD credential prompts can hang silently; scripts should read
+     credentials via `readline` prompts, not rely on any password manager.
 
----
-
-## 🔗 IMPACT MATRIX — Before changing X, check Y
-
-| If you change... | Also check... |
-|-----------------|---------------|
-| `expense_categories` table | obligations.js query, expenses.js, cashRegister.js detail |
-| `cash_register` logic | CashRegister.js frontend display, checkRegisterLock.js middleware |
-| Return flow | salesController.js returnSale, cash_manual_entries, inventory |
-| Payment received | salesController.js markPaymentReceived, cash_register update |
-| Purchase create | supplier_ledger entries, inventory upsert, is_service check |
-| User roles in Layout.js | Also check backend route protection if sensitive |
-| `finance_transactions` | cashRegister.js detail endpoint (bank_receipts section) |
-| `sales_invoices` payment_status | CashRegister detail view filters |
-| `inventory` | stock_movements log, is_service check |
-| `user_shifts` | attendance.js late calculation |
-
----
-
-## 🚀 DEPLOYMENT
-
-### Vercel Projects:
-- **Backend (snowy)**: `mobile-shop-snowy.vercel.app`
-  - Root Dir: `backend`
-  - vercel.json: has `builds` + `maxDuration: 60` (inside builds config)
-  - ⚠️ Cannot have both `builds` AND `functions` — use builds.config.maxDuration
-- **Frontend (ttur)**: `mobile-shop-ttur.vercel.app`
-  - Root Dir: `frontend`
-  - Build Command: `npm run build`
-  - Output Dir: `build`
-
-### DB Config:
-- Pool max: 10 connections
-- connectionTimeout: 30s
-- statement_timeout: 55s
-
----
-
-## ❌ HISTORICAL MISTAKES — NEVER REPEAT THESE
-
-### Chat 002-003 Mistakes:
-1. **Backend code in frontend file** — Put `require('../config/database')` in `frontend/src/pages/Expenses.js`. Always check file path before writing code — backend uses `require`, frontend uses `import`.
-2. **Overwriting user's custom design** — Replaced entire Sales.js/Purchases.js losing user's UI design. Rule: **only add/modify specific features, never rewrite entire files unless explicitly asked**.
-3. **CORS fix never committed** — Made fix but forgot to commit. Always verify file is saved AND committed AND pushed.
-4. **Wrong route order** — `/:productId` caught `/export` and `/import` routes. Dynamic routes must always come LAST.
-5. **React code in backend expenses.js** — Pasted `import React` in a Node.js file.
-
-### Chat 004-005 Mistakes:
-6. **markPaymentReceived always marked paid** — Did not check if partial amount covers full due. Always calculate newAmountDue and check before setting status.
-7. **COUNT(s.id) inflation with JOINs** — Using JOIN + COUNT gives wrong numbers. Use `COUNT(DISTINCT s.id)` or subquery.
-8. **Date filter cutting off end of day** — `sale_date <= $to` misses records after midnight. Use `< $to::date + interval '1 day'`.
-9. **Orphan SQL fragment left in file** — Left incomplete SQL code in reports.js causing server crash. Always syntax-check after edits: `node --check file.js`.
-10. **Promise.all with same client** — Used `Promise.all([client.query(), client.query()])` inside transaction. PostgreSQL single connection cannot run concurrent queries. Always sequential `await`.
-
-### This Chat (Chat 006-008) Mistakes:
-11. **ec.name column does not exist** — expense_categories has `category` and `sub_category`, NOT `name`. Check column names before writing queries.
-12. **Silent fallback when register closed** — System was silently creating manual entries when register was closed. Rule: register closed = hard error, no fallback.
-13. **Double cash entry on return** — Both `total_sales_cash` deduction AND `cash_manual_entries` OUT were created. Now: only manual OUT entry, sales stay in total_sales_cash.
-14. **UNION ALL double counting purchases** — Using `purchase_date` AND `supplier_ledger.transaction_date` in UNION caused same purchase to appear twice. Fixed: use only supplier_ledger for purchases paid.
-15. **Service products getting inventory** — purchase controller was upserting inventory for ALL products including is_service=true. Always check is_service before inventory operations.
-16. **Layout.js overwritten** — User had custom colors/design in Layout.js. I replaced entire file losing all customizations. Rule: only add new nav items and icons, never rewrite Layout.js.
-17. **Duplicate icon declarations** — Added FinanceIcon and UserLogIcon but file already had them from user's version. Always grep for existing declarations before adding.
-18. **JSX sibling elements without Fragment** — `{condition && (<elem1/><elem2/>)}` is invalid JSX. Must wrap in `<>...</>` Fragment.
-19. **vercel.json builds + functions conflict** — Cannot have both `builds` and `functions` at top level. Use `builds[].config.maxDuration` instead.
-20. **userLog params mismatch** — purchases query used `[from, to]` but params array had 3 items (including user_id). Always use separate params array for queries that don't filter by user.
-21. **Stock validation used invoice shop_id** — Was checking `stockMap[product_id]` (flat) instead of `stockMap[product_id][shop_id]` (per shop). Fixed: nested map by shop.
-22. **User log filtered by transaction_date not created_at** — User wanted to see actual entries by when they were created, not the back-date user entered. Use `created_at::date` for filtering.
-
----
-
-## ✅ PRE-CHANGE CHECKLIST
-
-Before ANY change, answer these questions:
-
-1. [ ] Does this file have `node --check` passing currently?
-2. [ ] Are there any column names I'm using — do they actually exist in DB?
-3. [ ] Am I inside a transaction? If yes, NO Promise.all
-4. [ ] Will this affect cash_register? If yes, does register need to be open?
-5. [ ] Is this a service product? Skip inventory operations
-6. [ ] Am I adding to Layout.js? grep existing icons/nav items first
-7. [ ] Am I changing a query? Check if column names are correct for that table
-8. [ ] Will this create duplicate entries anywhere?
-9. [ ] Is there a userFilter being used? Make sure params array matches $N placeholders
-10. [ ] Have I checked what the user's existing file looks like before replacing?
-- Purchase form CSV upload — deployed, needs testing with large files
-- Register reopen UI — done but needs testing
-- Mashriq Bank account — user needs to create manually in Finance page
-- Investment/Committee expenses migration to Finance — pending
-- Product master code system — discussed, not built yet
-- Attendance report — date range working, needs user testing
