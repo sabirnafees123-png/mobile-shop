@@ -471,6 +471,57 @@ export default function Inventory() {
         </div>
       )}
 
+      {/* Category-wise Stock Value */}
+      {categoryStats.length > 0 && (
+        <div style={{background:'#fff',borderRadius:'10px',border:'1px solid #e8eaf0',padding:'16px',marginBottom:'16px'}}>
+          <div style={{fontSize:'.95rem',fontWeight:700,color:'#1a1a2e',marginBottom:'12px'}}>
+            📊 Category-wise Stock Value {shopId ? '' : '(All Shops)'}
+          </div>
+          <div style={{display:'grid',
+            gridTemplateColumns: shopId ? '1fr' : 'repeat(auto-fit, minmax(260px, 1fr))', gap:'16px'}}>
+            {Object.entries(
+              categoryStats.reduce((acc, row) => {
+                (acc[row.shop_name] = acc[row.shop_name] || []).push(row);
+                return acc;
+              }, {})
+            ).map(([shopName, rows]) => {
+              const subtotalValue = rows.reduce((s, r) => s + Number(r.total_value || 0), 0);
+              const subtotalQty   = rows.reduce((s, r) => s + Number(r.total_qty || 0), 0);
+              return (
+                <div key={shopName} style={{border:'1px solid #f1f2f6',borderRadius:'8px',overflow:'hidden'}}>
+                  <div style={{padding:'8px 12px',background:'#f8f9fc',fontWeight:600,fontSize:'.82rem',color:'#374151'}}>
+                    {shopName}
+                  </div>
+                  <table style={{width:'100%',borderCollapse:'collapse',fontSize:'.82rem'}}>
+                    <tbody>
+                      {rows.map(r => (
+                        <tr key={r.category} style={{borderBottom:'1px solid #f8f9fc'}}>
+                          <td style={{padding:'6px 12px',color:'#374151'}}>{r.category}</td>
+                          <td style={{padding:'6px 12px',color:'#9ca3af',textAlign:'right'}}>{r.total_qty} pcs</td>
+                          <td style={{padding:'6px 12px',fontWeight:600,color:'#92400e',textAlign:'right'}}>{fmt(r.total_value)}</td>
+                        </tr>
+                      ))}
+                      <tr style={{background:'#fafbff'}}>
+                        <td style={{padding:'6px 12px',fontWeight:700}}>Subtotal</td>
+                        <td style={{padding:'6px 12px',fontWeight:700,textAlign:'right'}}>{subtotalQty} pcs</td>
+                        <td style={{padding:'6px 12px',fontWeight:700,textAlign:'right'}}>{fmt(subtotalValue)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              );
+            })}
+          </div>
+          {!shopId && (
+            <div style={{marginTop:'12px',padding:'10px 14px',background:'#eff6ff',borderRadius:'8px',
+              display:'flex',justifyContent:'space-between',fontWeight:700,fontSize:'.92rem',color:'#1e3a8a'}}>
+              <span>Grand Total (All Shops)</span>
+              <span>{fmt(categoryStats.reduce((s, r) => s + Number(r.total_value || 0), 0))}</span>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Filters */}
       <div style={{background:'#fff',borderRadius:'10px',border:'1px solid #e8eaf0',padding:'16px',marginBottom:'16px'}}>
         <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr 1fr 1fr auto',gap:'10px',alignItems:'end'}}>
