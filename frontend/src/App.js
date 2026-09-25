@@ -131,7 +131,7 @@ export default function App() {
 		  <Route path="/products" element={<ProtectedRoute allowedRoles={['admin','accountant']}><Products /></ProtectedRoute>} />
                   <Route path="/inventory" element={<Inventory />} />
                   <Route path="/purchases" element={<ProtectedRoute allowedRoles={['admin','accountant']}><Purchases /></ProtectedRoute>} />
-                  <Route path="/sales" element={<ProtectedRoute allowedRoles={['admin','accountant']}><Sales /></ProtectedRoute>} />
+                  <Route path="/sales" element={<ProtectedRoute allowedRoles={['admin','accountant','staff']}><Sales /></ProtectedRoute>} />
                   <Route path="/suppliers" element={<ProtectedRoute allowedRoles={['admin','accountant']}><Suppliers /></ProtectedRoute>} />
                   <Route path="/customers" element={<ProtectedRoute allowedRoles={['admin','accountant']}><Customers /></ProtectedRoute>} />
 		  <Route path="/reports"       element={<ProtectedRoute allowedRoles={['admin','accountant']}><Reports /></ProtectedRoute>} />

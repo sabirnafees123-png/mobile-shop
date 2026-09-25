@@ -19,7 +19,7 @@ export default function Layout({ children, user, onLogout }) {
     { path: '/products',      label: 'Products',      icon: ProductsIcon,     roles: ['admin','accountant'] },
     { path: '/inventory',     label: 'Inventory',     icon: InventoryIcon,    roles: ['admin','staff','accountant'] },
     { path: '/purchases',     label: 'Purchases',     icon: PurchasesIcon,    roles: ['admin','accountant'] },
-    { path: '/sales',         label: 'Sales',         icon: SalesIcon,        roles: ['admin','accountant'] },
+    { path: '/sales',         label: 'Sales',         icon: SalesIcon,        roles: ['admin','accountant','staff'] },
     { path: '/suppliers',     label: 'Suppliers',     icon: SuppliersIcon,    roles: ['admin','accountant'] },
     { path: '/customers',     label: 'Customers',     icon: CustomersIcon,    roles: ['admin','accountant'] },
     { path: '/expenses',      label: 'Expenses',      icon: ExpensesIcon,     roles: ['admin','accountant'] },
