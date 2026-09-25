@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 
-const API = "https://mobile-shop-snowy.vercel.app/api/v1";
+const API = "https://mobile-shop-backend-sjuj.onrender.com/api/v1";
 const fmt = (n) => `AED ${Math.round(Number(n)).toLocaleString()}`;
 const fmtDate = (d) => {
   if (!d) return "—";
@@ -108,15 +108,21 @@ function SupplierFormModal({ supplier, onClose, onSaved }) {
 function PaymentModal({ supplier, onClose, onSaved }) {
   const [form, setForm] = useState({
     amount: '', payment_date: new Date().toISOString().split('T')[0],
-    payment_method: 'cash', cheque_no: '', note: '',
+    payment_method: 'cash', cheque_no: '', note: '', shop_id: '',
   });
+  const [shops, setShops] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
+  useEffect(() => {
+    apiFetch('/shops').then(r => setShops(r?.data || [])).catch(() => setShops([]));
+  }, []);
+
   const handleSubmit = async () => {
     setError('');
     if (!form.amount || Number(form.amount) <= 0) { setError('Enter a valid amount'); return; }
+    if (!form.shop_id) { setError('Select a shop'); return; }
     setLoading(true);
     try {
       await apiFetch(`/suppliers/${supplier.id}/payments`, { method: 'POST', body: JSON.stringify(form) });
@@ -139,6 +145,13 @@ function PaymentModal({ supplier, onClose, onSaved }) {
           </div>
           {error && <div className="form-error">{error}</div>}
           <div className="form-grid">
+            <div className="form-group">
+              <label>Shop *</label>
+              <select value={form.shop_id} onChange={e => set('shop_id', e.target.value)} className="form-input">
+                <option value="">Select shop...</option>
+                {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+            </div>
             <div className="form-group">
               <label>Amount (AED) *</label>
               <input type="number" min="1" value={form.amount} onChange={e => set('amount', e.target.value)} placeholder="0" className="form-input" />
