@@ -755,18 +755,20 @@ router.get('/daily-business', async (req, res) => {
         ORDER BY cr.amount DESC
       `, [date]),
 
-      // Stock value (current, cost price) — Mobile / Tab / Laptop only, Ipad grouped into Tab
+      // Stock value (current, cost price) — Mobile / Tab / Laptop only.
+      // Category names were cleaned up in the DB (2026-09-27) to MOBILE / TAB / LAPTOP / ACCESSORIES.
+      // Still using UPPER() as a safety net in case new products get added with mixed-case categories again.
       query(`
         SELECT sh.name as shop_name,
-          CASE WHEN p.category = 'Ipad' THEN 'Tab' ELSE p.category END as category,
+          INITCAP(LOWER(p.category)) as category,
           SUM(i.quantity) as units,
           SUM(i.quantity * p.base_cost) as cost_value
         FROM inventory i
         JOIN products p ON p.id = i.product_id
         JOIN shops sh ON sh.id = i.shop_id
         WHERE sh.name IN ('AlAman','Blessing') AND p.is_active = true AND i.quantity > 0
-          AND p.category IN ('Mobile','Tab','Laptop','Ipad')
-        GROUP BY sh.name, CASE WHEN p.category = 'Ipad' THEN 'Tab' ELSE p.category END
+          AND UPPER(TRIM(p.category)) IN ('MOBILE','TAB','LAPTOP')
+        GROUP BY sh.name, INITCAP(LOWER(p.category))
         ORDER BY sh.name, category
       `),
     ]);
