@@ -18,6 +18,7 @@ const REPORT_TYPES = [
   { id: 'expenses',         label: '💸 Expenses Detail',         desc: 'Expenses by category' },
   { id: 'top-products',     label: '🏆 Top Products',            desc: 'Best selling products' },
   { id: 'salesperson',      label: '👤 Salesperson',             desc: 'Performance per staff member' },
+  { id: 'daily-business',   label: '📋 Daily Business Report',   desc: 'AlAman & Blessing — full day summary (printable)' },
 ];
 
 const CATEGORIES = ['Mobile', 'Laptop', 'Tab', 'Accessories', 'Ipad'];
@@ -304,9 +305,17 @@ export default function Reports() {
       const win = window.open('','_blank');
       win.document.write(`<!DOCTYPE html><html><head><title>Daily Business Report</title>
       <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
-      <style>*{box-sizing:border-box;margin:0;padding:0}body{font-family:'Inter',sans-serif;color:#0f172a}
-      @media print{@page{margin:10mm;size:A4}}</style></head><body>
-      <div style="padding:28px">
+      <style>
+        * { box-sizing:border-box; margin:0; padding:0; }
+        body { font-family:'Inter',sans-serif; color:#0f172a; background:#d9dee6; padding:24px 0; }
+        .page { max-width:210mm; min-height:297mm; margin:0 auto; background:#fff; padding:16mm 14mm; box-shadow:0 4px 24px rgba(0,0,0,.18); }
+        @media print {
+          body { background:#fff; padding:0; }
+          .page { box-shadow:none; margin:0; max-width:100%; min-height:0; padding:0; }
+          @page { margin:10mm; size:A4; }
+        }
+      </style></head><body>
+      <div class="page">
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #6366f1">
           <div>
             <div style="font-size:22px;font-weight:800">Daily Business Report</div>
@@ -377,14 +386,6 @@ export default function Reports() {
           <div className="page-subtitle">Business analytics and performance reports</div>
         </div>
         <button className="btn btn-ghost" onClick={printFullReport}>🖨️ Full Business Report</button>
-      </div>
-
-      {/* Daily Business Report — AlAman + Blessing, single date */}
-      <div style={{ display:'flex', alignItems:'center', gap:'10px', background:'#fff', border:'1.5px solid #e2e8f0', borderRadius:'10px', padding:'12px 16px', marginBottom:'20px' }}>
-        <span style={{ fontSize:'13px', fontWeight:700, color:'#0f172a' }}>📋 Daily Business Report</span>
-        <input type="date" className="input" value={dailyDate} onChange={e=>setDailyDate(e.target.value)} style={{ maxWidth:'160px' }} />
-        <button className="btn btn-primary btn-sm" onClick={printDailyReport}>🖨️ Generate</button>
-        <span style={{ fontSize:'11px', color:'#94a3b8' }}>AlAman &amp; Blessing only</span>
       </div>
 
       {/* Filters */}
@@ -486,8 +487,21 @@ export default function Reports() {
         </div>
       )}
 
+      {reportType === 'daily-business' && (
+        <div className="card" style={{ padding:'1rem', marginBottom:'12px' }}>
+          <div style={{ display:'flex', gap:'10px', alignItems:'flex-end' }}>
+            <div>
+              <label style={{ fontSize:'.78rem', color:'var(--text-muted)', display:'block', marginBottom:'4px' }}>Date</label>
+              <input type="date" className="form-control" style={{ width:'auto' }} value={dailyDate} onChange={e=>setDailyDate(e.target.value)} />
+            </div>
+            <button className="btn btn-primary" onClick={printDailyReport}>🖨️ Generate</button>
+            <span style={{ fontSize:'11px', color:'var(--text-muted)', paddingBottom:'8px' }}>AlAman &amp; Blessing only</span>
+          </div>
+        </div>
+      )}
+
       {/* Generate button for other report types */}
-      {reportType && reportType !== 'purchase-invoice' && reportType !== 'product-margin' && (
+      {reportType && reportType !== 'purchase-invoice' && reportType !== 'product-margin' && reportType !== 'daily-business' && (
         <div style={{ marginBottom:'12px' }}>
           <button className="btn btn-primary" onClick={() => loadReport()}>
             {loading ? 'Loading...' : `Generate ${REPORT_TYPES.find(r=>r.id===reportType)?.label}`}
