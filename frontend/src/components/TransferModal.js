@@ -58,7 +58,6 @@ export default function TransferModal({ initialItem, onClose, onDone }) {
     api.get(`/shops/${form.from_shop_id}/inventory`)
       .then(r => setInventory(r.data?.data || []))
       .catch(() => setInventory([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.from_shop_id]);
 
   const handleProductSearch = (val) => {
