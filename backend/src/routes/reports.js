@@ -675,4 +675,116 @@ router.get('/full-business-report', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
+// ── GET /api/v1/reports/daily-business?date=YYYY-MM-DD ──────
+// AlAman + Blessing only (Wholesale excluded by design).
+router.get('/daily-business', async (req, res) => {
+  try {
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+
+    const [
+      shopsList, sales, purchasesNew, paymentsOnly, expenses,
+      cashReg, customerReceipts, stockValue,
+    ] = await Promise.all([
+      query(`SELECT id, name FROM shops WHERE name IN ('AlAman','Blessing') ORDER BY name`),
+
+      // Sales: invoices, amount, cost, margin — per shop
+      query(`
+        SELECT sh.name as shop_name,
+          COUNT(DISTINCT si.id) as invoice_count,
+          COALESCE(SUM(si.total_amount),0) as sale_amount,
+          COALESCE(SUM(sli.unit_cost * sli.qty),0) as cost_amount
+        FROM shops sh
+        LEFT JOIN sales_invoices si ON si.shop_id = sh.id AND si.sale_date = $1
+          AND si.payment_status != 'returned'
+        LEFT JOIN sale_items sli ON sli.invoice_id = si.id
+        WHERE sh.name IN ('AlAman','Blessing')
+        GROUP BY sh.name ORDER BY sh.name
+      `, [date]),
+
+      // New purchases today — supplier-wise, per shop
+      query(`
+        SELECT sh.name as shop_name, s.name as supplier_name,
+          COUNT(p.id) as purchase_count,
+          COALESCE(SUM(p.total_amount),0) as total_amount,
+          COALESCE(SUM(p.amount_paid),0) as amount_paid,
+          COALESCE(SUM(p.amount_due),0) as amount_due
+        FROM purchases p
+        JOIN shops sh ON sh.id = p.shop_id
+        JOIN suppliers s ON s.id = p.supplier_id
+        WHERE sh.name IN ('AlAman','Blessing') AND p.purchase_date = $1
+        GROUP BY sh.name, s.name ORDER BY sh.name, s.name
+      `, [date]),
+
+      // Payments made today against PAST purchases (supplier_ledger, transaction_type='payment')
+      query(`
+        SELECT sh.name as shop_name, s.name as supplier_name,
+          COALESCE(SUM(ABS(sl.amount)),0) as amount_paid
+        FROM supplier_ledger sl
+        JOIN shops sh ON sh.id = sl.shop_id
+        JOIN suppliers s ON s.id = sl.supplier_id
+        WHERE sh.name IN ('AlAman','Blessing') AND sl.transaction_date = $1
+          AND sl.transaction_type = 'payment'
+        GROUP BY sh.name, s.name ORDER BY sh.name, s.name
+      `, [date]),
+
+      // Expenses today — per shop + category (v2 schema: e.category is a text column, no category_id join)
+      query(`
+        SELECT sh.name as shop_name, COALESCE(e.category,'Uncategorized') as category,
+          COALESCE(SUM(e.amount),0) as total
+        FROM shops sh
+        LEFT JOIN expenses e ON e.shop_id = sh.id AND e.expense_date = $1
+        WHERE sh.name IN ('AlAman','Blessing')
+        GROUP BY sh.name, e.category ORDER BY sh.name, total DESC
+      `, [date]),
+
+      // Cash register — opening/closing per shop
+      query(`
+        SELECT sh.name as shop_name, cr.opening_balance, cr.closing_balance, cr.status
+        FROM shops sh
+        LEFT JOIN cash_register cr ON cr.shop_id = sh.id AND cr.register_date = $1
+        WHERE sh.name IN ('AlAman','Blessing') ORDER BY sh.name
+      `, [date]),
+
+      // Customer receipts today — NOTE: customer_receipts has no shop_id column,
+      // so this list is combined across both shops, not split.
+      query(`
+        SELECT c.name as customer_name, cr.amount, cr.payment_method
+        FROM customer_receipts cr
+        JOIN customers c ON c.id = cr.customer_id
+        WHERE cr.receipt_date = $1
+        ORDER BY cr.amount DESC
+      `, [date]),
+
+      // Stock value (current, cost price) — Mobile / Tab / Laptop only, Ipad grouped into Tab
+      query(`
+        SELECT sh.name as shop_name,
+          CASE WHEN p.category = 'Ipad' THEN 'Tab' ELSE p.category END as category,
+          SUM(i.quantity) as units,
+          SUM(i.quantity * p.base_cost) as cost_value
+        FROM inventory i
+        JOIN products p ON p.id = i.product_id
+        JOIN shops sh ON sh.id = i.shop_id
+        WHERE sh.name IN ('AlAman','Blessing') AND p.is_active = true AND i.quantity > 0
+          AND p.category IN ('Mobile','Tab','Laptop','Ipad')
+        GROUP BY sh.name, CASE WHEN p.category = 'Ipad' THEN 'Tab' ELSE p.category END
+        ORDER BY sh.name, category
+      `),
+    ]);
+
+    res.json({
+      success: true,
+      data: {
+        date, shops: shopsList.rows,
+        sales: sales.rows,
+        purchases_new: purchasesNew.rows,
+        payments_only: paymentsOnly.rows,
+        expenses: expenses.rows,
+        cash_register: cashReg.rows,
+        customer_receipts: customerReceipts.rows,
+        stock_value: stockValue.rows,
+      },
+    });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
 module.exports = router;
