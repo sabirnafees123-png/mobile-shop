@@ -3,6 +3,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { TableSkeleton, EmptyInventory } from '../components/UI';
 import toast from 'react-hot-toast';
 import api from '../utils/api';
+import TransferModal from '../components/TransferModal';
 
 const fmt = n => `AED ${Math.round(Number(n||0)).toLocaleString()}`;
 const PRODUCT_TYPES = ['New (Box Pack)','Used','Refurbished','Parts','Accessories','Wholesale'];
@@ -294,7 +295,7 @@ function MovementsModal({ productId, productName, onClose }) {
   );
 }
 
-function ActionsMenu({ item, onExpress, onAdjust, onPrice, onLedger }) {
+function ActionsMenu({ item, onExpress, onAdjust, onPrice, onLedger, onTransfer }) {
   const [open, setOpen] = useState(false);
   const ref = useRef();
   useEffect(() => {
@@ -306,6 +307,7 @@ function ActionsMenu({ item, onExpress, onAdjust, onPrice, onLedger }) {
     item.quantity > 0 && { label: '🧾 Express Sale', action: onExpress },
     { label: '± Adjust Stock', action: onAdjust },
     { label: '💰 Edit Price',  action: onPrice },
+    item.quantity > 0 && { label: '🔄 Transfer', action: onTransfer },
     { label: '📋 Ledger',      action: onLedger },
   ].filter(Boolean);
   return (
@@ -345,6 +347,7 @@ export default function Inventory() {
 
   const [adjustItem, setAdjustItem]     = useState(null);
   const [expressItem, setExpressItem]   = useState(null);
+  const [transferItem, setTransferItem] = useState(null);
   const [editPriceItem, setEditPriceItem] = useState(null);
   const [movementItem, setMovementItem] = useState(null);
 
@@ -450,6 +453,7 @@ export default function Inventory() {
     <div style={{padding:'24px',background:'#f8f9fc',minHeight:'100vh'}}>
       {adjustItem    && <AdjustModal    item={adjustItem}    onClose={()=>setAdjustItem(null)}    onDone={()=>fetchInventory(page)} isAdmin={isAdmin} />}
       {expressItem   && <ExpressSaleModal item={expressItem} onClose={()=>setExpressItem(null)}   onDone={()=>fetchInventory(page)} isAdmin={isAdmin} />}
+      {transferItem  && <TransferModal initialItem={transferItem} onClose={()=>setTransferItem(null)} onDone={()=>fetchInventory(page)} />}
       {editPriceItem && <EditPriceModal item={editPriceItem} onClose={()=>setEditPriceItem(null)} onDone={()=>fetchInventory(page)} />}
       {movementItem  && <MovementsModal productId={movementItem.product_id} productName={movementItem.name} onClose={()=>setMovementItem(null)} />}
       <input ref={fileInputRef} type="file" accept=".csv" style={{display:'none'}} onChange={handleImport} />
@@ -671,7 +675,8 @@ export default function Inventory() {
                               onExpress={()=>setExpressItem(item)}
                               onAdjust={()=>setAdjustItem(item)}
                               onPrice={()=>setEditPriceItem(item)}
-                              onLedger={()=>setMovementItem(item)} />
+                              onLedger={()=>setMovementItem(item)}
+                              onTransfer={()=>setTransferItem(item)} />
                           </td>
                       </tr>
                     );
