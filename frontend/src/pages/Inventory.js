@@ -132,6 +132,11 @@ function ExpressSaleModal({ item, onClose, onDone, isAdmin }) {
   const [costPrice, setCostPrice] = useState(item?.base_cost || '');
   const [costEditable, setCostEditable] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('cash');
+  const [customerName, setCustomerName] = useState('');
+  const [saleDate, setSaleDate] = useState(() => {
+    const d = new Date();
+    return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().split('T')[0];
+  });
   const [saving, setSaving]       = useState(false);
   if (!item) return null;
 
@@ -149,6 +154,8 @@ function ExpressSaleModal({ item, onClose, onDone, isAdmin }) {
         payment_method: paymentMethod,
         amount_paid: total,
         discount: 0,
+        sale_date: saleDate,
+        customer_name: customerName || undefined,
         notes: 'Express sale — created from Inventory',
         items: [{
           product_id: item.product_id,
@@ -175,6 +182,16 @@ function ExpressSaleModal({ item, onClose, onDone, isAdmin }) {
           <div style={{textAlign:'center',padding:'12px',background:'var(--bg-secondary)',borderRadius:'8px',marginBottom:'16px'}}>
             <div style={{fontSize:'1.6rem',fontWeight:700}}>{item.quantity} in stock</div>
             <div style={{fontSize:'.8rem',color:'var(--text-muted)'}}>{item.shop_name}{item.serial_number ? ` — S/N ${item.serial_number}` : ''}</div>
+          </div>
+          <div className="form-group" style={{marginBottom:'12px'}}>
+            <label className="form-label">Customer Name (optional)</label>
+            <input type="text" className="form-control" value={customerName}
+              onChange={e=>setCustomerName(e.target.value)} placeholder="Walk-in customer" />
+          </div>
+          <div className="form-group" style={{marginBottom:'12px'}}>
+            <label className="form-label">Sale Date</label>
+            <input type="date" className="form-control" value={saleDate}
+              onChange={e=>setSaleDate(e.target.value)} />
           </div>
           <div className="form-group" style={{marginBottom:'12px'}}>
             <label className="form-label">Quantity</label>
