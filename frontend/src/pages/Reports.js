@@ -18,6 +18,7 @@ const REPORT_TYPES = [
   { id: 'expenses',         label: '💸 Expenses Detail',         desc: 'Expenses by category' },
   { id: 'top-products',     label: '🏆 Top Products',            desc: 'Best selling products' },
   { id: 'salesperson',      label: '👤 Salesperson',             desc: 'Performance per staff member' },
+  { id: 'daily-business',   label: '📋 Daily Business Report',   desc: 'AlAman & Blessing — full day summary (printable)' },
   { id: 'upcoming-expenses', label: '📆 Upcoming Expenses',       desc: 'Cheques + Obligations, by month' },
 ];
 
@@ -240,6 +241,119 @@ export default function Reports() {
     } catch (err) { toast.error('Failed to generate report'); console.error(err); }
   };
 
+  const [dailyDate, setDailyDate] = useState(today);
+  const printDailyReport = async () => {
+    if (!dailyDate) return toast.error('Select a date first');
+    try {
+      const res = await api.get('/reports/daily-business', { params: { date: dailyDate } });
+      const d = res.data?.data;
+      if (!d) return toast.error('No data');
+      const fmtN = n => `AED ${Math.round(parseFloat(n||0)).toLocaleString()}`;
+      const fmtDt = s => { try { return new Date(s).toLocaleDateString('en-AE'); } catch { return s; } };
+      const shopNames = d.shops.map(r => r.name);
+
+      const totalSale   = d.sales.reduce((s,r)=>s+parseFloat(r.sale_amount||0),0);
+      const totalCost   = d.sales.reduce((s,r)=>s+parseFloat(r.cost_amount||0),0);
+      const totalMargin = totalSale - totalCost;
+      const totalExp     = d.expenses.reduce((s,r)=>s+parseFloat(r.total||0),0);
+      const totalNewPurch = d.purchases_new.reduce((s,r)=>s+parseFloat(r.total_amount||0),0);
+      const totalPayOnly  = d.payments_only.reduce((s,r)=>s+parseFloat(r.amount_paid||0),0);
+      const totalStock    = d.stock_value.reduce((s,r)=>s+parseFloat(r.cost_value||0),0);
+
+      const buildTbl = (headers, rows) => `
+        <table style="width:100%;border-collapse:collapse;margin-bottom:4px">
+          <thead><tr style="background:#0f172a">${headers.map(h=>`<th style="padding:8px 12px;text-align:${h===headers[0]?'left':'right'};color:#fff;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.5px">${h}</th>`).join('')}</tr></thead>
+          <tbody>${rows.map(row=>`<tr style="border-bottom:1px solid #f1f5f9">${row.map((cell,ci)=>`<td style="padding:8px 12px;font-size:13px;text-align:${ci===0?'left':'right'};font-weight:${ci===row.length-1?'700':'400'};color:${ci===row.length-1?'#6366f1':'#334155'}">${cell}</td>`).join('')}</tr>`).join('')}</tbody>
+        </table>`;
+
+      const section = (icon, title, content) => `
+        <div style="margin-bottom:22px">
+          <div style="font-size:14px;font-weight:700;color:#0f172a;padding:10px 0;border-bottom:2px solid #6366f1;margin-bottom:12px">${icon} ${title}</div>
+          ${content}
+        </div>`;
+
+      const salesRows = [
+        ['Invoices', ...d.sales.map(r=>r.invoice_count), d.sales.reduce((s,r)=>s+parseInt(r.invoice_count||0),0)],
+        ['Sale Amount', ...d.sales.map(r=>fmtN(r.sale_amount)), fmtN(totalSale)],
+        ['Cost', ...d.sales.map(r=>fmtN(r.cost_amount)), fmtN(totalCost)],
+        ['Margin (Profit)', ...d.sales.map(r=>fmtN(parseFloat(r.sale_amount||0)-parseFloat(r.cost_amount||0))), fmtN(totalMargin)],
+      ];
+
+      const purchRows = d.purchases_new.map(r => [r.shop_name, r.supplier_name, fmtN(r.total_amount), fmtN(r.amount_paid), fmtN(r.amount_due)]);
+      const payRows = d.payments_only.map(r => [r.shop_name, r.supplier_name, fmtN(r.amount_paid)]);
+      const expCats = [...new Set(d.expenses.filter(e=>parseFloat(e.total)>0).map(e=>e.category))];
+      const expRows = expCats.map(cat => {
+        const vals = shopNames.map(sh => fmtN(d.expenses.find(e=>e.shop_name===sh&&e.category===cat)?.total||0));
+        const total = d.expenses.filter(e=>e.category===cat).reduce((s,e)=>s+parseFloat(e.total||0),0);
+        return [cat, ...vals, fmtN(total)];
+      });
+      const cashRows = d.cash_register.map(r => [r.shop_name, fmtN(r.opening_balance||0), r.closing_balance!=null?fmtN(r.closing_balance):'—']);
+      const custRows = d.customer_receipts.map(r => [r.customer_name, r.payment_method||'cash', fmtN(r.amount)]);
+      const totalCustRecv = d.customer_receipts.reduce((s,r)=>s+parseFloat(r.amount||0),0);
+      const stockCats = [...new Set(d.stock_value.map(r=>r.category))];
+      const stockRows = stockCats.map(cat => {
+        const vals = shopNames.map(sh => fmtN(d.stock_value.find(r=>r.shop_name===sh&&r.category===cat)?.cost_value||0));
+        const total = d.stock_value.filter(r=>r.category===cat).reduce((s,r)=>s+parseFloat(r.cost_value||0),0);
+        return [cat, ...vals, fmtN(total)];
+      });
+
+      const win = window.open('','_blank');
+      win.document.write(`<!DOCTYPE html><html><head><title>Daily Business Report</title>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+      <style>
+        * { box-sizing:border-box; margin:0; padding:0; }
+        body { font-family:'Inter',sans-serif; color:#0f172a; background:#d9dee6; padding:24px 0; }
+        .page { max-width:210mm; min-height:297mm; margin:0 auto; background:#fff; padding:16mm 14mm; box-shadow:0 4px 24px rgba(0,0,0,.18); }
+        @media print {
+          body { background:#fff; padding:0; }
+          .page { box-shadow:none; margin:0; max-width:100%; min-height:0; padding:0; }
+          @page { margin:10mm; size:A4; }
+        }
+      </style></head><body>
+      <div class="page">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:3px solid #6366f1">
+          <div>
+            <div style="font-size:22px;font-weight:800">Daily Business Report</div>
+            <div style="font-size:12px;color:#64748b;margin-top:3px">AlAman &amp; Blessing — ${fmtDt(d.date)}</div>
+          </div>
+          <div style="display:flex;gap:10px">
+            ${[['Sale Amount',fmtN(totalSale),'#6366f1'],['Margin',fmtN(totalMargin),'#059669'],['Expenses',fmtN(totalExp),'#dc2626'],['Stock Value',fmtN(totalStock),'#6366f1']]
+              .map(([l,v,c])=>`<div style="text-align:center;background:#f8fafc;border:1px solid #e2e8f0;border-top:3px solid ${c};border-radius:8px;padding:8px 12px;min-width:90px"><div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase">${l}</div><div style="font-size:15px;font-weight:800;color:${c};margin-top:2px">${v}</div></div>`).join('')}
+          </div>
+        </div>
+
+        ${section('💰','Sales', buildTbl(['Metric',...shopNames,'Total'], salesRows))}
+
+        ${section('🛒','Purchases — New (Today)', purchRows.length
+          ? buildTbl(['Shop','Supplier','Total','Paid','Due'], purchRows)
+          : '<div style="font-size:12px;color:#94a3b8">No new purchases today.</div>')}
+        ${section('🛒','Purchases — Payments Only (Against Previous Purchases)', payRows.length
+          ? buildTbl(['Shop','Supplier','Amount Paid'], payRows) + `<div style="text-align:right;font-size:12px;font-weight:700;color:#6366f1;margin-top:4px">Total: ${fmtN(totalPayOnly)}</div>`
+          : '<div style="font-size:12px;color:#94a3b8">No standalone supplier payments today.</div>')}
+
+        ${section('💸','Expenses', expRows.length
+          ? buildTbl(['Category',...shopNames,'Total'], expRows)
+          : '<div style="font-size:12px;color:#94a3b8">No expenses recorded today.</div>')}
+
+        ${section('🧾','Cash Register', buildTbl(['Shop','Opening Balance','Closing Balance'], cashRows))}
+
+        ${section('👤','Customer Receivables (Collected Today)', custRows.length
+          ? buildTbl(['Customer','Method','Amount'], custRows) + `<div style="text-align:right;font-size:12px;font-weight:700;color:#6366f1;margin-top:4px">Total: ${fmtN(totalCustRecv)}</div><div style="font-size:10px;color:#94a3b8;margin-top:2px">Note: not split by shop — the system does not record which shop a customer payment belongs to.</div>`
+          : '<div style="font-size:12px;color:#94a3b8">No customer payments received today.</div>')}
+
+        ${section('🏪','Stock Value (Cost Price)', buildTbl(['Category',...shopNames,'Total'], stockRows) +
+          `<div style="text-align:right;font-size:13px;font-weight:800;color:#6366f1;margin-top:4px">Grand Total: ${fmtN(totalStock)}</div>`)}
+
+        <div style="margin-top:20px;padding-top:10px;border-top:1px solid #e2e8f0;text-align:center;font-size:10px;color:#94a3b8">
+          Generated: ${new Date().toLocaleString('en-AE')} for ${fmtDt(d.date)}
+        </div>
+      </div>
+      <script>window.onload=()=>setTimeout(()=>window.print(),500)</script>
+      </body></html>`);
+      win.document.close();
+    } catch (err) { toast.error('Failed to generate daily report'); console.error(err); }
+  };
+
   const payStatus = s => ({ paid:'badge-green', partial:'badge-yellow', unpaid:'badge-red', returned:'badge-gray' }[s]||'badge-gray');
 
   return (
@@ -368,8 +482,21 @@ export default function Reports() {
         </div>
       )}
 
+      {reportType === 'daily-business' && (
+        <div className="card" style={{ padding:'1rem', marginBottom:'12px' }}>
+          <div style={{ display:'flex', gap:'10px', alignItems:'flex-end' }}>
+            <div>
+              <label style={{ fontSize:'.78rem', color:'var(--text-muted)', display:'block', marginBottom:'4px' }}>Date</label>
+              <input type="date" className="form-control" style={{ width:'auto' }} value={dailyDate} onChange={e=>setDailyDate(e.target.value)} />
+            </div>
+            <button className="btn btn-primary" onClick={printDailyReport}>🖨️ Generate</button>
+            <span style={{ fontSize:'11px', color:'var(--text-muted)', paddingBottom:'8px' }}>AlAman &amp; Blessing only</span>
+          </div>
+        </div>
+      )}
+
       {/* Generate button for other report types */}
-      {reportType && reportType !== 'purchase-invoice' && reportType !== 'product-margin' && (
+      {reportType && reportType !== 'purchase-invoice' && reportType !== 'product-margin' && reportType !== 'daily-business' && (
         <div style={{ marginBottom:'12px' }}>
           <button className="btn btn-primary" onClick={() => loadReport()}>
             {loading ? 'Loading...' : `Generate ${REPORT_TYPES.find(r=>r.id===reportType)?.label}`}
