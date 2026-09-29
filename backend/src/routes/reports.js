@@ -147,36 +147,35 @@ router.get('/purchases', async (req, res) => {
 // ── GET /api/v1/reports/expenses ─────────────────────────────
 router.get('/expenses', async (req, res) => {
   try {
-    const { from, to, shop_id, category_id } = req.query;
+    const { from, to, shop_id, category } = req.query;
     let sql = `
-      SELECT e.*, sh.name as shop_name, ec.name as category_name
+      SELECT e.*, sh.name as shop_name, e.category as category_name
       FROM expenses e
-      LEFT JOIN shops s              ON s.id  = e.shop_id
       LEFT JOIN shops sh             ON sh.id = e.shop_id
-      LEFT JOIN expense_categories ec ON ec.id = e.category_id
       WHERE 1=1
     `;
     const params = [];
     let idx = 1;
-    if (from)        { sql += ` AND e.expense_date >= $${idx++}`; params.push(from); }
-    if (to)          { sql += ` AND e.expense_date <= $${idx++}`; params.push(to); }
-    if (shop_id)     { sql += ` AND e.shop_id = $${idx++}`;       params.push(shop_id); }
-    if (category_id) { sql += ` AND e.category_id = $${idx++}`;   params.push(category_id); }
+    if (from)     { sql += ` AND e.expense_date >= $${idx++}`; params.push(from); }
+    if (to)       { sql += ` AND e.expense_date <= $${idx++}`; params.push(to); }
+    if (shop_id)  { sql += ` AND e.shop_id = $${idx++}`;       params.push(shop_id); }
+    if (category) { sql += ` AND e.category = $${idx++}`;      params.push(category); }
     sql += ` ORDER BY e.expense_date DESC`;
     const result = await query(sql, params);
 
     // Category breakdown
-    const breakdown = await query(`
-      SELECT ec.name as category, COALESCE(SUM(e.amount),0) as total, COUNT(*) as count
+    const bParams = [];
+    let bIdx = 1;
+    let bSql = `
+      SELECT COALESCE(e.category,'Uncategorized') as category, COALESCE(SUM(e.amount),0) as total, COUNT(*) as count
       FROM expenses e
-      LEFT JOIN expense_categories ec ON ec.id = e.category_id
       WHERE 1=1
-        ${from    ? `AND e.expense_date >= '${from}'`    : ''}
-        ${to      ? `AND e.expense_date <= '${to}'`      : ''}
-        ${shop_id ? `AND e.shop_id = '${shop_id}'`       : ''}
-      GROUP BY ec.name
-      ORDER BY total DESC
-    `);
+    `;
+    if (from)    { bSql += ` AND e.expense_date >= $${bIdx++}`; bParams.push(from); }
+    if (to)      { bSql += ` AND e.expense_date <= $${bIdx++}`; bParams.push(to); }
+    if (shop_id) { bSql += ` AND e.shop_id = $${bIdx++}`;       bParams.push(shop_id); }
+    bSql += ` GROUP BY e.category ORDER BY total DESC`;
+    const breakdown = await query(bSql, bParams);
 
     res.json({ success: true, data: result.rows, category_breakdown: breakdown.rows });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
@@ -420,14 +419,13 @@ router.get('/print-summary', async (req, res) => {
     const expensesByShop = await query(`
       SELECT
         sh.name  AS shop_name,
-        ec.name  AS category,
+        e.category AS category,
         COALESCE(SUM(e.amount), 0) AS total,
         COUNT(*)                   AS count
       FROM shops sh
       LEFT JOIN expenses            e  ON e.shop_id = sh.id ${dateE}
-      LEFT JOIN expense_categories  ec ON ec.id = e.category_id
       WHERE sh.is_active = true
-      GROUP BY sh.name, ec.name
+      GROUP BY sh.name, e.category
       ORDER BY sh.name, total DESC
     `);
 
@@ -627,10 +625,9 @@ router.get('/full-business-report', async (req, res) => {
       `, [dateFrom, dateTo]),
       query(`SELECT COALESCE(SUM(sli.unit_cost*sli.qty),0) as total_cogs FROM sale_items sli JOIN sales_invoices si ON si.id=sli.invoice_id WHERE si.payment_status!='returned' AND si.sale_date BETWEEN $1 AND $2`, [dateFrom, dateTo]),
       query(`
-        SELECT sh.name as shop_name, COALESCE(ec.name,'General') as category, COALESCE(SUM(e.amount),0) as total
+        SELECT sh.name as shop_name, COALESCE(e.category,'General') as category, COALESCE(SUM(e.amount),0) as total
         FROM shops sh LEFT JOIN expenses e ON e.shop_id=sh.id AND e.expense_date BETWEEN $1 AND $2
-        LEFT JOIN expense_categories ec ON ec.id=e.category_id
-        WHERE sh.is_active=true GROUP BY sh.name, ec.name ORDER BY sh.name, total DESC
+        WHERE sh.is_active=true GROUP BY sh.name, e.category ORDER BY sh.name, total DESC
       `, [dateFrom, dateTo]),
       query(`SELECT id, name FROM shops WHERE is_active=true ORDER BY name`),
       query(`
