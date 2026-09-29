@@ -214,6 +214,8 @@ export default function Sales() {
   const [showModal, setShowModal]     = useState(false);
   const [costEditable, setCostEditable] = useState(false);
   const [showReturn, setShowReturn]   = useState(false);
+  const [showAssignSP, setShowAssignSP] = useState(false);
+  const [showChangeSP, setShowChangeSP] = useState(false);
   const [showPayment, setShowPayment] = useState(null);
   const [viewSale, setViewSale]       = useState(null);
   const [viewLoading, setViewLoading] = useState(false);
@@ -540,6 +542,8 @@ useEffect(() => {
           <div className="page-subtitle">Showing {filtered.length} of {totalCount} invoices</div>
         </div>
         <div style={{display:'flex',gap:'8px',alignItems:'center',flexWrap:'wrap'}}>
+          <button className="btn btn-ghost" onClick={() => setShowAssignSP(true)}>🧑‍💼 Assign Salesperson</button>
+          <button className="btn btn-ghost" onClick={() => setShowChangeSP(true)}>🔁 Change Salesperson</button>
           <button className="btn btn-ghost" style={{color:'#dc2626'}} onClick={() => setShowReturn(true)}>🔄 Return</button>
           <button className="btn btn-primary" onClick={() => {
             setForm({...EMPTY_FORM(), shop_id: shops.length===1 ? shops[0].id.toString() : (filterShop||'')});
@@ -547,6 +551,9 @@ useEffect(() => {
           }}>+ New Sale</button>
         </div>
       </div>
+
+      {showAssignSP && <AssignSalespersonModal onClose={() => setShowAssignSP(false)} />}
+      {showChangeSP && <ChangeSalespersonModal onClose={() => setShowChangeSP(false)} />}
 
       {/* ── Filters ── */}
       <div className="card" style={{padding:'1rem',marginBottom:'1rem'}}>
@@ -1164,6 +1171,189 @@ useEffect(() => {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ── Assign Salesperson: date range → list of UNASSIGNED bills → dropdown per row ──
+function AssignSalespersonModal({ onClose }) {
+  const [shops, setShops]   = useState([]);
+  const [users, setUsers]   = useState([]);
+  const [from, setFrom]     = useState('');
+  const [to, setTo]         = useState('');
+  const [bills, setBills]   = useState(null); // null = not searched yet
+  const [loading, setLoading] = useState(false);
+  const [savingId, setSavingId] = useState(null);
+
+  useEffect(() => {
+    api.get('/shops').then(r => setShops(r.data?.data || [])).catch(() => {});
+    api.get('/auth/users').then(r => setUsers(Array.isArray(r.data?.data || r.data) ? (r.data?.data || r.data) : [])).catch(() => {});
+  }, []);
+
+  const search = async () => {
+    if (!from || !to) return toast.error('Select both dates');
+    setLoading(true);
+    try {
+      const r = await api.get('/sales', { params: { from, to, unassigned: 'true', limit: 200 } });
+      setBills(r.data?.data || []);
+    } catch { toast.error('Failed to load bills'); }
+    finally { setLoading(false); }
+  };
+
+  const assign = async (id, salesperson_id) => {
+    if (!salesperson_id) return;
+    setSavingId(id);
+    try {
+      await api.put(`/sales/${id}/salesperson`, { salesperson_id });
+      setBills(prev => prev.filter(b => b.id !== id)); // drop from list — now assigned
+      toast.success('Assigned');
+    } catch (e) { toast.error(e.response?.data?.message || 'Failed'); }
+    finally { setSavingId(null); }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{maxWidth:'640px'}} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <strong>🧑‍💼 Assign Salesperson</strong>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div className="form-grid" style={{marginBottom:'12px'}}>
+            <div className="form-group">
+              <label className="form-label">From Date</label>
+              <input type="date" className="form-control" value={from} onChange={e=>setFrom(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">To Date</label>
+              <input type="date" className="form-control" value={to} onChange={e=>setTo(e.target.value)} />
+            </div>
+          </div>
+          <button className="btn btn-primary" onClick={search} disabled={loading} style={{marginBottom:'14px'}}>
+            {loading ? 'Loading...' : 'Show Unassigned Bills'}
+          </button>
+
+          {bills !== null && (
+            bills.length === 0 ? (
+              <div style={{color:'#64748b',padding:'12px 0'}}>✅ No unassigned bills in this date range.</div>
+            ) : (
+              <div className="table-wrapper" style={{maxHeight:'360px',overflowY:'auto'}}>
+                <table>
+                  <thead><tr><th>Date</th><th>Shop</th><th>Invoice #</th><th>Assign Salesperson</th></tr></thead>
+                  <tbody>
+                    {bills.map(b => (
+                      <tr key={b.id}>
+                        <td>{new Date(b.sale_date).toLocaleDateString('en-AE')}</td>
+                        <td>{shops.find(s=>s.id===b.shop_id)?.name || b.shop_name}</td>
+                        <td><strong>{b.invoice_number}</strong></td>
+                        <td>
+                          <select className="form-control" defaultValue=""
+                            disabled={savingId === b.id}
+                            onChange={e => assign(b.id, e.target.value)}>
+                            <option value="">Select...</option>
+                            {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )
+          )}
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Change Salesperson: search a bill by invoice number → reassign ──
+function ChangeSalespersonModal({ onClose }) {
+  const [users, setUsers]     = useState([]);
+  const [search, setSearch]   = useState('');
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [savingId, setSavingId] = useState(null);
+  const timer = useRef(null);
+
+  useEffect(() => {
+    api.get('/auth/users').then(r => setUsers(Array.isArray(r.data?.data || r.data) ? (r.data?.data || r.data) : [])).catch(() => {});
+  }, []);
+
+  const runSearch = (val) => {
+    setSearch(val);
+    clearTimeout(timer.current);
+    if (!val.trim()) { setResults([]); return; }
+    timer.current = setTimeout(async () => {
+      setLoading(true);
+      try {
+        const r = await api.get('/sales', { params: { search: val, limit: 20 } });
+        setResults((r.data?.data || []).filter(b => b.salesperson_id)); // only already-assigned bills
+      } catch { setResults([]); }
+      finally { setLoading(false); }
+    }, 300);
+  };
+
+  const reassign = async (id, salesperson_id) => {
+    if (!salesperson_id) return;
+    setSavingId(id);
+    try {
+      await api.put(`/sales/${id}/salesperson`, { salesperson_id });
+      const spName = users.find(u => String(u.id) === String(salesperson_id))?.name;
+      setResults(prev => prev.map(b => b.id === id ? { ...b, salesperson_id, salesperson_name: spName } : b));
+      toast.success('Updated');
+    } catch (e) { toast.error(e.response?.data?.message || 'Failed'); }
+    finally { setSavingId(null); }
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{maxWidth:'560px'}} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <strong>🔁 Change Salesperson</strong>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div className="form-group" style={{marginBottom:'12px'}}>
+            <label className="form-label">Search Invoice Number</label>
+            <input className="form-control" placeholder="e.g. INV-2026-..." value={search}
+              onChange={e => runSearch(e.target.value)} autoComplete="off" />
+          </div>
+          {loading && <div style={{color:'#64748b'}}>Searching...</div>}
+          {!loading && search && results.length === 0 && (
+            <div style={{color:'#64748b'}}>No assigned bill found matching "{search}".</div>
+          )}
+          {results.length > 0 && (
+            <div className="table-wrapper" style={{maxHeight:'320px',overflowY:'auto'}}>
+              <table>
+                <thead><tr><th>Invoice #</th><th>Current</th><th>New Salesperson</th></tr></thead>
+                <tbody>
+                  {results.map(b => (
+                    <tr key={b.id}>
+                      <td><strong>{b.invoice_number}</strong></td>
+                      <td>{b.salesperson_name || '—'}</td>
+                      <td>
+                        <select className="form-control" defaultValue=""
+                          disabled={savingId === b.id}
+                          onChange={e => reassign(b.id, e.target.value)}>
+                          <option value="">Select new...</option>
+                          {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-ghost" onClick={onClose}>Close</button>
+        </div>
+      </div>
     </div>
   );
 }

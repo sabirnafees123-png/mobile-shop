@@ -9,5 +9,6 @@ router.get('/:id',                ctrl.getSale);
 router.post('/',                  checkRegisterLock, ctrl.createSale);
 router.post('/:id/return',        checkRegisterLock, ctrl.returnSale);
 router.post('/:id/mark-received', checkRegisterLock, ctrl.markPaymentReceived);
+router.put('/:id/salesperson',    ctrl.assignSalesperson);
 
 module.exports = router;

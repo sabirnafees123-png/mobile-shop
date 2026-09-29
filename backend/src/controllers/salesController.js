@@ -22,7 +22,7 @@ async function generateInvoiceNumber(client) {
 // GET /api/v1/sales
 exports.getAllSales = async (req, res) => {
   try {
-    const { from, to, payment_status, payment_method, shop_id, search } = req.query;
+    const { from, to, payment_status, payment_method, shop_id, search, unassigned } = req.query;
 
     const page   = Math.max(1, parseInt(req.query.page)  || 1);
     const limit  = Math.max(1, parseInt(req.query.limit) || 50);
@@ -37,6 +37,7 @@ exports.getAllSales = async (req, res) => {
     if (payment_method)  { where += ` AND si.payment_method = $${idx++}`;          params.push(payment_method); }
     if (shop_id)         { where += ` AND si.shop_id = $${idx++}`;                 params.push(parseInt(shop_id)); }
     if (search)          { where += ` AND (si.invoice_number ILIKE $${idx} OR c.name ILIKE $${idx} OR c.phone ILIKE $${idx++})`; params.push(`%${search}%`); }
+    if (unassigned === 'true') { where += ` AND si.salesperson_id IS NULL`; }
 
     const countSql = `
       SELECT COUNT(*) AS total
@@ -56,15 +57,16 @@ exports.getAllSales = async (req, res) => {
 
     const dataSql = `
       SELECT si.*, c.name as customer_name, c.phone as customer_phone,
-             sh.name as shop_name, u.name as sold_by,
+             sh.name as shop_name, u.name as sold_by, sp.name as salesperson_name,
              COUNT(s.id) as item_count
       FROM sales_invoices si
       LEFT JOIN customers c  ON c.id  = si.customer_id
       LEFT JOIN shops sh     ON sh.id = si.shop_id
       LEFT JOIN users u      ON u.id  = si.user_id
+      LEFT JOIN users sp     ON sp.id = si.salesperson_id
       LEFT JOIN sale_items s ON s.invoice_id = si.id
       ${where}
-      GROUP BY si.id, c.name, c.phone, sh.name, u.name
+      GROUP BY si.id, c.name, c.phone, sh.name, u.name, sp.name
       ORDER BY si.sale_date DESC, si.created_at DESC
       LIMIT $${idx} OFFSET $${idx + 1}
     `;
@@ -350,22 +352,10 @@ exports.createSale = async (req, res) => {
       await client.query(`UPDATE customers SET balance = balance + $1 WHERE id = $2`, [amountDue, finalCustomerId]);
     }
     if (payment_method === 'cash' && paid > 0) {
-      const regDate = sale_date || new Date().toISOString().split('T')[0];
-      const regCheck = await client.query(
-        `SELECT status FROM cash_register WHERE register_date = $1 AND shop_id = $2 LIMIT 1`,
-        [regDate, parseInt(shop_id)]
-      );
-      const regStatus = regCheck.rows[0]?.status;
-      if (regStatus === 'closed') {
-        throw new Error(`Register for ${regDate} is closed. Please reopen the register first.`);
-      }
-      if (!regStatus) {
-        throw new Error(`Register for ${regDate} is not open. Please open the register for that date first.`);
-      }
       await client.query(
         `UPDATE cash_register SET total_sales_cash = total_sales_cash + $1
          WHERE register_date = $2 AND shop_id = $3 AND status = 'open'`,
-        [paid, regDate, parseInt(shop_id)]
+        [paid, sale_date || new Date().toISOString().split('T')[0], parseInt(shop_id)]
       );
     }
     if (is_exchange && tradeIn > 0 && amountDue < 0) {
@@ -614,5 +604,25 @@ exports.returnSale = async (req, res) => {
     res.status(400).json({ success: false, message: err.message });
   } finally {
     client.release();
+  }
+};
+
+// PUT /api/v1/sales/:id/salesperson — assign / change the salesperson tag on
+// an invoice. Simple field update only — no inventory, cash register, or
+// customer-balance side effects.
+exports.assignSalesperson = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { salesperson_id } = req.body;
+    if (!salesperson_id) return res.status(400).json({ success: false, message: 'salesperson_id is required' });
+
+    const result = await query(
+      `UPDATE sales_invoices SET salesperson_id = $1 WHERE id = $2 RETURNING id, invoice_number, salesperson_id`,
+      [salesperson_id, id]
+    );
+    if (!result.rows.length) return res.status(404).json({ success: false, message: 'Invoice not found' });
+    res.json({ success: true, data: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
   }
 };
