@@ -1179,9 +1179,11 @@ useEffect(() => {
 function AssignSalespersonModal({ onClose }) {
   const [shops, setShops]   = useState([]);
   const [users, setUsers]   = useState([]);
+  const [step, setStep]     = useState('filters'); // 'filters' | 'results'
+  const [shopId, setShopId] = useState('');
   const [from, setFrom]     = useState('');
   const [to, setTo]         = useState('');
-  const [bills, setBills]   = useState(null); // null = not searched yet
+  const [bills, setBills]   = useState([]);
   const [loading, setLoading] = useState(false);
   const [savingId, setSavingId] = useState(null);
 
@@ -1190,12 +1192,14 @@ function AssignSalespersonModal({ onClose }) {
     api.get('/auth/users').then(r => setUsers(Array.isArray(r.data?.data || r.data) ? (r.data?.data || r.data) : [])).catch(() => {});
   }, []);
 
-  const search = async () => {
+  const goNext = async () => {
+    if (!shopId) return toast.error('Select a shop');
     if (!from || !to) return toast.error('Select both dates');
     setLoading(true);
     try {
-      const r = await api.get('/sales', { params: { from, to, unassigned: 'true', limit: 200 } });
+      const r = await api.get('/sales', { params: { shop_id: shopId, from, to, unassigned: 'true', limit: 200 } });
       setBills(r.data?.data || []);
+      setStep('results');
     } catch { toast.error('Failed to load bills'); }
     finally { setLoading(false); }
   };
@@ -1211,56 +1215,79 @@ function AssignSalespersonModal({ onClose }) {
     finally { setSavingId(null); }
   };
 
+  const shopName = shops.find(s => String(s.id) === String(shopId))?.name || '';
+
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" style={{maxWidth:'640px'}} onClick={e => e.stopPropagation()}>
+      <div className="modal" style={{maxWidth:'900px', width:'95%'}} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
-          <strong>🧑‍💼 Assign Salesperson</strong>
+          <strong>🧑‍💼 Assign Salesperson{step==='results' ? ` — ${shopName}` : ''}</strong>
           <button className="modal-close" onClick={onClose}>✕</button>
         </div>
-        <div className="modal-body">
-          <div className="form-grid" style={{marginBottom:'12px'}}>
-            <div className="form-group">
-              <label className="form-label">From Date</label>
-              <input type="date" className="form-control" value={from} onChange={e=>setFrom(e.target.value)} />
-            </div>
-            <div className="form-group">
-              <label className="form-label">To Date</label>
-              <input type="date" className="form-control" value={to} onChange={e=>setTo(e.target.value)} />
-            </div>
-          </div>
-          <button className="btn btn-primary" onClick={search} disabled={loading} style={{marginBottom:'14px'}}>
-            {loading ? 'Loading...' : 'Show Unassigned Bills'}
-          </button>
+        <div className="modal-body" style={{minHeight:'380px'}}>
 
-          {bills !== null && (
-            bills.length === 0 ? (
-              <div style={{color:'#64748b',padding:'12px 0'}}>✅ No unassigned bills in this date range.</div>
-            ) : (
-              <div className="table-wrapper" style={{maxHeight:'360px',overflowY:'auto'}}>
-                <table>
-                  <thead><tr><th>Date</th><th>Shop</th><th>Invoice #</th><th>Assign Salesperson</th></tr></thead>
-                  <tbody>
-                    {bills.map(b => (
-                      <tr key={b.id}>
-                        <td>{new Date(b.sale_date).toLocaleDateString('en-AE')}</td>
-                        <td>{shops.find(s=>s.id===b.shop_id)?.name || b.shop_name}</td>
-                        <td><strong>{b.invoice_number}</strong></td>
-                        <td>
-                          <select className="form-control" defaultValue=""
-                            disabled={savingId === b.id}
-                            onChange={e => assign(b.id, e.target.value)}>
-                            <option value="">Select...</option>
-                            {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                          </select>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+          {step === 'filters' && (
+            <>
+              <div className="form-grid" style={{marginBottom:'12px'}}>
+                <div className="form-group" style={{gridColumn:'span 2'}}>
+                  <label className="form-label">Shop *</label>
+                  <select className="form-control" value={shopId} onChange={e=>setShopId(e.target.value)}>
+                    <option value="">Select shop...</option>
+                    {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+                <div className="form-group">
+                  <label className="form-label">From Date *</label>
+                  <input type="date" className="form-control" value={from} onChange={e=>setFrom(e.target.value)} />
+                </div>
+                <div className="form-group">
+                  <label className="form-label">To Date *</label>
+                  <input type="date" className="form-control" value={to} onChange={e=>setTo(e.target.value)} />
+                </div>
               </div>
-            )
+              <button className="btn btn-primary" onClick={goNext} disabled={loading}>
+                {loading ? 'Loading...' : 'Next →'}
+              </button>
+            </>
           )}
+
+          {step === 'results' && (
+            <>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:'12px'}}>
+                <div style={{color:'#64748b',fontSize:'.85rem'}}>
+                  {shopName} · {new Date(from).toLocaleDateString('en-AE')} – {new Date(to).toLocaleDateString('en-AE')}
+                </div>
+                <button className="btn btn-ghost" onClick={() => setStep('filters')}>← Back</button>
+              </div>
+
+              {bills.length === 0 ? (
+                <div style={{color:'#64748b',padding:'12px 0'}}>✅ No unassigned bills in this range.</div>
+              ) : (
+                <div className="table-wrapper" style={{maxHeight:'55vh',overflowY:'auto'}}>
+                  <table>
+                    <thead><tr><th>Date</th><th>Invoice #</th><th style={{width:'260px'}}>Assign Salesperson</th></tr></thead>
+                    <tbody>
+                      {bills.map(b => (
+                        <tr key={b.id}>
+                          <td>{new Date(b.sale_date).toLocaleDateString('en-AE')}</td>
+                          <td><strong>{b.invoice_number}</strong></td>
+                          <td>
+                            <select className="form-control" defaultValue=""
+                              disabled={savingId === b.id}
+                              onChange={e => assign(b.id, e.target.value)}>
+                              <option value="">Select...</option>
+                              {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                            </select>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+
         </div>
         <div className="modal-footer">
           <button className="btn btn-ghost" onClick={onClose}>Close</button>
