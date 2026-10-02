@@ -379,13 +379,16 @@ export default function Reports() {
 
       const dayLabel = iso => new Date(iso+'T00:00:00').toLocaleDateString('en-AE', { weekday:'short', day:'2-digit', month:'short' });
 
+      const fmtTimeShort = t => { if (!t) return ''; const [h,m] = t.split(':'); const hh = parseInt(h); const ampm = hh>=12?'PM':'AM'; const h12 = hh%12||12; return `${h12}:${m} ${ampm}`; };
+      const timeLine = t => t ? `<br><span style="font-size:10px;font-weight:400;color:#64748b">${fmtTimeShort(t)}</span>` : '';
+
       const cellHtml = (name, dateIso) => {
         const r = lookup[`${name}|${dateIso}`];
         if (!r) return '<span style="color:#94a3b8;font-style:italic">No record</span>';
         if (r.status === 'absent') return '<span style="color:#94a3b8;font-style:italic">Absent</span>';
         if (['annual_leave','half_day','wfh'].includes(r.status)) return `<span style="color:#d97706;font-style:italic">${r.status==='half_day'?'Half Day':r.status==='wfh'?'WFH':'Leave'}</span>`;
-        if (r.is_late) return `<span style="color:#dc2626;font-weight:700">${r.late_minutes} min late</span>`;
-        if (r.status === 'present') return '<span style="color:#059669;font-weight:600">On time</span>';
+        if (r.is_late) return `<span style="color:#dc2626;font-weight:700">${r.late_minutes} min late</span>${timeLine(r.clock_in)}`;
+        if (r.status === 'present') return `<span style="color:#059669;font-weight:600">On time</span>${timeLine(r.clock_in)}`;
         return '<span style="color:#94a3b8;font-style:italic">No record</span>';
       };
 
