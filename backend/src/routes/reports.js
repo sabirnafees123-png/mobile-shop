@@ -679,16 +679,23 @@ router.get('/upcoming-expenses', async (req, res) => {
   try {
     const combined = await query(`
       SELECT due_date, amount,
-             'Cheque' AS source, cheque_number AS reference, bank AS detail
+             'Cheque' AS source, cheque_number AS reference,
+             COALESCE(NULLIF(payee_payer,''), NULLIF(notes,''), bank) AS detail
       FROM cheques
       WHERE type = 'outbound' AND status = 'pending'
 
       UNION ALL
 
-      SELECT due_date, amount,
-             'Obligation' AS source, title AS reference, person_name AS detail
-      FROM obligations
-      WHERE status = 'pending' AND (cheque_id IS NULL)
+      SELECT o.due_date, o.amount,
+             'Obligation' AS source, o.title AS reference,
+             COALESCE(
+               NULLIF(CONCAT(ec.category, CASE WHEN ec.sub_category IS NOT NULL AND ec.sub_category != '' THEN ' - '||ec.sub_category ELSE '' END), ''),
+               NULLIF(o.person_name,''),
+               NULLIF(o.notes,'')
+             ) AS detail
+      FROM obligations o
+      LEFT JOIN expense_categories ec ON ec.id = o.category_id
+      WHERE o.status = 'pending' AND (o.cheque_id IS NULL)
 
       ORDER BY due_date
     `);
