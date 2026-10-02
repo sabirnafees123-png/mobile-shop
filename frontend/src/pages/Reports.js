@@ -394,6 +394,13 @@ export default function Reports() {
         return n + (r && r.is_late ? 1 : 0);
       }, 0);
 
+      // Shift timing per staff (shift_start/shift_end come from user_shifts, same for every row of that user)
+      const fmtTime = t => { if (!t) return '—'; const [h,m] = t.split(':'); const hh = parseInt(h); const ampm = hh>=12?'PM':'AM'; const h12 = hh%12||12; return `${h12}:${m} ${ampm}`; };
+      const shiftRows = staff.map(s => {
+        const rec = rows.find(r => r.user_name === s && (r.shift_start || r.shift_end));
+        return { name: s, start: rec?.shift_start || null, end: rec?.shift_end || null, grace: rec?.grace_minutes || 15 };
+      });
+
       const headerCells = staff.map(s => `<th>${s}</th>`).join('');
       const bodyRows = dates.map(dt => `
         <tr>
@@ -437,6 +444,25 @@ export default function Reports() {
         <div class="legend">
           <span>🟢 On time</span>&nbsp;&nbsp;<span>🔴 Late (minutes shown)</span>&nbsp;&nbsp;<span>⚪ Absent / No record</span>&nbsp;&nbsp;<span>🟠 Leave</span>
         </div>
+
+        <div style="margin-top:22px">
+          <div style="font-size:13px;font-weight:700;color:#0f172a;padding:8px 0;border-bottom:2px solid #6366f1;margin-bottom:10px">⏰ Staff Shift Timings</div>
+          <table style="max-width:500px">
+            <thead><tr style="background:#0f172a">
+              <th style="text-align:left">Staff</th><th>Shift Start</th><th>Shift End</th><th>Grace (min)</th>
+            </tr></thead>
+            <tbody>
+              ${shiftRows.map(r => `
+                <tr>
+                  <td class="date-col">${r.name}</td>
+                  <td>${fmtTime(r.start)}</td>
+                  <td>${fmtTime(r.end)}</td>
+                  <td>${r.grace}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>
+
         <div class="footer">Generated: ${new Date().toLocaleString('en-AE')}</div>
       </div>
       <script>window.onload=()=>setTimeout(()=>window.print(),500)</script>
