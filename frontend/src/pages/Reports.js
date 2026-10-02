@@ -19,6 +19,7 @@ const REPORT_TYPES = [
   { id: 'top-products',     label: '🏆 Top Products',            desc: 'Best selling products' },
   { id: 'salesperson',      label: '👤 Salesperson',             desc: 'Performance per staff member' },
   { id: 'daily-business',   label: '📋 Daily Business Report',   desc: 'AlAman & Blessing — full day summary (printable)' },
+  { id: 'attendance-late',  label: '🕒 Attendance (Late Report)', desc: 'Staff lateness by date, matrix view (printable)' },
   { id: 'upcoming-expenses', label: '📆 Upcoming Expenses',       desc: 'Cheques + Obligations, by month' },
 ];
 
@@ -354,6 +355,96 @@ export default function Reports() {
     } catch (err) { toast.error('Failed to generate daily report'); console.error(err); }
   };
 
+  const [attFrom, setAttFrom] = useState(today);
+  const [attTo, setAttTo] = useState(today);
+  const printAttendanceReport = async () => {
+    if (!attFrom || !attTo) return toast.error('Select both dates');
+    try {
+      const res = await api.get('/attendance/report', { params: { from: attFrom, to: attTo } });
+      const rows = res.data?.data || [];
+      if (!rows.length) return toast.error('No data');
+
+      // Build the list of dates in range
+      const dates = [];
+      let d = new Date(attFrom + 'T00:00:00');
+      const end = new Date(attTo + 'T00:00:00');
+      while (d <= end) { dates.push(d.toISOString().split('T')[0]); d.setDate(d.getDate()+1); }
+
+      // Distinct staff, in name order
+      const staff = [...new Set(rows.map(r => r.user_name))].sort();
+
+      // Lookup: key = `${user_name}|${date}`
+      const lookup = {};
+      rows.forEach(r => { if (r.date) lookup[`${r.user_name}|${new Date(r.date).toISOString().split('T')[0]}`] = r; });
+
+      const dayLabel = iso => new Date(iso+'T00:00:00').toLocaleDateString('en-AE', { weekday:'short', day:'2-digit', month:'short' });
+
+      const cellHtml = (name, dateIso) => {
+        const r = lookup[`${name}|${dateIso}`];
+        if (!r) return '<span style="color:#94a3b8;font-style:italic">No record</span>';
+        if (r.status === 'absent') return '<span style="color:#94a3b8;font-style:italic">Absent</span>';
+        if (['annual_leave','half_day','wfh'].includes(r.status)) return `<span style="color:#d97706;font-style:italic">${r.status==='half_day'?'Half Day':r.status==='wfh'?'WFH':'Leave'}</span>`;
+        if (r.is_late) return `<span style="color:#dc2626;font-weight:700">${r.late_minutes} min late</span>`;
+        if (r.status === 'present') return '<span style="color:#059669;font-weight:600">On time</span>';
+        return '<span style="color:#94a3b8;font-style:italic">No record</span>';
+      };
+
+      const lateTotal = name => dates.reduce((n,dt) => {
+        const r = lookup[`${name}|${dt}`];
+        return n + (r && r.is_late ? 1 : 0);
+      }, 0);
+
+      const headerCells = staff.map(s => `<th>${s}</th>`).join('');
+      const bodyRows = dates.map(dt => `
+        <tr>
+          <td class="date-col">${dayLabel(dt)}</td>
+          ${staff.map(s => `<td>${cellHtml(s, dt)}</td>`).join('')}
+        </tr>`).join('');
+      const totalCells = staff.map(s => `<td class="late-count">${lateTotal(s)}</td>`).join('');
+
+      const win = window.open('','_blank');
+      win.document.write(`<!DOCTYPE html><html><head><title>Attendance Report</title>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+      <style>
+        * { box-sizing:border-box; margin:0; padding:0; }
+        body { font-family:'Inter',sans-serif; color:#0f172a; background:#d9dee6; padding:24px 0; }
+        .page { max-width:297mm; min-height:210mm; margin:0 auto; background:#fff; padding:14mm; box-shadow:0 4px 24px rgba(0,0,0,.18); }
+        .report-header { margin-bottom:18px; padding-bottom:14px; border-bottom:3px solid #6366f1; }
+        .report-header .title { font-size:20px; font-weight:800; }
+        .report-header .sub { font-size:12px; color:#64748b; margin-top:3px; }
+        table { width:100%; border-collapse:collapse; font-size:12px; }
+        th { padding:9px 10px; text-align:center; font-size:10px; font-weight:700; color:#fff; background:#0f172a; white-space:nowrap; }
+        th.date-col, td.date-col { text-align:left; }
+        td { padding:8px 10px; border-bottom:1px solid #f1f5f9; text-align:center; white-space:nowrap; }
+        td.date-col { font-weight:600; color:#334155; background:#f8fafc; }
+        .total-row td { background:#0f172a; color:#fff; font-weight:800; }
+        .legend { display:flex; gap:16px; margin-top:14px; font-size:11px; color:#64748b; }
+        .footer { margin-top:18px; padding-top:10px; border-top:1px solid #e2e8f0; text-align:center; font-size:10px; color:#94a3b8; }
+        @media print { body{background:#fff;padding:0} .page{box-shadow:none;margin:0;max-width:100%;min-height:0;padding:0} @page{margin:10mm;size:A4 landscape} }
+      </style></head><body>
+      <div class="page">
+        <div class="report-header">
+          <div class="title">Attendance Report — Late Arrivals</div>
+          <div class="sub">${dayLabel(attFrom)} – ${dayLabel(attTo)}</div>
+        </div>
+        <table>
+          <thead><tr><th class="date-col">Date</th>${headerCells}</tr></thead>
+          <tbody>
+            ${bodyRows}
+            <tr class="total-row"><td class="date-col">Total Late Days</td>${totalCells}</tr>
+          </tbody>
+        </table>
+        <div class="legend">
+          <span>🟢 On time</span>&nbsp;&nbsp;<span>🔴 Late (minutes shown)</span>&nbsp;&nbsp;<span>⚪ Absent / No record</span>&nbsp;&nbsp;<span>🟠 Leave</span>
+        </div>
+        <div class="footer">Generated: ${new Date().toLocaleString('en-AE')}</div>
+      </div>
+      <script>window.onload=()=>setTimeout(()=>window.print(),500)</script>
+      </body></html>`);
+      win.document.close();
+    } catch (err) { toast.error('Failed to generate attendance report'); console.error(err); }
+  };
+
   const payStatus = s => ({ paid:'badge-green', partial:'badge-yellow', unpaid:'badge-red', returned:'badge-gray' }[s]||'badge-gray');
 
   return (
@@ -495,8 +586,24 @@ export default function Reports() {
         </div>
       )}
 
+      {reportType === 'attendance-late' && (
+        <div className="card" style={{ padding:'1rem', marginBottom:'12px' }}>
+          <div style={{ display:'flex', gap:'10px', alignItems:'flex-end' }}>
+            <div>
+              <label style={{ fontSize:'.78rem', color:'var(--text-muted)', display:'block', marginBottom:'4px' }}>From</label>
+              <input type="date" className="form-control" style={{ width:'auto' }} value={attFrom} onChange={e=>setAttFrom(e.target.value)} />
+            </div>
+            <div>
+              <label style={{ fontSize:'.78rem', color:'var(--text-muted)', display:'block', marginBottom:'4px' }}>To</label>
+              <input type="date" className="form-control" style={{ width:'auto' }} value={attTo} onChange={e=>setAttTo(e.target.value)} />
+            </div>
+            <button className="btn btn-primary" onClick={printAttendanceReport}>🖨️ Generate</button>
+          </div>
+        </div>
+      )}
+
       {/* Generate button for other report types */}
-      {reportType && reportType !== 'purchase-invoice' && reportType !== 'product-margin' && reportType !== 'daily-business' && (
+      {reportType && reportType !== 'purchase-invoice' && reportType !== 'product-margin' && reportType !== 'daily-business' && reportType !== 'attendance-late' && (
         <div style={{ marginBottom:'12px' }}>
           <button className="btn btn-primary" onClick={() => loadReport()}>
             {loading ? 'Loading...' : `Generate ${REPORT_TYPES.find(r=>r.id===reportType)?.label}`}
