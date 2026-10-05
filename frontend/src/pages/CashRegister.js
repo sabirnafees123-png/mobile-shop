@@ -770,6 +770,7 @@ export default function CashRegister() {
                   <option value="Pending Cash received">Pending Cash received</option>
                   <option value="Card Sales">Card Sales</option>
                   <option value="Bank Transfer Sales">Bank Transfer Sales</option>
+                  <option value="WholeSale Deals">WholeSale Deals</option>
                 </select>
               </div>
               <div className="form-group">

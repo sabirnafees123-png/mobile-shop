@@ -480,8 +480,11 @@ exports.revisePurchasePrice = async (req, res) => {
       [delta, ` (rate revised ${oldTotal} -> ${newTotal})`, le.id]
     );
 
-    // Rows displayed after the purchase row (later date, or same date and later
-    // time, or this purchase's own payment row created in the same moment).
+    // balance_after is written at the moment a row is CREATED (supplier balance
+    // right after it), so every row created after this purchase row already
+    // includes its old total — regardless of the date printed on it (backdated
+    // entries are common). Those rows move by the same delta, and so does this
+    // purchase's own payment row, which is created in the same instant.
     // Compared inside SQL so timestamp precision is never lost.
     await client.query(
       `UPDATE supplier_ledger sl
@@ -491,9 +494,8 @@ exports.revisePurchasePrice = async (req, res) => {
          AND sl.supplier_id = anchor.supplier_id
          AND sl.id <> anchor.id
          AND (
-              sl.transaction_date > anchor.transaction_date
-           OR (sl.transaction_date = anchor.transaction_date AND sl.created_at > anchor.created_at)
-           OR (sl.transaction_date = anchor.transaction_date AND sl.created_at = anchor.created_at AND sl.reference_id = $3)
+              sl.created_at > anchor.created_at
+           OR (sl.created_at = anchor.created_at AND sl.reference_id = $3)
          )`,
       [delta, le.id, p.id]
     );

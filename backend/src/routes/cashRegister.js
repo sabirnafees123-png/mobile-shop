@@ -348,6 +348,7 @@ const ALLOWED_MANUAL_CATEGORIES = [
   'Pending Cash received',
   'Card Sales',
   'Bank Transfer Sales',
+  'WholeSale Deals',
 ];
 
 router.post('/manual-entry', checkRegisterLock, async (req, res) => {
