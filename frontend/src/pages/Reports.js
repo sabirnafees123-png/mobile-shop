@@ -342,8 +342,9 @@ export default function Reports() {
           ? buildTbl(['Customer','Method','Amount'], custRows) + `<div style="text-align:right;font-size:12px;font-weight:700;color:#6366f1;margin-top:4px">Total: ${fmtN(totalCustRecv)}</div><div style="font-size:10px;color:#94a3b8;margin-top:2px">Note: not split by shop — the system does not record which shop a customer payment belongs to.</div>`
           : '<div style="font-size:12px;color:#94a3b8">No customer payments received today.</div>')}
 
-        ${section('🏪','Stock Value (Cost Price)', buildTbl(['Category',...shopNames,'Total'], stockRows) +
-          `<div style="text-align:right;font-size:13px;font-weight:800;color:#6366f1;margin-top:4px">Grand Total: ${fmtN(totalStock)}</div>`)}
+        ${section('🏪','Stock Value (Cost Price) — End of Day', buildTbl(['Category',...shopNames,'Total'], stockRows) +
+          `<div style="text-align:right;font-size:13px;font-weight:800;color:#6366f1;margin-top:4px">Grand Total: ${fmtN(totalStock)}</div>` +
+          `<div style="font-size:10px;color:#94a3b8;margin-top:2px">Value at the end of the selected date. For past dates this is calculated from current stock plus later sales minus later purchases (an estimate).</div>`)}
 
         <div style="margin-top:20px;padding-top:10px;border-top:1px solid #e2e8f0;text-align:center;font-size:10px;color:#94a3b8">
           Generated: ${new Date().toLocaleString('en-AE')} for ${fmtDt(d.date)}

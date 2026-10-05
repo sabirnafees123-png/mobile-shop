@@ -763,7 +763,10 @@ router.get('/daily-business', async (req, res) => {
         GROUP BY sh.name, s.name ORDER BY sh.name, s.name
       `, [date]),
 
-      // Payments made today against PAST purchases (supplier_ledger, transaction_type='payment')
+      // Standalone payments made today (supplier_ledger, transaction_type='payment').
+      // When a purchase is created with a paid amount, the system ALSO writes a 'payment' ledger row
+      // with description 'Payment with purchase PUR-...'. That money is already shown in the
+      // "New Purchases > Paid" column, so it is excluded here to avoid showing it twice.
       query(`
         SELECT sh.name as shop_name, s.name as supplier_name,
           COALESCE(SUM(ABS(sl.amount)),0) as amount_paid
@@ -772,6 +775,7 @@ router.get('/daily-business', async (req, res) => {
         JOIN suppliers s ON s.id = sl.supplier_id
         WHERE sh.name IN ('AlAman','Blessing') AND sl.transaction_date = $1
           AND sl.transaction_type = 'payment'
+          AND COALESCE(sl.description,'') NOT LIKE 'Payment with purchase%'
         GROUP BY sh.name, s.name ORDER BY sh.name, s.name
       `, [date]),
 
@@ -803,22 +807,53 @@ router.get('/daily-business', async (req, res) => {
         ORDER BY cr.amount DESC
       `, [date]),
 
-      // Stock value (current, cost price) — Mobile / Tab / Laptop only.
-      // Category names were cleaned up in the DB (2026-09-27) to MOBILE / TAB / LAPTOP / ACCESSORIES.
-      // Still using UPPER() as a safety net in case new products get added with mixed-case categories again.
+      // Stock value (cost price) at the END of the selected date — Mobile / Tab / Laptop only.
+      // Same method the app's "Daily Inventory Value" report uses:
+      //   value at end of date D = current stock value
+      //                           + cost of items SOLD after D   (they were still in stock on D)
+      //                           - cost of items PURCHASED after D (they were not yet in stock on D)
+      // For today's date this equals the exact current stock; for past dates it is an estimate
+      // (stock transfers / returns / manual adjustments are not tracked by this method).
+      // Category names are normalised with UPPER(TRIM()) as a safety net against mixed-case entries.
       query(`
-        SELECT sh.name as shop_name,
-          INITCAP(LOWER(p.category)) as category,
-          SUM(i.quantity) as units,
-          SUM(i.quantity * p.base_cost) as cost_value
-        FROM inventory i
-        JOIN products p ON p.id = i.product_id
-        JOIN shops sh ON sh.id = i.shop_id
-        WHERE sh.name IN ('AlAman','Blessing') AND p.is_active = true AND i.quantity > 0
-          AND UPPER(TRIM(p.category)) IN ('MOBILE','TAB','LAPTOP')
-        GROUP BY sh.name, INITCAP(LOWER(p.category))
-        ORDER BY sh.name, category
-      `),
+        WITH cur AS (
+          SELECT i.shop_id, INITCAP(LOWER(TRIM(p.category))) AS category,
+                 SUM(i.quantity * p.base_cost) AS v
+          FROM inventory i JOIN products p ON p.id = i.product_id
+          WHERE p.is_active = true AND i.quantity > 0
+            AND UPPER(TRIM(p.category)) IN ('MOBILE','TAB','LAPTOP')
+          GROUP BY i.shop_id, INITCAP(LOWER(TRIM(p.category)))
+        ),
+        sold_after AS (
+          SELECT si.shop_id, INITCAP(LOWER(TRIM(p.category))) AS category,
+                 SUM(sli.unit_cost * sli.qty) AS v
+          FROM sale_items sli
+          JOIN sales_invoices si ON si.id = sli.invoice_id
+          JOIN products p ON p.id = sli.product_id
+          WHERE si.sale_date > $1 AND si.payment_status != 'returned'
+            AND UPPER(TRIM(p.category)) IN ('MOBILE','TAB','LAPTOP')
+          GROUP BY si.shop_id, INITCAP(LOWER(TRIM(p.category)))
+        ),
+        bought_after AS (
+          SELECT pi.shop_id, INITCAP(LOWER(TRIM(p.category))) AS category,
+                 SUM(pi.unit_cost * pi.qty) AS v
+          FROM purchase_items pi
+          JOIN purchases pu ON pu.id = pi.purchase_id
+          JOIN products p ON p.id = pi.product_id
+          WHERE pu.purchase_date > $1
+            AND UPPER(TRIM(p.category)) IN ('MOBILE','TAB','LAPTOP')
+          GROUP BY pi.shop_id, INITCAP(LOWER(TRIM(p.category)))
+        )
+        SELECT sh.name AS shop_name, c.category,
+               GREATEST(0, COALESCE(cur.v,0) + COALESCE(sold_after.v,0) - COALESCE(bought_after.v,0)) AS cost_value
+        FROM shops sh
+        CROSS JOIN (VALUES ('Mobile'),('Tab'),('Laptop')) AS c(category)
+        LEFT JOIN cur          ON cur.shop_id          = sh.id AND cur.category          = c.category
+        LEFT JOIN sold_after   ON sold_after.shop_id   = sh.id AND sold_after.category   = c.category
+        LEFT JOIN bought_after ON bought_after.shop_id = sh.id AND bought_after.category = c.category
+        WHERE sh.name IN ('AlAman','Blessing')
+        ORDER BY sh.name, c.category
+      `, [date]),
     ]);
 
     res.json({
