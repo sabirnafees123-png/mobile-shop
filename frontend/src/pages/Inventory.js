@@ -6,7 +6,7 @@ import api from '../utils/api';
 import TransferModal from '../components/TransferModal';
 
 const fmt = n => `AED ${Math.round(Number(n||0)).toLocaleString()}`;
-const PRODUCT_TYPES = ['New (Box Pack)','Used','Refurbished','Parts','Accessories','Wholesale'];
+const ITEM_CATEGORIES = ['MOBILE','TAB','LAPTOP','ACCESSORIES'];
 
 function AdjustModal({ item, onClose, onDone, isAdmin }) {
   const [type, setType]       = useState('in');
@@ -355,7 +355,7 @@ export default function Inventory() {
   const [search, setSearch]             = useState('');
   const [shopId, setShopId]             = useState('');
   const [filterStatus, setFilterStatus] = useState('');
-  const [filterType, setFilterType]     = useState('');
+  const [filterCategory, setFilterCategory] = useState('');
   const [filterFrom, setFilterFrom]     = useState('');
   const [filterTo, setFilterTo]         = useState('');
   const [hideZero, setHideZero]         = useState(true);
@@ -376,7 +376,7 @@ export default function Inventory() {
       if (filterStatus) params.status  = filterStatus;
       else if (hideZero) params.hide_zero = true;   // hide zero-stock unless a status filter is set
       if (shopId)       params.shop_id = shopId;
-      if (filterType)   params.type    = filterType;
+      if (filterCategory) params.category = filterCategory;
       if (filterFrom)   params.from    = filterFrom;
       if (filterTo)     params.to      = filterTo;
 
@@ -391,9 +391,9 @@ export default function Inventory() {
       setCategoryStats(catStatsRes.data.data || []);
     } catch { toast.error('Failed to load inventory'); }
     finally { setLoading(false); }
-  }, [search, filterStatus, shopId, filterType, filterFrom, filterTo, page, limitPerPage, hideZero]);
+  }, [search, filterStatus, shopId, filterCategory, filterFrom, filterTo, page, limitPerPage, hideZero]);
 
-  useEffect(() => { fetchInventory(page); }, [search, filterStatus, shopId, filterType, filterFrom, filterTo, page, hideZero]);
+  useEffect(() => { fetchInventory(page); }, [search, filterStatus, shopId, filterCategory, filterFrom, filterTo, page, hideZero]);
 
   const handleExport = async () => {
     try {
@@ -444,7 +444,7 @@ export default function Inventory() {
 
   const clearFilters = () => {
     setSearch(''); setShopId(''); setFilterStatus('');
-    setFilterType(''); setFilterFrom(''); setFilterTo('');
+    setFilterCategory(''); setFilterFrom(''); setFilterTo('');
     setPage(1);
   };
 
@@ -567,10 +567,10 @@ export default function Inventory() {
             </select>
           </div>
           <div>
-            <label style={{fontSize:'.78rem',color:'#6b7280',display:'block',marginBottom:'4px'}}>Type</label>
-            <select value={filterType} onChange={e=>{setFilterType(e.target.value);setPage(1);}} className="form-control">
-              <option value="">All Types</option>
-              {PRODUCT_TYPES.map(t=><option key={t} value={t}>{t}</option>)}
+            <label style={{fontSize:'.78rem',color:'#6b7280',display:'block',marginBottom:'4px'}}>Category</label>
+            <select value={filterCategory} onChange={e=>{setFilterCategory(e.target.value);setPage(1);}} className="form-control">
+              <option value="">All Categories</option>
+              {ITEM_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}
             </select>
           </div>
           <div>
@@ -626,15 +626,14 @@ export default function Inventory() {
                             {item.serial_number || <span style={{color:'#9ca3af'}}>—</span>}
                           </td>
                           <td style={{padding:'10px 12px'}}>
-                            <div style={{fontWeight:600,color:'#1a1a2e'}}>{item.name}</div>
-                            {item.type && <div style={{fontSize:'.72rem',color:'#6b7280'}}>{item.type}</div>}
-                            <div style={{display:'flex',flexWrap:'wrap',gap:'8px',marginTop:'4px'}}>
-                              <span style={{fontSize:'.72rem',color:'#059669'}}>Sell: <strong>AED {Math.round(item.selling_price||0).toLocaleString()}</strong></span>
-                              <span style={{fontSize:'.72rem',color:'#6366f1'}}>
-                                Margin: <strong>AED {Math.round((item.selling_price||0)-(item.base_cost||0)).toLocaleString()}</strong>
-                                {item.base_cost > 0 && ` (${Math.round(((item.selling_price-item.base_cost)/item.base_cost)*100)}%)`}
-                              </span>
-                              {item.category && <span style={{fontSize:'.72rem',color:'#6b7280'}}>{item.category}</span>}
+                            <div style={{display:'flex',alignItems:'center',flexWrap:'wrap',gap:'8px'}}>
+                              <span style={{fontWeight:600,color:'#1a1a2e'}}>{item.name}</span>
+                              {item.category && (
+                                <span style={{fontSize:'.68rem',fontWeight:700,padding:'1px 8px',borderRadius:'10px',
+                                  background:'#eef2ff',color:'#6366f1',letterSpacing:'.02em'}}>
+                                  {String(item.category).toUpperCase()}
+                                </span>
+                              )}
                             </div>
                           </td>
                           <td style={{padding:'10px 12px',textAlign:'right',fontWeight:600,color:'#92400e'}}>

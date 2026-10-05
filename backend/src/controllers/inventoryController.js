@@ -1,10 +1,17 @@
 // src/controllers/inventoryController.js
 const { query, getClient } = require('../config/database');
 
+// Category filter: case-insensitive, and includes the known older spellings stored in the database.
+const CATEGORY_ALIASES = {
+  MOBILE: ['MOBILE', 'MOBILE PHONE'], TAB: ['TAB', 'IPAD', 'TABLET'],
+  LAPTOP: ['LAPTOP', 'MACBOOK'],      ACCESSORIES: ['ACCESSORIES'],
+};
+const categoryList = (c) => { const k = String(c).trim().toUpperCase(); return CATEGORY_ALIASES[k] || [k]; };
+
 // GET all inventory with pagination and filters
 const getInventory = async (req, res) => {
   try {
-    const { search, status, shop_id, type, from, to, hide_zero, page = 1, limit = 50 } = req.query;
+    const { search, status, shop_id, type, category, from, to, hide_zero, page = 1, limit = 50 } = req.query;
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
     let whereClauses = ['p.is_active = true'];
@@ -23,6 +30,7 @@ const getInventory = async (req, res) => {
       )`);
     }
     if (type)  { params.push(type); whereClauses.push(`p.type = $${params.length}`); }
+    if (category) { params.push(categoryList(category)); whereClauses.push(`UPPER(TRIM(p.category)) = ANY($${params.length})`); }
     if (from)  { params.push(from); whereClauses.push(`i.last_updated >= $${params.length}`); }
     if (to)    { params.push(to);   whereClauses.push(`i.last_updated <= $${params.length}`); }
     if (status === 'in_stock')     whereClauses.push(`i.quantity > i.min_stock`);
