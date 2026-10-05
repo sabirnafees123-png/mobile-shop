@@ -731,18 +731,22 @@ router.get('/daily-business', async (req, res) => {
     ] = await Promise.all([
       query(`SELECT id, name FROM shops WHERE name IN ('AlAman','Blessing') ORDER BY name`),
 
-      // Sales: invoices, amount, cost, margin — per shop
+      // Sales: invoices, amount, cost, margin — per shop.
+      // NOTE: sale amount and cost are computed in SEPARATE subqueries on purpose.
+      // Joining sales_invoices to sale_items and then doing SUM(total_amount) would count an
+      // invoice's total once per item row (double-counting multi-item invoices).
       query(`
         SELECT sh.name as shop_name,
-          COUNT(DISTINCT si.id) as invoice_count,
-          COALESCE(SUM(si.total_amount),0) as sale_amount,
-          COALESCE(SUM(sli.unit_cost * sli.qty),0) as cost_amount
+          (SELECT COUNT(*) FROM sales_invoices si
+             WHERE si.shop_id = sh.id AND si.sale_date = $1 AND si.payment_status != 'returned') as invoice_count,
+          COALESCE((SELECT SUM(si.total_amount) FROM sales_invoices si
+             WHERE si.shop_id = sh.id AND si.sale_date = $1 AND si.payment_status != 'returned'), 0) as sale_amount,
+          COALESCE((SELECT SUM(sli.unit_cost * sli.qty) FROM sale_items sli
+             JOIN sales_invoices si ON si.id = sli.invoice_id
+             WHERE si.shop_id = sh.id AND si.sale_date = $1 AND si.payment_status != 'returned'), 0) as cost_amount
         FROM shops sh
-        LEFT JOIN sales_invoices si ON si.shop_id = sh.id AND si.sale_date = $1
-          AND si.payment_status != 'returned'
-        LEFT JOIN sale_items sli ON sli.invoice_id = si.id
         WHERE sh.name IN ('AlAman','Blessing')
-        GROUP BY sh.name ORDER BY sh.name
+        ORDER BY sh.name
       `, [date]),
 
       // New purchases today — supplier-wise, per shop
