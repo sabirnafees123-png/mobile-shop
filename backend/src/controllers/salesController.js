@@ -437,10 +437,7 @@ exports.markPaymentReceived = async (req, res) => {
 
     if (amountNow > 0) {
       if (method === 'cash') {
-        // Cash payment — register for the date it's being received MUST be open.
-        // If no register row exists yet for this date, auto-create one as 'open'
-        // instead of blocking — a date that was never touched shouldn't need a
-        // manual "open register" click. A date explicitly closed still blocks.
+        // Cash payment — register for the date it's being received MUST be open
         const regCheck = await client.query(
           `SELECT status FROM cash_register
            WHERE register_date = $1 AND shop_id = $2 LIMIT 1`,
@@ -452,12 +449,7 @@ exports.markPaymentReceived = async (req, res) => {
           throw new Error(`Register for ${recDate} is closed. Please reopen the register first.`);
         }
         if (!regStatus) {
-          await client.query(
-            `INSERT INTO cash_register (register_date, shop_id, opening_balance, status)
-             VALUES ($1, $2, 0, 'open')
-             ON CONFLICT (register_date, shop_id) DO NOTHING`,
-            [recDate, invoice.shop_id]
-          );
+          throw new Error(`Register for ${recDate} is not open. Please open the register for that date first.`);
         }
 
         // Only add a manual cash-in entry if this invoice's payment_method was NOT

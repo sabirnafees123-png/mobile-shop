@@ -384,3 +384,187 @@ exports.recordPayment = async (req, res) => {
     client.release();
   }
 };
+
+
+// POST /api/v1/purchases/:id/revise-price
+// Body: { items: [{ id: <purchase_item id>, unit_cost: <new rate> }], note?, dry_run? }
+//
+// Revises the rate of one or more items on an existing purchase (e.g. supplier
+// gave a discount at payment time, or a rate was entered wrongly) and keeps
+// everything that depends on it in sync, inside ONE transaction:
+//   purchase_items.unit_cost -> purchases.total_amount / payment_status
+//   -> supplier_ledger (purchase row + running balance of later rows)
+//   -> suppliers.balance
+//   -> products.base_cost and already-sold sale_items.unit_cost (only when safe)
+// No cash moves, so the cash register is NOT touched.
+// dry_run=true runs everything, returns the effects, then rolls back.
+exports.revisePurchasePrice = async (req, res) => {
+  const client = await getClient();
+  const round2 = n => Math.round((parseFloat(n) + Number.EPSILON) * 100) / 100;
+  const dryRun = req.body.dry_run === true;
+  try {
+    await client.query('BEGIN');
+    const { items: changes, note } = req.body;
+    if (!Array.isArray(changes) || !changes.length) throw new Error('No price changes provided');
+
+    const pRes = await client.query('SELECT * FROM purchases WHERE id = $1 FOR UPDATE', [req.params.id]);
+    if (!pRes.rows.length) throw new Error('Purchase not found');
+    const p = pRes.rows[0];
+
+    const itemsRes = await client.query(
+      `SELECT pi.id, pi.product_id, pi.qty, pi.unit_cost,
+              pr.name AS product_name, pr.brand, pr.base_cost
+       FROM purchase_items pi
+       JOIN products pr ON pr.id = pi.product_id
+       WHERE pi.purchase_id = $1`, [p.id]
+    );
+    const itemById = {};
+    itemsRes.rows.forEach(r => { itemById[r.id] = r; });
+
+    // ── Validate and collect the real changes ────────────────────────
+    const seen = new Set();
+    const changed = [];
+    for (const c of changes) {
+      const it = itemById[c.id];
+      if (!it) throw new Error('One of the items does not belong to this purchase');
+      if (seen.has(c.id)) throw new Error('Same item sent twice');
+      seen.add(c.id);
+      const newCost = round2(c.unit_cost);
+      if (!isFinite(newCost) || newCost <= 0) throw new Error(`Invalid rate for ${it.product_name}`);
+      const oldCost = round2(it.unit_cost);
+      if (newCost === oldCost) continue;
+      changed.push({ it, oldCost, newCost, qty: parseFloat(it.qty) || 1 });
+    }
+    if (!changed.length) throw new Error('No price change found');
+
+    // Only the difference created by the edited items is applied, so any
+    // older mismatch elsewhere is left exactly as it was.
+    const delta    = round2(changed.reduce((s, c) => s + c.qty * (c.newCost - c.oldCost), 0));
+    const oldTotal = round2(p.total_amount);
+    const newTotal = round2(oldTotal + delta);
+    if (newTotal <= 0) throw new Error('Revised total must be greater than 0');
+
+    // ── 1. Items ─────────────────────────────────────────────────────
+    for (const c of changed) {
+      await client.query('UPDATE purchase_items SET unit_cost = $1 WHERE id = $2', [c.newCost, c.it.id]);
+    }
+
+    // ── 2. Purchase header (amount_due is a generated column — not touched)
+    const paid      = round2(p.amount_paid);
+    const newStatus = paid >= newTotal ? 'paid' : paid > 0 ? 'partial' : 'unpaid';
+    const today     = new Date().toISOString().split('T')[0];
+    const noteLine  = `[Price revised ${today}: ${oldTotal} -> ${newTotal}]${note ? ' ' + note : ''}`;
+    const newNotes  = p.notes ? `${p.notes}\n${noteLine}` : noteLine;
+    await client.query(
+      'UPDATE purchases SET total_amount = $1, payment_status = $2, notes = $3 WHERE id = $4',
+      [newTotal, newStatus, newNotes, p.id]
+    );
+
+    // ── 3. Supplier ledger: purchase row, then shift later rows ──────
+    const lRes = await client.query(
+      `SELECT id, supplier_id FROM supplier_ledger
+       WHERE reference_id = $1 AND transaction_type = 'purchase' AND reference_type = 'purchase'
+       ORDER BY created_at ASC LIMIT 1 FOR UPDATE`, [p.id]
+    );
+    if (!lRes.rows.length) {
+      throw new Error('Supplier ledger entry for this purchase was not found, so it cannot be revised safely');
+    }
+    const le = lRes.rows[0];
+
+    await client.query(
+      `UPDATE supplier_ledger
+       SET amount = amount + $1,
+           balance_after = balance_after + $1,
+           description = COALESCE(description, '') || $2
+       WHERE id = $3`,
+      [delta, ` (rate revised ${oldTotal} -> ${newTotal})`, le.id]
+    );
+
+    // Rows displayed after the purchase row (later date, or same date and later
+    // time, or this purchase's own payment row created in the same moment).
+    // Compared inside SQL so timestamp precision is never lost.
+    await client.query(
+      `UPDATE supplier_ledger sl
+       SET balance_after = sl.balance_after + $1
+       FROM supplier_ledger anchor
+       WHERE anchor.id = $2
+         AND sl.supplier_id = anchor.supplier_id
+         AND sl.id <> anchor.id
+         AND (
+              sl.transaction_date > anchor.transaction_date
+           OR (sl.transaction_date = anchor.transaction_date AND sl.created_at > anchor.created_at)
+           OR (sl.transaction_date = anchor.transaction_date AND sl.created_at = anchor.created_at AND sl.reference_id = $3)
+         )`,
+      [delta, le.id, p.id]
+    );
+
+    // ── 4. Supplier balance ──────────────────────────────────────────
+    const sRes = await client.query(
+      'UPDATE suppliers SET balance = balance + $1 WHERE id = $2 RETURNING balance',
+      [delta, p.supplier_id]
+    );
+    const supplierBalanceAfter = parseFloat(sRes.rows[0].balance);
+
+    // ── 5. Product cost + already-sold sale cost (only when safe) ────
+    const costUpdated = [];
+    const costSkipped = [];
+    for (const c of changed) {
+      const label = `${c.it.brand ? c.it.brand + ' ' : ''}${c.it.product_name}`;
+
+      const cnt = await client.query(
+        'SELECT COUNT(*)::int AS n FROM purchase_items WHERE product_id = $1', [c.it.product_id]
+      );
+      if (cnt.rows[0].n !== 1) {
+        costSkipped.push({ product: label, reason: 'Product appears in more than one purchase line, so its cost was left as is' });
+        continue;
+      }
+      const baseNow = c.it.base_cost == null ? null : round2(c.it.base_cost);
+      if (baseNow !== c.oldCost) {
+        costSkipped.push({ product: label, reason: `Product cost (${baseNow === null ? 'empty' : baseNow}) differs from this purchase rate (${c.oldCost}) — probably edited manually, so it was left as is` });
+        continue;
+      }
+
+      await client.query('UPDATE products SET base_cost = $1 WHERE id = $2', [c.newCost, c.it.product_id]);
+      const sold = await client.query(
+        `UPDATE sale_items SET unit_cost = $1
+         WHERE product_id = $2 AND ROUND(unit_cost::numeric, 2) = $3
+         RETURNING id`,
+        [c.newCost, c.it.product_id, c.oldCost]
+      );
+      costUpdated.push({ product: label, old_cost: c.oldCost, new_cost: c.newCost, sales_updated: sold.rowCount });
+    }
+
+    const result = {
+      dry_run: dryRun,
+      purchase_number: p.purchase_number,
+      old_total: oldTotal,
+      new_total: newTotal,
+      delta,
+      amount_paid: paid,
+      new_payment_status: newStatus,
+      overpaid: paid > newTotal ? round2(paid - newTotal) : 0,
+      supplier_balance_after: supplierBalanceAfter,
+      items: changed.map(c => ({
+        id: c.it.id,
+        product: `${c.it.brand ? c.it.brand + ' ' : ''}${c.it.product_name}`,
+        qty: c.qty, old_cost: c.oldCost, new_cost: c.newCost,
+      })),
+      cost_updated: costUpdated,
+      cost_skipped: costSkipped,
+    };
+
+    if (dryRun) await client.query('ROLLBACK');
+    else        await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: dryRun ? 'Preview only — nothing was saved' : 'Purchase price revised',
+      data: result,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(400).json({ success: false, message: err.message });
+  } finally {
+    client.release();
+  }
+};

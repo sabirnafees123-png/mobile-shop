@@ -95,6 +95,179 @@ function PurchaseExpandedRow({ purchaseId, colSpan }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── Revise Purchase Price: change item rates (e.g. supplier discount) ───────────
+const fmt2 = n => `AED ${Number(n || 0).toLocaleString('en-AE', { maximumFractionDigits: 2 })}`;
+
+function RevisePriceModal({ purchase, onClose, onDone }) {
+  const [items, setItems]     = useState([]);
+  const [rates, setRates]     = useState({});      // purchase_item id -> rate (string)
+  const [note, setNote]       = useState('');
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy]       = useState(false);
+  const [preview, setPreview] = useState(null);
+
+  useEffect(() => {
+    api.get(`/purchases/${purchase.id}`)
+      .then(r => {
+        const its = r.data?.data?.items || [];
+        setItems(its);
+        const init = {};
+        its.forEach(i => { init[i.id] = String(parseFloat(i.unit_cost)); });
+        setRates(init);
+      })
+      .catch(() => toast.error('Failed to load purchase items'))
+      .finally(() => setLoading(false));
+  }, [purchase.id]);
+
+  const qtyOf  = i => parseFloat(i.qty) || 1;
+  const rateOf = i => { const r = parseFloat(rates[i.id]); return isNaN(r) ? parseFloat(i.unit_cost) : r; };
+  const label  = i => `${i.brand ? i.brand + ' ' : ''}${i.product_name}${i.color ? ' — ' + i.color : ''}`;
+
+  const changes = items
+    .filter(i => rates[i.id] !== '' && !isNaN(parseFloat(rates[i.id])) &&
+                 Math.abs(parseFloat(rates[i.id]) - parseFloat(i.unit_cost)) > 0.0001)
+    .map(i => ({ id: i.id, unit_cost: parseFloat(rates[i.id]) }));
+
+  const oldItemsTotal = items.reduce((s, i) => s + qtyOf(i) * parseFloat(i.unit_cost), 0);
+  const newItemsTotal = items.reduce((s, i) => s + qtyOf(i) * rateOf(i), 0);
+  const liveDelta     = newItemsTotal - oldItemsTotal;
+
+  const setRate = (id, val) => { setRates(r => ({ ...r, [id]: val })); setPreview(null); };
+
+  const run = async (dry) => {
+    if (!changes.length) return toast.error('Change the rate of at least one item');
+    if (changes.some(c => !(c.unit_cost > 0))) return toast.error('Rate must be greater than 0');
+    setBusy(true);
+    try {
+      const r = await api.post(`/purchases/${purchase.id}/revise-price`,
+        { items: changes, note: note.trim() || undefined, dry_run: dry });
+      if (dry) setPreview(r.data?.data || null);
+      else { toast.success('Purchase price revised'); onDone(); }
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
+    finally { setBusy(false); }
+  };
+
+  const th = { textAlign:'left', padding:'8px 10px', fontSize:'.78rem', color:'#64748b', borderBottom:'1px solid var(--border)' };
+  const td = { padding:'8px 10px', borderBottom:'1px solid var(--border)', fontSize:'.88rem', verticalAlign:'middle' };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth:'860px', width:'96vw', maxHeight:'92vh', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <strong>💲 Revise Price — {purchase.purchase_number} · {purchase.supplier_name}</strong>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          {loading ? <div style={{ color:'#64748b' }}>Loading items...</div> : (
+            <>
+              <div style={{ fontSize:'.85rem', color:'#64748b', marginBottom:'10px' }}>
+                Type the new rate for the items that changed (e.g. after a supplier discount). Items you leave alone stay as they are.
+              </div>
+
+              <div className="table-wrapper" style={{ maxHeight:'38vh', overflowY:'auto', marginBottom:'14px' }}>
+                <table style={{ width:'100%', borderCollapse:'collapse' }}>
+                  <thead>
+                    <tr>
+                      <th style={th}>Product</th>
+                      <th style={{ ...th, textAlign:'right' }}>Qty</th>
+                      <th style={{ ...th, textAlign:'right' }}>Current rate</th>
+                      <th style={{ ...th, width:'140px' }}>New rate</th>
+                      <th style={{ ...th, textAlign:'right' }}>New line total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {items.map(i => {
+                      const changed = changes.some(c => c.id === i.id);
+                      return (
+                        <tr key={i.id} style={{ background: changed ? '#fffbeb' : undefined }}>
+                          <td style={td}>
+                            <div style={{ fontWeight:600 }}>{label(i)}</div>
+                            {(i.serial_number || i.imei) && (
+                              <div style={{ fontSize:'.72rem', fontFamily:'monospace', color:'#64748b' }}>{i.serial_number || i.imei}</div>
+                            )}
+                          </td>
+                          <td style={{ ...td, textAlign:'right' }}>{qtyOf(i)}</td>
+                          <td style={{ ...td, textAlign:'right' }}>{fmt2(i.unit_cost)}</td>
+                          <td style={td}>
+                            <input type="number" min="0" step="0.01" className="form-control"
+                              value={rates[i.id] ?? ''} onChange={e => setRate(i.id, e.target.value)} />
+                          </td>
+                          <td style={{ ...td, textAlign:'right', fontWeight:600 }}>{fmt2(qtyOf(i) * rateOf(i))}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div style={{ display:'flex', gap:'16px', flexWrap:'wrap', padding:'10px 12px', background:'var(--bg-secondary)', borderRadius:'8px', marginBottom:'12px', fontSize:'.9rem' }}>
+                <div>Old total: <strong>{fmt2(purchase.total_amount)}</strong></div>
+                <div>New total: <strong>{fmt2(parseFloat(purchase.total_amount) + liveDelta)}</strong></div>
+                <div>Difference: <strong style={{ color: liveDelta < 0 ? '#059669' : liveDelta > 0 ? '#dc2626' : undefined }}>
+                  {liveDelta === 0 ? '—' : `${liveDelta < 0 ? '−' : '+'}${fmt2(Math.abs(liveDelta))}`}
+                </strong></div>
+                <div>Already paid: <strong>{fmt2(purchase.amount_paid)}</strong></div>
+              </div>
+
+              <div className="form-group" style={{ marginBottom:'12px' }}>
+                <label className="form-label">Note (optional)</label>
+                <input className="form-control" value={note} onChange={e => setNote(e.target.value)}
+                  placeholder="e.g. discount given at payment" />
+              </div>
+
+              {preview && (
+                <div style={{ border:'1px solid #bfdbfe', background:'#eff6ff', borderRadius:'8px', padding:'12px 14px', fontSize:'.88rem' }}>
+                  <div style={{ fontWeight:700, marginBottom:'8px' }}>Review — nothing is saved yet</div>
+                  <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'4px 18px' }}>
+                    <div>Purchase total: <strong>{fmt2(preview.old_total)} → {fmt2(preview.new_total)}</strong></div>
+                    <div>Payment status: <strong>{preview.new_payment_status}</strong></div>
+                    <div>Supplier balance after: <strong>{fmt2(preview.supplier_balance_after)}</strong></div>
+                    <div>Cash register: <strong>not affected</strong></div>
+                  </div>
+                  {preview.overpaid > 0 && (
+                    <div style={{ marginTop:'8px', color:'#92400e' }}>
+                      ⚠️ Already paid {fmt2(preview.amount_paid)} which is {fmt2(preview.overpaid)} more than the new total.
+                      The supplier will show as owing you {fmt2(preview.overpaid)} (credit).
+                    </div>
+                  )}
+                  {preview.cost_updated.length > 0 && (
+                    <div style={{ marginTop:'8px' }}>
+                      <div style={{ fontWeight:600 }}>Product cost will be updated:</div>
+                      {preview.cost_updated.map((c, k) => (
+                        <div key={k}>• {c.product}: {fmt2(c.old_cost)} → {fmt2(c.new_cost)}
+                          {c.sales_updated > 0 && <> · cost of <strong>{c.sales_updated}</strong> already-sold sale line(s) will be updated (their profit changes)</>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {preview.cost_skipped.length > 0 && (
+                    <div style={{ marginTop:'8px', color:'#92400e' }}>
+                      <div style={{ fontWeight:600 }}>⚠️ Product cost NOT changed for:</div>
+                      {preview.cost_skipped.map((c, k) => <div key={k}>• {c.product}: {c.reason}</div>)}
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          {!preview ? (
+            <button className="btn btn-primary" onClick={() => run(true)} disabled={busy || loading || !changes.length}>
+              {busy ? 'Checking...' : 'Review changes'}
+            </button>
+          ) : (
+            <button className="btn btn-primary" onClick={() => run(false)} disabled={busy}>
+              {busy ? 'Saving...' : 'Confirm & Save'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Purchases() {
   const [purchases, setPurchases]     = useState([]);
   const [suppliers, setSuppliers]     = useState([]);
@@ -105,6 +278,7 @@ export default function Purchases() {
   const [viewPurchase, setViewPurchase]       = useState(null);
   const [viewLoading, setViewLoading]         = useState(false);
   const [showSupPay, setShowSupPay]           = useState(null);
+  const [revisePurchase, setRevisePurchase]   = useState(null);
   const [supPayForm, setSupPayForm]           = useState({ amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'cash', note: '' });
   const [filterShop, setFilterShop]           = useState('');
   const [filterStatus, setFilterStatus]       = useState('');
@@ -506,6 +680,7 @@ export default function Purchases() {
                         <td>
                           <div style={{ display:'flex', gap:'4px' }}>
                             <button className="btn btn-ghost btn-sm" onClick={() => openView(p)}>👁️</button>
+                            <button className="btn btn-ghost btn-sm" title="Revise item rates (discount / correction)" onClick={() => setRevisePurchase(p)}>💲 Revise</button>
                             {(p.payment_status === 'unpaid' || p.payment_status === 'partial') && (
                               <button
                                 className="btn btn-sm"
@@ -834,6 +1009,15 @@ export default function Purchases() {
         </div>
       )}
 
+      {/* ── Revise Price Modal ── */}
+      {revisePurchase && (
+        <RevisePriceModal
+          purchase={revisePurchase}
+          onClose={() => setRevisePurchase(null)}
+          onDone={() => { setRevisePurchase(null); load(filterShop, page); }}
+        />
+      )}
+
       {/* ── Supplier Payment Modal ── */}
       {showSupPay && (
         <div className="modal-overlay" onClick={() => setShowSupPay(null)}>
@@ -853,6 +1037,13 @@ export default function Purchases() {
                 <div style={{ display:'flex', justifyContent:'space-between', borderTop:'1px solid var(--border)', paddingTop:'6px' }}>
                   <span>Outstanding:</span><strong style={{ color:'#dc2626' }}>{fmt(showSupPay.amount_due)}</strong>
                 </div>
+              </div>
+              <div style={{ marginBottom:'14px', fontSize:'.85rem' }}>
+                Got a discount from the supplier?{' '}
+                <button type="button" className="btn btn-ghost btn-sm"
+                  onClick={() => { const p = showSupPay; setShowSupPay(null); setRevisePurchase(p); }}>
+                  💲 Revise item rates first
+                </button>
               </div>
               <div className="form-grid">
                 <div className="form-group">
