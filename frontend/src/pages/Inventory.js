@@ -397,19 +397,18 @@ export default function Inventory() {
 
   const handleExport = async () => {
     try {
-      const token = localStorage.getItem('token');
-      const qs = shopId ? `?shop_id=${shopId}` : '';
-      const response = await fetch(
-        `https://mobile-shop-snowy.vercel.app/api/v1/inventory/export${qs}`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
+      // Uses the shared api client (correct backend URL + login token), like every other call on this page
+      const res = await api.get('/inventory/export', {
+        params: shopId ? { shop_id: shopId } : {},
+        responseType: 'blob',
+      });
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'text/csv' }));
       const a = document.createElement('a');
       a.href = url; a.download = `inventory_${new Date().toISOString().split('T')[0]}.csv`;
-      a.click(); URL.revokeObjectURL(url);
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
       toast.success('Exported!');
-    } catch (err) { toast.error('Export failed: ' + err.message); }
+    } catch (err) { toast.error('Export failed: ' + (err.response?.status ? `server error ${err.response.status}` : err.message)); }
   };
 
   const handleImport = async (e) => {

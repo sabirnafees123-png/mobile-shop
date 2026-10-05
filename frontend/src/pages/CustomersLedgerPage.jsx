@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from "react";
 
-const API = "https://mobile-shop-snowy.vercel.app/api/v1";
+const API = `${process.env.REACT_APP_API_URL || 'https://mobile-shop-backend-sjuj.onrender.com'}/api/v1`;
 const fmt = (n) => `AED ${Math.round(Number(n)).toLocaleString()}`;
 const fmtDate = (d) => {
   if (!d) return "—";
