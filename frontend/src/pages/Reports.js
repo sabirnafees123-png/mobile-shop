@@ -288,8 +288,22 @@ export default function Reports() {
         const total = d.expenses.filter(e=>e.category===cat).reduce((s,e)=>s+parseFloat(e.total||0),0);
         return [cat, ...vals, fmtN(total)];
       });
-      const cashRows = d.cash_register.map(r => [r.shop_name, fmtN(r.opening_balance||0), r.closing_balance!=null?fmtN(r.closing_balance):'—']);
-      const custRows = d.customer_receipts.map(r => [r.customer_name, r.payment_method||'cash', fmtN(r.amount)]);
+      // Use the Cash Register page's own calculation (same numbers as that page: live closing for open days)
+      const cashByShop = {};
+      await Promise.all(d.shops.map(async sh => {
+        try {
+          const r = await api.get('/cash-register/history', { params: { shop_id: sh.id, from: d.date, to: d.date } });
+          cashByShop[sh.name] = (r.data?.data || []).find(x => x.register_date === d.date) || null;
+        } catch { cashByShop[sh.name] = null; }
+      }));
+      const cashRows = d.cash_register.map(r => {
+        const live = cashByShop[r.shop_name];
+        const opening = live ? live.opening_balance : r.opening_balance;
+        const closing = live ? live.closing_balance : r.closing_balance;
+        const state = live ? (live.is_locked ? 'Closed' : 'Open (live)') : (r.status === 'closed' ? 'Closed' : (r.status ? 'Open' : 'No register'));
+        return [r.shop_name, state, fmtN(opening||0), closing != null ? fmtN(closing) : '—'];
+      });
+      const custRows = d.customer_receipts.map(r => [r.customer_name, r.shop_name||'—', r.reference||'—', r.payment_method||'cash', fmtN(r.amount)]);
       const totalCustRecv = d.customer_receipts.reduce((s,r)=>s+parseFloat(r.amount||0),0);
       const stockCats = [...new Set(d.stock_value.map(r=>r.category))];
       const stockRows = stockCats.map(cat => {
@@ -336,10 +350,10 @@ export default function Reports() {
           ? buildTbl(['Category',...shopNames,'Total'], expRows)
           : '<div style="font-size:12px;color:#94a3b8">No expenses recorded today.</div>')}
 
-        ${section('🧾','Cash Register', buildTbl(['Shop','Opening Balance','Closing Balance'], cashRows))}
+        ${section('🧾','Cash Register', buildTbl(['Shop','Status','Opening Balance','Closing Balance'], cashRows))}
 
         ${section('👤','Customer Receivables (Collected Today)', custRows.length
-          ? buildTbl(['Customer','Method','Amount'], custRows) + `<div style="text-align:right;font-size:12px;font-weight:700;color:#6366f1;margin-top:4px">Total: ${fmtN(totalCustRecv)}</div><div style="font-size:10px;color:#94a3b8;margin-top:2px">Note: not split by shop — the system does not record which shop a customer payment belongs to.</div>`
+          ? buildTbl(['Customer','Shop','Reference','Method','Amount'], custRows) + `<div style="text-align:right;font-size:12px;font-weight:700;color:#6366f1;margin-top:4px">Total: ${fmtN(totalCustRecv)}</div><div style="font-size:10px;color:#94a3b8;margin-top:2px">Includes payments received on credit invoices and receipts entered on the Customers page (refunds excluded). Customers-page receipts have no shop. Later payments on invoices that were originally marked cash are not recorded by date, so they cannot appear here.</div>`
           : '<div style="font-size:12px;color:#94a3b8">No customer payments received today.</div>')}
 
         ${section('🏪','Stock Value (Cost Price) — End of Day', buildTbl(['Category',...shopNames,'Total'], stockRows) +
@@ -367,18 +381,22 @@ export default function Reports() {
 
       // Build the list of dates in range
       const dates = [];
-      let d = new Date(attFrom + 'T00:00:00');
-      const end = new Date(attTo + 'T00:00:00');
-      while (d <= end) { dates.push(d.toISOString().split('T')[0]); d.setDate(d.getDate()+1); }
+      // UTC-safe: using local midnight + toISOString() shifts the dates one day back in UAE/Pakistan time zones
+      let d = new Date(attFrom + 'T00:00:00Z');
+      const end = new Date(attTo + 'T00:00:00Z');
+      while (d <= end) { dates.push(d.toISOString().split('T')[0]); d.setUTCDate(d.getUTCDate()+1); }
 
       // Distinct staff, in name order
-      const staff = [...new Set(rows.map(r => r.user_name))].sort();
+      // Only staff who have a shift set up or at least one attendance record in the range
+      // (hides accounts like admin/owner that never use attendance)
+      const staff = [...new Set(rows.filter(r => r.date || r.shift_start).map(r => r.user_name))].sort();
+      if (!staff.length) return toast.error('No attendance data for this range');
 
       // Lookup: key = `${user_name}|${date}`
       const lookup = {};
       rows.forEach(r => { if (r.date) lookup[`${r.user_name}|${new Date(r.date).toISOString().split('T')[0]}`] = r; });
 
-      const dayLabel = iso => new Date(iso+'T00:00:00').toLocaleDateString('en-AE', { weekday:'short', day:'2-digit', month:'short' });
+      const dayLabel = iso => new Date(iso+'T00:00:00Z').toLocaleDateString('en-AE', { weekday:'short', day:'2-digit', month:'short', timeZone:'UTC' });
 
       const fmtTimeShort = t => { if (!t) return ''; const [h,m] = t.split(':'); const hh = parseInt(h); const ampm = hh>=12?'PM':'AM'; const h12 = hh%12||12; return `${h12}:${m} ${ampm}`; };
       const timeLine = t => t ? `<br><span style="font-size:10px;font-weight:400;color:#64748b">${fmtTimeShort(t)}</span>` : '';
@@ -389,7 +407,8 @@ export default function Reports() {
         if (r.status === 'absent') return '<span style="color:#94a3b8;font-style:italic">Absent</span>';
         if (['annual_leave','half_day','wfh'].includes(r.status)) return `<span style="color:#d97706;font-style:italic">${r.status==='half_day'?'Half Day':r.status==='wfh'?'WFH':'Leave'}</span>`;
         if (r.is_late) return `<span style="color:#dc2626;font-weight:700">${r.late_minutes} min late</span>${timeLine(r.clock_in)}`;
-        if (r.status === 'present') return `<span style="color:#059669;font-weight:600">On time</span>${timeLine(r.clock_in)}`;
+        if (r.status === 'present' && r.clock_in) return `<span style="color:#059669;font-weight:600">On time</span>${timeLine(r.clock_in)}`;
+        if (r.status === 'present') return '<span style="color:#94a3b8;font-style:italic">No clock-in</span>';
         return '<span style="color:#94a3b8;font-style:italic">No record</span>';
       };
 

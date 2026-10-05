@@ -305,30 +305,42 @@ router.get('/top-products', async (req, res) => {
 });
 
 // ── GET /api/v1/reports/salesperson ──────────────────────────────────────────
+// Invoice-level totals and item-level quantities are computed in SEPARATE subqueries.
+// (Joining sales_invoices to sale_items and summing invoice totals would count an invoice
+//  once per item row — double-counting revenue / collected / due / discount.)
 router.get('/salesperson', async (req, res) => {
   try {
     const { from, to, shop_id } = req.query;
-    let sql = `
+    const params = [];
+    let cond = `si.payment_status != 'returned'`;
+    if (from)    { params.push(from);    cond += ` AND si.sale_date >= $${params.length}`; }
+    if (to)      { params.push(to);      cond += ` AND si.sale_date <= $${params.length}`; }
+    if (shop_id) { params.push(shop_id); cond += ` AND si.shop_id = $${params.length}`; }
+    const result = await query(`
       SELECT u.id, u.name as salesperson,
-             COUNT(DISTINCT si.id)        as invoice_count,
-             SUM(sli.qty)                 as total_items_sold,
-             SUM(si.total_amount)         as total_revenue,
-             SUM(si.amount_paid)          as total_collected,
-             SUM(si.amount_due)           as total_due,
-             SUM(si.discount)             as total_discount,
-             COUNT(DISTINCT si.customer_id) as unique_customers
+             COALESCE(inv.invoice_count, 0)    as invoice_count,
+             COALESCE(itm.total_items_sold, 0) as total_items_sold,
+             inv.total_revenue, inv.total_collected, inv.total_due, inv.total_discount,
+             COALESCE(inv.unique_customers, 0) as unique_customers
       FROM users u
-      LEFT JOIN sales_invoices si ON si.user_id = u.id
-        AND si.payment_status != 'returned'
-        ${from ? `AND si.sale_date >= '${from}'` : ''}
-        ${to   ? `AND si.sale_date <= '${to}'`   : ''}
-        ${shop_id ? `AND si.shop_id = '${shop_id}'` : ''}
-      LEFT JOIN sale_items sli ON sli.invoice_id = si.id
+      LEFT JOIN (
+        SELECT si.user_id,
+               COUNT(*)                       as invoice_count,
+               SUM(si.total_amount)           as total_revenue,
+               SUM(si.amount_paid)            as total_collected,
+               SUM(si.amount_due)             as total_due,
+               SUM(si.discount)               as total_discount,
+               COUNT(DISTINCT si.customer_id) as unique_customers
+        FROM sales_invoices si WHERE ${cond} GROUP BY si.user_id
+      ) inv ON inv.user_id = u.id
+      LEFT JOIN (
+        SELECT si.user_id, SUM(sli.qty) as total_items_sold
+        FROM sale_items sli JOIN sales_invoices si ON si.id = sli.invoice_id
+        WHERE ${cond} GROUP BY si.user_id
+      ) itm ON itm.user_id = u.id
       WHERE u.is_active = true
-      GROUP BY u.id, u.name
-      ORDER BY total_revenue DESC NULLS LAST
-    `;
-    const result = await query(sql);
+      ORDER BY inv.total_revenue DESC NULLS LAST
+    `, params);
     res.json({ success: true, data: result.rows });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
@@ -421,7 +433,7 @@ router.get('/print-summary', async (req, res) => {
         sh.name  AS shop_name,
         e.category AS category,
         COALESCE(SUM(e.amount), 0) AS total,
-        COUNT(*)                   AS count
+        COUNT(e.id)                AS count
       FROM shops sh
       LEFT JOIN expenses            e  ON e.shop_id = sh.id ${dateE}
       WHERE sh.is_active = true
@@ -436,7 +448,7 @@ router.get('/print-summary', async (req, res) => {
         COALESCE(SUM(p.total_amount), 0)  AS total_purchased,
         COALESCE(SUM(p.amount_paid),  0)  AS cash_paid,
         COALESCE(SUM(p.amount_due),   0)  AS credit_owed,
-        COUNT(*)                          AS purchase_count
+        COUNT(p.id)                       AS purchase_count
       FROM shops sh
       LEFT JOIN purchases p ON p.shop_id = sh.id ${dateP}
       WHERE sh.is_active = true
@@ -516,6 +528,14 @@ router.get('/purchase-invoice', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
+// Category filter values from the UI ('Mobile', 'Tab', ...) are matched case-insensitively and
+// include the known variants stored in the database ('MOBILE', 'Mobile Phone', 'IPAD', 'MACBOOK', ...).
+const CATEGORY_ALIASES = {
+  MOBILE: ['MOBILE','MOBILE PHONE'], TAB: ['TAB','IPAD','TABLET'], IPAD: ['IPAD'],
+  LAPTOP: ['LAPTOP','MACBOOK'], ACCESSORIES: ['ACCESSORIES'],
+};
+const categoryList = (c) => { const k = String(c).trim().toUpperCase(); return CATEGORY_ALIASES[k] || [k]; };
+
 // ── GET /api/v1/reports/product-margin ───────────────────────────────────────
 router.get('/product-margin', async (req, res) => {
   try {
@@ -525,7 +545,7 @@ router.get('/product-margin', async (req, res) => {
     if (from)     { params.push(from);     where += ` AND si.sale_date >= $${params.length}`; }
     if (to)       { params.push(to);       where += ` AND si.sale_date <= $${params.length}`; }
     if (shop_id)  { params.push(shop_id);  where += ` AND si.shop_id = $${params.length}`; }
-    if (category) { params.push(category); where += ` AND p.category = $${params.length}`; }
+    if (category) { params.push(categoryList(category)); where += ` AND UPPER(TRIM(p.category)) = ANY($${params.length})`; }
     const result = await query(`
       SELECT p.name as product_name, p.brand,
         COALESCE(p.category,'Uncategorized') as category, COALESCE(p.sub_category,'') as sub_category,
@@ -637,13 +657,13 @@ router.get('/full-business-report', async (req, res) => {
         WHERE p.is_active=true AND i.quantity>0 GROUP BY sh.name, p.category ORDER BY sh.name, cost_value DESC
       `),
       query(`
-        SELECT o.*, s.name as shop_name, ec.name as category_name FROM obligations o
+        SELECT o.*, s.name as shop_name, CONCAT_WS(' - ', ec.category, NULLIF(ec.sub_category,'')) as category_name FROM obligations o
         LEFT JOIN shops s ON s.id=o.shop_id LEFT JOIN expense_categories ec ON ec.id=o.category_id
         WHERE o.status='pending' AND o.due_date BETWEEN $1 AND $2 ORDER BY o.due_date ASC
       `, [today, next60]),
       query(`
         SELECT c.*, s.name as shop_name FROM cheques c LEFT JOIN shops s ON s.id=c.shop_id
-        WHERE c.type='outgoing' AND c.status='pending' AND c.due_date BETWEEN $1 AND $2
+        WHERE c.type='outbound' AND c.status='pending' AND c.due_date BETWEEN $1 AND $2
         ORDER BY c.due_date ASC
       `, [today, next60]),
     ]);
@@ -696,6 +716,20 @@ router.get('/upcoming-expenses', async (req, res) => {
       FROM obligations o
       LEFT JOIN expense_categories ec ON ec.id = o.category_id
       WHERE o.status = 'pending' AND (o.cheque_id IS NULL)
+        -- skip an obligation that is just the same cheque entered a second time
+        -- (same cheque number [in its own field or inside its title], same due date, same amount)
+        AND NOT EXISTS (
+          SELECT 1 FROM cheques c2
+          WHERE c2.type = 'outbound' AND c2.status = 'pending'
+            AND c2.due_date = o.due_date AND c2.amount = o.amount
+            AND COALESCE(c2.cheque_number,'') <> ''
+            AND (
+              REGEXP_REPLACE(UPPER(c2.cheque_number), '[[:space:]]', '', 'g')
+                = REGEXP_REPLACE(UPPER(COALESCE(o.cheque_number,'')), '[[:space:]]', '', 'g')
+              OR POSITION(REGEXP_REPLACE(UPPER(c2.cheque_number), '[[:space:]]', '', 'g')
+                  IN REGEXP_REPLACE(UPPER(COALESCE(o.title,'')), '[[:space:]]', '', 'g')) > 0
+            )
+        )
 
       ORDER BY due_date
     `);
@@ -718,6 +752,14 @@ router.get('/upcoming-expenses', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
+
+// Normalises product category names into the 3 buckets used by the Daily Business Report.
+// (Purchase flow creates products as 'Mobile Phone'; older data has Ipad / Macbook / Tablet variants.)
+const dailyCat = (col) => `CASE
+          WHEN UPPER(TRIM(${col})) IN ('MOBILE','MOBILE PHONE') THEN 'Mobile'
+          WHEN UPPER(TRIM(${col})) IN ('TAB','IPAD','TABLET')   THEN 'Tab'
+          WHEN UPPER(TRIM(${col})) IN ('LAPTOP','MACBOOK')      THEN 'Laptop'
+        END`;
 
 // ── GET /api/v1/reports/daily-business?date=YYYY-MM-DD ──────
 // AlAman + Blessing only (Wholesale excluded by design).
@@ -797,14 +839,30 @@ router.get('/daily-business', async (req, res) => {
         WHERE sh.name IN ('AlAman','Blessing') ORDER BY sh.name
       `, [date]),
 
-      // Customer receipts today — NOTE: customer_receipts has no shop_id column,
-      // so this list is combined across both shops, not split.
+      // Money collected from customers today (refunds excluded). Two sources:
+      //  1) customer_receipts  — receipts entered on the Customers page (no shop_id column)
+      //  2) cash_manual_entries 'Payment received ...' — payments collected on credit invoices
+      //     (has shop_id; invoice number is taken from the description, e.g. 'Payment received (cash) — INV-001')
       query(`
-        SELECT c.name as customer_name, cr.amount, cr.payment_method
+        SELECT COALESCE(c.name,'—') AS customer_name, NULL::text AS shop_name,
+               COALESCE(NULLIF(cr.note,''),'Customer receipt') AS reference,
+               COALESCE(cr.payment_method,'cash') AS payment_method, cr.amount AS amount
         FROM customer_receipts cr
         JOIN customers c ON c.id = cr.customer_id
-        WHERE cr.receipt_date = $1
-        ORDER BY cr.amount DESC
+        WHERE cr.receipt_date = $1 AND COALESCE(cr.payment_method,'') != 'refund'
+        UNION ALL
+        SELECT COALESCE(c2.name,'Walk-in') AS customer_name, sh.name AS shop_name,
+               NULLIF(TRIM(SPLIT_PART(cme.description,'—',2)),'') AS reference,
+               CASE WHEN cme.category = 'Payment Received' THEN 'cash' ELSE LOWER(cme.category) END AS payment_method,
+               cme.amount AS amount
+        FROM cash_manual_entries cme
+        JOIN shops sh ON sh.id = cme.shop_id
+        LEFT JOIN sales_invoices si ON si.invoice_number = TRIM(SPLIT_PART(cme.description,'—',2))
+        LEFT JOIN customers c2 ON c2.id = si.customer_id
+        WHERE cme.entry_type = 'in' AND cme.entry_date = $1
+          AND cme.description LIKE 'Payment received%'
+          AND sh.name IN ('AlAman','Blessing')
+        ORDER BY amount DESC
       `, [date]),
 
       // Stock value (cost price) at the END of the selected date — Mobile / Tab / Laptop only.
@@ -814,35 +872,33 @@ router.get('/daily-business', async (req, res) => {
       //                           - cost of items PURCHASED after D (they were not yet in stock on D)
       // For today's date this equals the exact current stock; for past dates it is an estimate
       // (stock transfers / returns / manual adjustments are not tracked by this method).
-      // Category names are normalised with UPPER(TRIM()) as a safety net against mixed-case entries.
+      // Category names are normalised (see dailyCat) because the purchase flow still creates
+      // new products with category 'Mobile Phone', and older data has Ipad / Macbook variants.
       query(`
         WITH cur AS (
-          SELECT i.shop_id, INITCAP(LOWER(TRIM(p.category))) AS category,
+          SELECT i.shop_id, ${dailyCat('p.category')} AS category,
                  SUM(i.quantity * p.base_cost) AS v
           FROM inventory i JOIN products p ON p.id = i.product_id
-          WHERE p.is_active = true AND i.quantity > 0
-            AND UPPER(TRIM(p.category)) IN ('MOBILE','TAB','LAPTOP')
-          GROUP BY i.shop_id, INITCAP(LOWER(TRIM(p.category)))
+          WHERE p.is_active = true AND i.quantity > 0 AND ${dailyCat('p.category')} IS NOT NULL
+          GROUP BY i.shop_id, ${dailyCat('p.category')}
         ),
         sold_after AS (
-          SELECT si.shop_id, INITCAP(LOWER(TRIM(p.category))) AS category,
+          SELECT si.shop_id, ${dailyCat('p.category')} AS category,
                  SUM(sli.unit_cost * sli.qty) AS v
           FROM sale_items sli
           JOIN sales_invoices si ON si.id = sli.invoice_id
           JOIN products p ON p.id = sli.product_id
-          WHERE si.sale_date > $1 AND si.payment_status != 'returned'
-            AND UPPER(TRIM(p.category)) IN ('MOBILE','TAB','LAPTOP')
-          GROUP BY si.shop_id, INITCAP(LOWER(TRIM(p.category)))
+          WHERE si.sale_date > $1 AND si.payment_status != 'returned' AND ${dailyCat('p.category')} IS NOT NULL
+          GROUP BY si.shop_id, ${dailyCat('p.category')}
         ),
         bought_after AS (
-          SELECT pi.shop_id, INITCAP(LOWER(TRIM(p.category))) AS category,
+          SELECT pi.shop_id, ${dailyCat('p.category')} AS category,
                  SUM(pi.unit_cost * pi.qty) AS v
           FROM purchase_items pi
           JOIN purchases pu ON pu.id = pi.purchase_id
           JOIN products p ON p.id = pi.product_id
-          WHERE pu.purchase_date > $1
-            AND UPPER(TRIM(p.category)) IN ('MOBILE','TAB','LAPTOP')
-          GROUP BY pi.shop_id, INITCAP(LOWER(TRIM(p.category)))
+          WHERE pu.purchase_date > $1 AND ${dailyCat('p.category')} IS NOT NULL
+          GROUP BY pi.shop_id, ${dailyCat('p.category')}
         )
         SELECT sh.name AS shop_name, c.category,
                GREATEST(0, COALESCE(cur.v,0) + COALESCE(sold_after.v,0) - COALESCE(bought_after.v,0)) AS cost_value
