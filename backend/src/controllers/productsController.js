@@ -124,7 +124,7 @@ const createProduct = async (req, res) => {
          base_cost, selling_price, barcode, is_active, is_service)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
       [name, brand, color, serial_number || null, type,
-       model, category || 'Mobile Phone', sub_category || null, storage, condition || type,
+       model, category || 'MOBILE', sub_category || null, storage, condition || type,
        description, base_cost || 0, selling_price || 0, barcode, is_active, is_service]
     );
     res.status(201).json({ success: true, data: result.rows[0], message: 'Product created' });

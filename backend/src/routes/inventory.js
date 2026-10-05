@@ -94,7 +94,7 @@ router.post('/import', async (req, res) => {
             `INSERT INTO products (name, brand, color, serial_number, category, selling_price, base_cost, is_active)
              VALUES ($1,$2,$3,$4,$5,$6,$7,true) RETURNING id`,
             [productName, row.brand||null, row.color||null, row.serial_number||null,
-             row.category||'Mobile Phone', parseFloat(row.selling_price)||0,
+             row.category||'MOBILE', parseFloat(row.selling_price)||0,
              parseFloat(row.cost_price)||parseFloat(row.base_cost)||0]
           );
           productId = newProduct.rows[0].id;

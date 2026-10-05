@@ -8,6 +8,15 @@ const fmtDate = d => new Date(d).toLocaleDateString('en-AE');
 
 const PRODUCT_TYPES = ['New (Box Pack)', 'Used', 'Refurbished', 'Parts', 'Accessories', 'Wholesale'];
 
+// What kind of product is this? (saved as the product's category in Inventory)
+const ITEM_CATEGORIES = ['MOBILE', 'TAB', 'LAPTOP', 'ACCESSORIES'];
+const CATEGORY_ALIASES = { 'MOBILE PHONE': 'MOBILE', 'IPAD': 'TAB', 'TABLET': 'TAB', 'MACBOOK': 'LAPTOP' };
+const normalizeCategory = (c) => {
+  const k = String(c || '').replace(/\s+/g, ' ').trim().toUpperCase();
+  const v = CATEGORY_ALIASES[k] || k;
+  return ITEM_CATEGORIES.includes(v) ? v : '';
+};
+
 const typeBadgeColor = (t) => ({
   'New (Box Pack)': { bg: '#d1fae5', color: '#065f46' },
   'Used':           { bg: '#fef3c7', color: '#92400e' },
@@ -304,6 +313,7 @@ export default function Purchases() {
     brand:         '',
     color:         '',
     product_type:  'Used',
+    category:      '',          // must be chosen for every item (no default on purpose)
     product_id:    null,
     qty: 1, unit_cost: '', recommended_selling_price: '', shop_id: '',
   });
@@ -378,10 +388,10 @@ export default function Purchases() {
   const fileInputRef = useRef(null);
 
   const downloadTemplate = () => {
-    const headers = ['serial_number','product_name','brand','color','product_type','unit_cost','recommended_selling_price','qty','shop'];
+    const headers = ['serial_number','product_name','brand','color','product_type','category','unit_cost','recommended_selling_price','qty','shop'];
     const example = [
-      ['350486745601689','SAM GALAXY S21 ULTRA 512GB','Samsung','Black','Used','830','1100','1','AlAman'],
-      ['354477870340637','SAM GALAXY S21 ULTRA 512GB','Samsung','Black','Used','830','1100','1','Blessing'],
+      ['350486745601689','SAM GALAXY S21 ULTRA 512GB','Samsung','Black','Used','MOBILE','830','1100','1','AlAman'],
+      ['354477870340637','SAM TAB A9 PLUS','Samsung','Black','Used','TAB','830','1100','1','Blessing'],
     ];
     const csv = [headers, ...example].map(r => r.join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -448,6 +458,7 @@ export default function Purchases() {
             brand:         col(row, ['brand']),
             color:         col(row, ['color']),
             product_type:  matchedType,
+            category:      normalizeCategory(col(row, ['category','product_category'])),   // blank if missing -> choose in the form
             unit_cost:     cost,
             recommended_selling_price: sellPrice || '',
             qty:           col(row, ['qty','quantity']) || '1',
@@ -475,6 +486,7 @@ export default function Purchases() {
   };
 
 
+  const serialTimers = useRef({});   // debounce timers (this line was accidentally removed on 20-Jun, breaking the serial lookup)
   const serialAborts = useRef({});
 
   const searchSerial = (idx, val) => {
@@ -518,6 +530,7 @@ export default function Purchases() {
       brand:         product.brand || '',
       color:         product.color || '',
       product_type:  product.type || 'Used',
+      category:      normalizeCategory(product.category) || items[idx].category,
       recommended_selling_price: product.selling_price ? Math.round(product.selling_price).toString() : items[idx].recommended_selling_price,
     };
     setForm({ ...form, items });
@@ -531,6 +544,11 @@ export default function Purchases() {
     setForm({ ...form, items, amount_paid: form.payment_type === 'cash' ? newTotal.toString() : form.amount_paid });
   };
 
+  const setAllCategories = (val) => {
+    if (!val) return;
+    setForm(prev => ({ ...prev, items: prev.items.map(it => ({ ...it, category: val })) }));
+  };
+
   const handlePaymentType = (type) => {
     const t = form.items.reduce((s, i) => s + ((parseFloat(i.qty)||0) * (parseFloat(i.unit_cost)||0)), 0);
     setForm({ ...form, payment_type: type, amount_paid: type === 'cash' ? t.toString() : '' });
@@ -542,9 +560,10 @@ export default function Purchases() {
     if (submitting) return;
     setSubmitting(true);
     if (!form.supplier_id) { setSubmitting(false); return toast.error('Select a supplier'); }
-    if (form.items.some(i => !i.serial_number && !i.product_name)) return toast.error('Each item needs a serial number or product name');
-    if (form.items.some(i => !i.unit_cost)) return toast.error('Each item needs a cost price');
-    if (form.items.some(i => !i.shop_id)) return toast.error('Each item needs a shop selected');
+    if (form.items.some(i => !i.serial_number && !i.product_name)) { setSubmitting(false); return toast.error('Each item needs a serial number or product name'); }
+    if (form.items.some(i => !i.unit_cost)) { setSubmitting(false); return toast.error('Each item needs a cost price'); }
+    if (form.items.some(i => !i.shop_id)) { setSubmitting(false); return toast.error('Each item needs a shop selected'); }
+    if (form.items.some(i => !i.category)) { setSubmitting(false); return toast.error('Select a category (Mobile / Tab / Laptop / Accessories) for every item'); }
     try {
       const payload = {
         supplier_id:   form.supplier_id,
@@ -557,6 +576,7 @@ export default function Purchases() {
           brand:                     i.brand || '',
           color:                     i.color || '',
           product_type:              i.product_type || 'Used',
+          category:                  i.category,
           serial_number:             i.serial_number || null,
           qty:                       parseInt(i.qty) || 1,
           unit_cost:                 parseFloat(i.unit_cost),
@@ -856,6 +876,12 @@ export default function Purchases() {
                     — scan serial number first. System finds existing product or you enter details manually.
                   </span>
                 </div>
+                <select className="form-control" value="" onChange={e => setAllCategories(e.target.value)}
+                  title="Set the same category for every item below"
+                  style={{ width:'auto', fontSize:'.78rem', padding:'4px 6px', height:'30px' }}>
+                  <option value="">Set category for all…</option>
+                  {ITEM_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
                 <button className="btn btn-ghost btn-sm" onClick={addItem}>+ Add Item</button>
                 <button className="btn btn-ghost btn-sm" onClick={downloadTemplate}
                   style={{ color:'#059669', borderColor:'#059669' }}>⬇ Template</button>
@@ -867,11 +893,11 @@ export default function Purchases() {
 
               {/* ── Items table with horizontal scroll ── */}
               <div style={{ overflowX:'auto', marginBottom:'0.5rem' }}>
-              <div style={{ minWidth:'920px' }}>
+              <div style={{ minWidth:'1030px' }}>
 
               {/* ── Column headers (shown once above items) ── */}
-              <div style={{ display:'grid', gridTemplateColumns:'32px 160px 90px 200px 100px 80px 80px 80px 50px 28px', gap:'6px', padding:'0 4px 4px', borderBottom:'1px solid var(--border)', marginBottom:'6px' }}>
-                {['#','Serial / IMEI','Shop','Product Name','Brand','Type','Cost','Sell','Qty',''].map((h,idx) => (
+              <div style={{ display:'grid', gridTemplateColumns:'32px 160px 90px 200px 100px 80px 110px 80px 80px 50px 28px', gap:'6px', padding:'0 4px 4px', borderBottom:'1px solid var(--border)', marginBottom:'6px' }}>
+                {['#','Serial / IMEI','Shop','Product Name','Brand','Type','Category','Cost','Sell','Qty',''].map((h,idx) => (
                   <div key={idx} style={{ fontSize:'.72rem', color:'var(--text-muted)', fontWeight:600, textTransform:'uppercase', letterSpacing:'.03em' }}>{h}</div>
                 ))}
               </div>
@@ -879,7 +905,7 @@ export default function Purchases() {
               {form.items.map((item, i) => (
                 <div key={i} style={{ position:'relative', zIndex: form.items.length - i }}>
                   {/* ── Single row per item ── */}
-                  <div style={{ display:'grid', gridTemplateColumns:'32px 160px 90px 200px 100px 80px 80px 80px 50px 28px', gap:'6px', alignItems:'center', padding:'4px', borderRadius:'6px', background: i%2===0 ? 'var(--bg-secondary)' : 'transparent', marginBottom:'3px' }}>
+                  <div style={{ display:'grid', gridTemplateColumns:'32px 160px 90px 200px 100px 80px 110px 80px 80px 50px 28px', gap:'6px', alignItems:'center', padding:'4px', borderRadius:'6px', background: i%2===0 ? 'var(--bg-secondary)' : 'transparent', marginBottom:'3px' }}>
 
                     {/* # badge */}
                     <div style={{ fontSize:'.75rem', color:'var(--text-muted)', textAlign:'center', fontWeight:600 }}>{i+1}</div>
@@ -950,6 +976,15 @@ export default function Purchases() {
                       onChange={e => handleItemChange(i, 'product_type', e.target.value)}
                       style={{ fontSize:'.75rem', padding:'5px 3px', height:'32px' }}>
                       {PRODUCT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                    </select>
+
+                    {/* Category — what is this product? (saved on the product / shown in Inventory) */}
+                    <select className="form-control" value={item.category}
+                      onChange={e => handleItemChange(i, 'category', e.target.value)}
+                      style={{ fontSize:'.75rem', padding:'5px 3px', height:'32px',
+                        border: !item.category ? '1.5px solid #dc2626' : '1px solid var(--border)' }}>
+                      <option value="">Category…</option>
+                      {ITEM_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                     </select>
 
                     {/* Cost */}

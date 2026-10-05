@@ -1,6 +1,16 @@
 // src/controllers/purchasesController.js
 const { query, getClient } = require('../config/database');
 
+// Product categories the purchase form lets the user choose from.
+// Older / alternative spellings are mapped to these (the database uses these names).
+const CATEGORY_ALIASES = { 'MOBILE PHONE': 'MOBILE', 'IPAD': 'TAB', 'TABLET': 'TAB', 'MACBOOK': 'LAPTOP' };
+const ALLOWED_CATEGORIES = ['MOBILE', 'TAB', 'LAPTOP', 'ACCESSORIES'];
+const normCategory = (c) => {
+  const k = String(c || '').replace(/\s+/g, ' ').trim().toUpperCase();
+  const v = CATEGORY_ALIASES[k] || k;
+  return ALLOWED_CATEGORIES.includes(v) ? v : null;
+};
+
 async function generatePurchaseNumber(client) {
   const year = new Date().getFullYear();
   const result = await client.query(
@@ -179,6 +189,25 @@ exports.createPurchase = async (req, res) => {
       );
     }
 
+    // ── Category chosen on the purchase form is saved on the product (existing products too) ──
+    // Service items (e.g. REPAIR) are never re-categorised.
+    const catUpdates = [];
+    items.forEach(item => {
+      const existingId = item.product_id || (item.serial_number && existingBySerial[item.serial_number]);
+      const cat = normCategory(item.category);
+      if (existingId && cat) catUpdates.push({ id: existingId, cat });
+    });
+    if (catUpdates.length) {
+      const cuVals   = catUpdates.map((_, i) => `($${i*2+1}::uuid, $${i*2+2}::text)`).join(',');
+      const cuParams = catUpdates.flatMap(u => [u.id, u.cat]);
+      await client.query(
+        `UPDATE products p SET category = v.cat
+         FROM (VALUES ${cuVals}) AS v(id, cat)
+         WHERE p.id = v.id AND p.is_service IS NOT TRUE AND p.category IS DISTINCT FROM v.cat`,
+        cuParams
+      );
+    }
+
     // ── Batch INSERT new products (single multi-row INSERT) ──────────
     let newProductResults = [];
     if (toCreate.length) {
@@ -186,7 +215,7 @@ exports.createPurchase = async (req, res) => {
       const params = toCreate.flatMap(item => [
         item.product_name || item.serial_number || 'Unknown Product',
         item.brand || null, item.color || null, item.serial_number || null,
-        item.product_type || 'Used', 'Mobile Phone',
+        item.product_type || 'Used', normCategory(item.category) || 'MOBILE',
         item.recommended_selling_price || 0, item.unit_cost || 0,
       ]);
       const result = await client.query(
