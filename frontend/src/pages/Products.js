@@ -4,13 +4,20 @@ import toast from 'react-hot-toast';
 import api from '../utils/api';
 
 const TYPES = ['New (Box Pack)', 'Used', 'Refurbished', 'Parts', 'Accessories', 'Wholesale'];
-const CATEGORIES = ['Mobile', 'Laptop', 'Tab', 'Accessories', 'Ipad'];
+// Category names are the same as in the database (and the Purchase / Inventory pages)
+const CATEGORIES = ['MOBILE', 'TAB', 'LAPTOP', 'ACCESSORIES'];
+const CATEGORY_ALIASES = { 'MOBILE PHONE': 'MOBILE', 'IPAD': 'TAB', 'TABLET': 'TAB', 'MACBOOK': 'LAPTOP' };
+// 'Mobile Phone ' -> 'MOBILE', 'Ipad' -> 'TAB' ...  ('' if it is not one of the 4, e.g. 'Exchange')
+const normalizeCategory = (c) => {
+  const k = String(c || '').replace(/\s+/g, ' ').trim().toUpperCase();
+  const v = CATEGORY_ALIASES[k] || k;
+  return CATEGORIES.includes(v) ? v : '';
+};
 const SUB_CATEGORIES = {
-  Mobile:      ['Mobile'],
-  Laptop:      ['Laptop', 'Macbook', 'Surface', 'Chromebook'],
-  Tab:         ['Tab', 'Ipad'],
-  Ipad:        ['Ipad'],
-  Accessories: ['Earbuds', 'Smartwatch', 'Charger', 'keyboard', 'Strip', 'Cable', 'PowerBank', 'Controller', 'Pen', 'Belkin'],
+  MOBILE:      ['Mobile'],
+  LAPTOP:      ['Laptop', 'Macbook', 'Surface', 'Chromebook'],
+  TAB:         ['Tab', 'Ipad'],
+  ACCESSORIES: ['Earbuds', 'Smartwatch', 'Charger', 'keyboard', 'Strip', 'Cable', 'PowerBank', 'Controller', 'Pen', 'Belkin'],
 };
 const ALL_SUB = ['Mobile','Ipad','Tab','Laptop','Earbuds','Smartwatch','Celender','Macbook','Charger','keyboard','Strip','Surface','Belkin','Cable','Controller','Pen','PowerBank'];
 
@@ -88,7 +95,7 @@ export default function Products() {
   }, []);
 
   const openAdd  = () => { setEditing(null); setForm(EMPTY); setShowModal(true); };
-  const openEdit = (p) => { setEditing(p); setForm({ ...EMPTY, ...p }); setShowModal(true); };
+  const openEdit = (p) => { setEditing(p); setForm({ ...EMPTY, ...p, category: normalizeCategory(p.category) || p.category || '' }); setShowModal(true); };
 
   const openTx = async (p) => {
     setTxProduct(p); setTxData(null); setTxTab('sales'); setTxLoading(true);
@@ -220,7 +227,7 @@ export default function Products() {
                       <td>{p.brand || '—'}</td>
                       <td>
                         {p.category ? (
-                          <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '.75rem', fontWeight: 600, background: '#eef2ff', color: '#6366f1' }}>{p.category}</span>
+                          <span style={{ padding: '2px 8px', borderRadius: '10px', fontSize: '.75rem', fontWeight: 600, background: '#eef2ff', color: '#6366f1' }}>{normalizeCategory(p.category) || p.category}</span>
                         ) : '—'}
                       </td>
                       <td>
@@ -515,6 +522,7 @@ export default function Products() {
                     onChange={e => setForm({ ...form, category: e.target.value, sub_category: '' })}>
                     <option value="">— Select Category —</option>
                     {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    {form.category && !CATEGORIES.includes(form.category) && <option value={form.category}>{form.category}</option>}
                   </select>
                 </div>
                 <div className="form-group">

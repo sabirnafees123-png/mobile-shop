@@ -23,7 +23,7 @@ const REPORT_TYPES = [
   { id: 'upcoming-expenses', label: '📆 Upcoming Expenses',       desc: 'Cheques + Obligations, by month' },
 ];
 
-const CATEGORIES = ['Mobile', 'Laptop', 'Tab', 'Accessories', 'Ipad'];
+const CATEGORIES = ['MOBILE', 'TAB', 'LAPTOP', 'ACCESSORIES'];
 
 export default function Reports() {
   const today        = new Date().toISOString().split('T')[0];

@@ -1,5 +1,6 @@
 // src/controllers/productsController.js
 const pool = require('../config/database');
+const { categoryForSave, categoryFilterList } = require('../utils/category');
 
 const PRODUCT_TYPES = ['New (Box Pack)', 'Used', 'Refurbished', 'Parts', 'Accessories', 'Wholesale'];
 
@@ -31,7 +32,7 @@ const getProducts = async (req, res) => {
                        OR p.serial_number ILIKE $${params.length}
                        OR p.color ILIKE $${params.length})`;
     }
-    if (category) { params.push(category); whereClause += ` AND p.category = $${params.length}`; }
+    if (category) { params.push(categoryFilterList(category)); whereClause += ` AND UPPER(TRIM(p.category)) = ANY($${params.length})`; }
     if (req.query.sub_category) { params.push(req.query.sub_category); whereClause += ` AND p.sub_category = $${params.length}`; }
     if (type)     { params.push(type);     whereClause += ` AND p.type = $${params.length}`; }
     if (is_active !== undefined && is_active !== '') {
@@ -124,7 +125,7 @@ const createProduct = async (req, res) => {
          base_cost, selling_price, barcode, is_active, is_service)
        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16) RETURNING *`,
       [name, brand, color, serial_number || null, type,
-       model, category || 'MOBILE', sub_category || null, storage, condition || type,
+       model, categoryForSave(category) || 'MOBILE', sub_category || null, storage, condition || type,
        description, base_cost || 0, selling_price || 0, barcode, is_active, is_service]
     );
     res.status(201).json({ success: true, data: result.rows[0], message: 'Product created' });
@@ -175,7 +176,7 @@ const updateProduct = async (req, res) => {
         updated_at    = NOW()
        WHERE id = $16 RETURNING *`,
       [name, brand, color, serial_number, type,
-       model, category, storage, condition, description,
+       model, category ? categoryForSave(category) : null, storage, condition, description,
        base_cost, selling_price, barcode, is_active,
        sub_category || null, id, is_service ?? null]
     );
