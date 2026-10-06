@@ -933,6 +933,7 @@ router.get('/daily-business', async (req, res) => {
 // Purchases, sales, returns and transfers are NOT adjustments; they are recognised by the movement note and left out.
 // 'adjustment' rows ("Set Exact") store the NEW stock level, not the change, so they are returned separately
 // (set_exact) and never counted in the added / removed totals.
+// Remarks = the note saved with the adjustment (Adjust Stock note, Products > Adjust note or reason, import / stock-count text).
 // stock_movements has no shop and no cost: value = quantity x the product's CURRENT base_cost.
 // Dates are UAE time (Asia/Dubai) because stock_movements only has a timestamp.
 router.get('/stock-adjustments', async (req, res) => {
@@ -942,7 +943,7 @@ router.get('/stock-adjustments', async (req, res) => {
     const to   = req.query.to   || from;
 
     const result = await query(`
-      SELECT sm.id, sm.type, sm.quantity,
+      SELECT sm.id, sm.type, sm.quantity, NULLIF(TRIM(sm.note), '') AS note,
              to_char(sm.created_at::timestamptz AT TIME ZONE 'Asia/Dubai', 'YYYY-MM-DD') AS adj_date,
              to_char(sm.created_at::timestamptz AT TIME ZONE 'Asia/Dubai', 'HH24:MI')    AS adj_time,
              p.id AS product_id, p.name AS product, p.category, COALESCE(p.base_cost, 0) AS cost
@@ -959,13 +960,13 @@ router.get('/stock-adjustments', async (req, res) => {
     const set_exact = [];
     result.rows.forEach(r => {
       if (r.type === 'adjustment') {
-        set_exact.push({ date: r.adj_date, time: r.adj_time, product: r.product, category: r.category, set_to: Number(r.quantity) });
+        set_exact.push({ date: r.adj_date, time: r.adj_time, product: r.product, category: r.category, set_to: Number(r.quantity), note: r.note });
         return;
       }
       const qty  = Number(r.quantity) || 0;
       const sign = r.type === 'in' ? 1 : -1;
       rows.push({
-        date: r.adj_date, time: r.adj_time, product_id: r.product_id, product: r.product, category: r.category,
+        date: r.adj_date, time: r.adj_time, product_id: r.product_id, product: r.product, category: r.category, note: r.note,
         added: sign > 0 ? qty : 0, removed: sign < 0 ? qty : 0,
         value: sign * qty * parseFloat(r.cost),
       });

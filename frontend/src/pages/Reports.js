@@ -526,13 +526,14 @@ export default function Reports() {
           <td class="num plus">${r.added ? '+' + num(r.added) : ''}</td>
           <td class="num minus">${r.removed ? '-' + num(r.removed) : ''}</td>
           <td class="num ${r.value < 0 ? 'minus' : 'plus'}">${sgn(r.value)}</td>
+          <td class="remarks">${r.note ? esc(r.note) : '<span class="muted">—</span>'}</td>
         </tr>`).join('');
 
       const mainTable = d.rows.length ? `
         <table>
-          <thead><tr><th>Date</th><th>Product</th><th>Category</th><th class="num">Added (+)</th><th class="num">Removed (-)</th><th class="num">Value (AED)</th></tr></thead>
+          <thead><tr><th>Date</th><th>Product</th><th>Category</th><th class="num">Added (+)</th><th class="num">Removed (-)</th><th class="num">Value (AED)</th><th>Remarks</th></tr></thead>
           <tbody>${bodyRows}
-            <tr class="total"><td colspan="3">Total</td><td class="num">${sm.added ? '+' + num(sm.added) : '0'}</td><td class="num">${sm.removed ? '-' + num(sm.removed) : '0'}</td><td class="num">${sgn(sm.net_value)}</td></tr>
+            <tr class="total"><td colspan="3">Total</td><td class="num">${sm.added ? '+' + num(sm.added) : '0'}</td><td class="num">${sm.removed ? '-' + num(sm.removed) : '0'}</td><td class="num">${sgn(sm.net_value)}</td><td></td></tr>
           </tbody>
         </table>`
         : '<div class="muted" style="padding:10px 0">No quantity was added or removed in this period (only Set Exact entries below).</div>';
@@ -540,8 +541,8 @@ export default function Reports() {
       const setExactBlock = d.set_exact.length ? `
         <div class="section-title" style="margin-top:22px">Set Exact entries (${d.set_exact.length})</div>
         <table>
-          <thead><tr><th>Date</th><th>Product</th><th>Category</th><th class="num">Stock level set to</th></tr></thead>
-          <tbody>${d.set_exact.map(r => `<tr><td>${dayLabel(r.date)} <span class="muted">${esc(r.time)}</span></td><td class="name">${esc(r.product)}</td><td>${esc(r.category || '—')}</td><td class="num">${num(r.set_to)}</td></tr>`).join('')}</tbody>
+          <thead><tr><th>Date</th><th>Product</th><th>Category</th><th class="num">Stock level set to</th><th>Remarks</th></tr></thead>
+          <tbody>${d.set_exact.map(r => `<tr><td>${dayLabel(r.date)} <span class="muted">${esc(r.time)}</span></td><td class="name">${esc(r.product)}</td><td>${esc(r.category || '—')}</td><td class="num">${num(r.set_to)}</td><td class="remarks">${r.note ? esc(r.note) : '<span class="muted">—</span>'}</td></tr>`).join('')}</tbody>
         </table>
         <div class="muted" style="margin-top:6px">"Set Exact" records only the new stock level, not how much was added or removed, so these entries are not counted in the totals above.</div>` : '';
 
@@ -551,7 +552,7 @@ export default function Reports() {
       <style>
         * { box-sizing:border-box; margin:0; padding:0; }
         body { font-family:'Inter',sans-serif; color:#0f172a; background:#d9dee6; padding:24px 0; }
-        .page { max-width:210mm; min-height:297mm; margin:0 auto; background:#fff; padding:14mm; box-shadow:0 4px 24px rgba(0,0,0,.18); }
+        .page { max-width:297mm; min-height:210mm; margin:0 auto; background:#fff; padding:14mm; box-shadow:0 4px 24px rgba(0,0,0,.18); }
         .title { font-size:20px; font-weight:800; }
         .sub { font-size:12px; color:#64748b; margin-top:3px; }
         .head { padding-bottom:14px; margin-bottom:16px; border-bottom:3px solid #6366f1; }
@@ -561,13 +562,14 @@ export default function Reports() {
         td { padding:7px 10px; border-bottom:1px solid #f1f5f9; }
         .num { text-align:right; white-space:nowrap; }
         .name { font-weight:600; }
+        .remarks { color:#334155; white-space:normal; word-break:break-word; max-width:320px; }
         .plus { color:#059669; font-weight:700; }
         .minus { color:#dc2626; font-weight:700; }
         .muted { color:#94a3b8; font-size:11px; font-weight:400; }
         tr.total td { background:#f1f5f9; font-weight:800; border-top:2px solid #0f172a; }
         tr.total td.num { color:#0f172a; }
         .foot { margin-top:18px; padding-top:10px; border-top:1px solid #e2e8f0; font-size:10px; color:#94a3b8; text-align:center; line-height:1.6; }
-        @media print { body { background:#fff; padding:0; } .page { box-shadow:none; margin:0; max-width:100%; min-height:0; padding:0; } @page { margin:10mm; size:A4; } }
+        @media print { body { background:#fff; padding:0; } .page { box-shadow:none; margin:0; max-width:100%; min-height:0; padding:0; } @page { margin:10mm; size:A4 landscape; } }
       </style></head><body>
       <div class="page">
         <div class="head">
@@ -584,7 +586,7 @@ export default function Reports() {
         ${setExactBlock}
         <div class="foot">
           Manual stock changes only: Adjust Stock, Products &gt; Adjust, Inventory Import and Stock Count. Purchases, sales, returns and transfers are not included.<br>
-          Value = quantity &times; the product's current cost price. Dates are UAE time. Generated: ${new Date().toLocaleString('en-AE')}
+          Remarks = the note saved when the stock was adjusted. Value = quantity &times; the product's current cost price. Dates are UAE time. Generated: ${new Date().toLocaleString('en-AE')}
         </div>
       </div>
       <script>window.onload=()=>setTimeout(()=>window.print(),500)</script>
