@@ -928,4 +928,61 @@ router.get('/daily-business', async (req, res) => {
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
 
+// ── GET /api/v1/reports/stock-adjustments?from=YYYY-MM-DD&to=YYYY-MM-DD ──────
+// Manual stock changes only: Inventory page (Adjust Stock), Products page (Adjust), Inventory Import, Stock Count.
+// Purchases, sales, returns and transfers are NOT adjustments; they are recognised by the movement note and left out.
+// 'adjustment' rows ("Set Exact") store the NEW stock level, not the change, so they are returned separately
+// (set_exact) and never counted in the added / removed totals.
+// stock_movements has no shop and no cost: value = quantity x the product's CURRENT base_cost.
+// Dates are UAE time (Asia/Dubai) because stock_movements only has a timestamp.
+router.get('/stock-adjustments', async (req, res) => {
+  try {
+    const uaeToday = new Date(Date.now() + 4 * 3600 * 1000).toISOString().split('T')[0];
+    const from = req.query.from || uaeToday;
+    const to   = req.query.to   || from;
+
+    const result = await query(`
+      SELECT sm.id, sm.type, sm.quantity,
+             to_char(sm.created_at::timestamptz AT TIME ZONE 'Asia/Dubai', 'YYYY-MM-DD') AS adj_date,
+             to_char(sm.created_at::timestamptz AT TIME ZONE 'Asia/Dubai', 'HH24:MI')    AS adj_time,
+             p.id AS product_id, p.name AS product, p.category, COALESCE(p.base_cost, 0) AS cost
+      FROM stock_movements sm
+      JOIN products p ON p.id = sm.product_id
+      WHERE (sm.created_at::timestamptz AT TIME ZONE 'Asia/Dubai')::date BETWEEN $1::date AND $2::date
+        AND ( sm.type = 'adjustment'
+              OR ( sm.type IN ('in', 'out')
+                   AND COALESCE(sm.note, '') !~* '^(Purchase |Sale |Return: |Transfer (to|from) shop)' ) )
+      ORDER BY sm.created_at, sm.id
+    `, [from, to]);
+
+    const rows = [];
+    const set_exact = [];
+    result.rows.forEach(r => {
+      if (r.type === 'adjustment') {
+        set_exact.push({ date: r.adj_date, time: r.adj_time, product: r.product, category: r.category, set_to: Number(r.quantity) });
+        return;
+      }
+      const qty  = Number(r.quantity) || 0;
+      const sign = r.type === 'in' ? 1 : -1;
+      rows.push({
+        date: r.adj_date, time: r.adj_time, product_id: r.product_id, product: r.product, category: r.category,
+        added: sign > 0 ? qty : 0, removed: sign < 0 ? qty : 0,
+        value: sign * qty * parseFloat(r.cost),
+      });
+    });
+
+    const added   = rows.reduce((n, r) => n + r.added, 0);
+    const removed = rows.reduce((n, r) => n + r.removed, 0);
+    const added_value   = rows.reduce((n, r) => n + (r.value > 0 ? r.value : 0), 0);
+    const removed_value = rows.reduce((n, r) => n + (r.value < 0 ? -r.value : 0), 0);
+    const summary = {
+      products: new Set(rows.map(r => r.product_id)).size,
+      added, removed, net_units: added - removed,
+      added_value, removed_value, net_value: added_value - removed_value,
+    };
+
+    res.json({ success: true, data: { from, to, rows, set_exact, summary } });
+  } catch (err) { res.status(500).json({ success: false, message: err.message }); }
+});
+
 module.exports = router;

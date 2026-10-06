@@ -20,6 +20,7 @@ const REPORT_TYPES = [
   { id: 'salesperson',      label: '👤 Salesperson',             desc: 'Performance per staff member' },
   { id: 'daily-business',   label: '📋 Daily Business Report',   desc: 'AlAman & Blessing — full day summary (printable)' },
   { id: 'attendance-late',  label: '🕒 Attendance (Late Report)', desc: 'Staff lateness by date, matrix view (printable)' },
+  { id: 'stock-adjustments', label: '🔧 Stock Adjustments',        desc: 'Quantity added / removed by adjustment (printable)' },
   { id: 'upcoming-expenses', label: '📆 Upcoming Expenses',       desc: 'Cheques + Obligations, by month' },
 ];
 
@@ -494,6 +495,104 @@ export default function Reports() {
     } catch (err) { toast.error('Failed to generate attendance report'); console.error(err); }
   };
 
+  // ── Stock Adjustments report: manual stock changes only (Adjust Stock, Products > Adjust, Inventory Import, Stock Count) ──
+  const uaeToday = new Date(Date.now() + 4 * 3600 * 1000).toISOString().split('T')[0];   // UAE date (UTC+4)
+  const [adjFrom, setAdjFrom] = useState(uaeToday);
+  const [adjTo, setAdjTo]     = useState(uaeToday);
+  const printAdjustmentsReport = async () => {
+    if (!adjFrom || !adjTo) return toast.error('Select both dates');
+    if (adjFrom > adjTo)    return toast.error('"From" date is after "To" date');
+    try {
+      const res = await api.get('/reports/stock-adjustments', { params: { from: adjFrom, to: adjTo } });
+      const d = res.data?.data;
+      if (!d) return toast.error('No data');
+      if (!d.rows.length && !d.set_exact.length) return toast.error('No stock adjustments in this period');
+
+      const esc = v => String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      const num = n => Math.round(Number(n || 0)).toLocaleString('en-US');
+      const sgn = n => (n > 0 ? '+' : n < 0 ? '-' : '') + num(Math.abs(n));
+      const dayLabel = iso => new Date(iso + 'T00:00:00Z').toLocaleDateString('en-AE', { day:'2-digit', month:'short', year:'numeric', timeZone:'UTC' });
+      const sm = d.summary;
+
+      const card = (label, value, color) =>
+        `<div style="flex:1;text-align:center;background:#f8fafc;border:1px solid #e2e8f0;border-top:3px solid ${color};border-radius:8px;padding:8px 14px">
+           <div style="font-size:9px;font-weight:700;color:#94a3b8;text-transform:uppercase">${label}</div>
+           <div style="font-size:18px;font-weight:800;color:${color};margin-top:2px">${value}</div></div>`;
+
+      const bodyRows = d.rows.map(r => `<tr>
+          <td>${dayLabel(r.date)} <span class="muted">${esc(r.time)}</span></td>
+          <td class="name">${esc(r.product)}</td>
+          <td>${esc(r.category || '—')}</td>
+          <td class="num plus">${r.added ? '+' + num(r.added) : ''}</td>
+          <td class="num minus">${r.removed ? '-' + num(r.removed) : ''}</td>
+          <td class="num ${r.value < 0 ? 'minus' : 'plus'}">${sgn(r.value)}</td>
+        </tr>`).join('');
+
+      const mainTable = d.rows.length ? `
+        <table>
+          <thead><tr><th>Date</th><th>Product</th><th>Category</th><th class="num">Added (+)</th><th class="num">Removed (-)</th><th class="num">Value (AED)</th></tr></thead>
+          <tbody>${bodyRows}
+            <tr class="total"><td colspan="3">Total</td><td class="num">${sm.added ? '+' + num(sm.added) : '0'}</td><td class="num">${sm.removed ? '-' + num(sm.removed) : '0'}</td><td class="num">${sgn(sm.net_value)}</td></tr>
+          </tbody>
+        </table>`
+        : '<div class="muted" style="padding:10px 0">No quantity was added or removed in this period (only Set Exact entries below).</div>';
+
+      const setExactBlock = d.set_exact.length ? `
+        <div class="section-title" style="margin-top:22px">Set Exact entries (${d.set_exact.length})</div>
+        <table>
+          <thead><tr><th>Date</th><th>Product</th><th>Category</th><th class="num">Stock level set to</th></tr></thead>
+          <tbody>${d.set_exact.map(r => `<tr><td>${dayLabel(r.date)} <span class="muted">${esc(r.time)}</span></td><td class="name">${esc(r.product)}</td><td>${esc(r.category || '—')}</td><td class="num">${num(r.set_to)}</td></tr>`).join('')}</tbody>
+        </table>
+        <div class="muted" style="margin-top:6px">"Set Exact" records only the new stock level, not how much was added or removed, so these entries are not counted in the totals above.</div>` : '';
+
+      const win = window.open('', '_blank');
+      win.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Stock Adjustments Report</title>
+      <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+      <style>
+        * { box-sizing:border-box; margin:0; padding:0; }
+        body { font-family:'Inter',sans-serif; color:#0f172a; background:#d9dee6; padding:24px 0; }
+        .page { max-width:210mm; min-height:297mm; margin:0 auto; background:#fff; padding:14mm; box-shadow:0 4px 24px rgba(0,0,0,.18); }
+        .title { font-size:20px; font-weight:800; }
+        .sub { font-size:12px; color:#64748b; margin-top:3px; }
+        .head { padding-bottom:14px; margin-bottom:16px; border-bottom:3px solid #6366f1; }
+        .section-title { font-size:13px; font-weight:700; padding:6px 0; border-bottom:2px solid #6366f1; margin-bottom:8px; }
+        table { width:100%; border-collapse:collapse; font-size:12px; }
+        th { padding:8px 10px; text-align:left; font-size:10px; font-weight:700; color:#fff; background:#0f172a; text-transform:uppercase; letter-spacing:.4px; }
+        td { padding:7px 10px; border-bottom:1px solid #f1f5f9; }
+        .num { text-align:right; white-space:nowrap; }
+        .name { font-weight:600; }
+        .plus { color:#059669; font-weight:700; }
+        .minus { color:#dc2626; font-weight:700; }
+        .muted { color:#94a3b8; font-size:11px; font-weight:400; }
+        tr.total td { background:#f1f5f9; font-weight:800; border-top:2px solid #0f172a; }
+        tr.total td.num { color:#0f172a; }
+        .foot { margin-top:18px; padding-top:10px; border-top:1px solid #e2e8f0; font-size:10px; color:#94a3b8; text-align:center; line-height:1.6; }
+        @media print { body { background:#fff; padding:0; } .page { box-shadow:none; margin:0; max-width:100%; min-height:0; padding:0; } @page { margin:10mm; size:A4; } }
+      </style></head><body>
+      <div class="page">
+        <div class="head">
+          <div class="title">Stock Adjustments Report</div>
+          <div class="sub">${dayLabel(d.from)}${d.from !== d.to ? ' &ndash; ' + dayLabel(d.to) : ''}</div>
+        </div>
+        <div style="display:flex;gap:10px;margin-bottom:20px">
+          ${card('Products adjusted', num(sm.products), '#6366f1')}
+          ${card('Units added', '+' + num(sm.added), '#059669')}
+          ${card('Units removed', '-' + num(sm.removed), '#dc2626')}
+          ${card('Net units', sgn(sm.net_units), '#0f172a')}
+        </div>
+        ${mainTable}
+        ${setExactBlock}
+        <div class="foot">
+          Manual stock changes only: Adjust Stock, Products &gt; Adjust, Inventory Import and Stock Count. Purchases, sales, returns and transfers are not included.<br>
+          Value = quantity &times; the product's current cost price. Dates are UAE time. Generated: ${new Date().toLocaleString('en-AE')}
+        </div>
+      </div>
+      <script>window.onload=()=>setTimeout(()=>window.print(),500)</script>
+      </body></html>`);
+      win.document.close();
+    } catch (err) { toast.error('Failed to generate stock adjustments report'); console.error(err); }
+  };
+
   const payStatus = s => ({ paid:'badge-green', partial:'badge-yellow', unpaid:'badge-red', returned:'badge-gray' }[s]||'badge-gray');
 
   return (
@@ -651,8 +750,25 @@ export default function Reports() {
         </div>
       )}
 
+      {reportType === 'stock-adjustments' && (
+        <div className="card" style={{ padding:'1rem', marginBottom:'12px' }}>
+          <div style={{ display:'flex', gap:'10px', alignItems:'flex-end' }}>
+            <div>
+              <label style={{ fontSize:'.78rem', color:'var(--text-muted)', display:'block', marginBottom:'4px' }}>From</label>
+              <input type="date" className="form-control" style={{ width:'auto' }} value={adjFrom} onChange={e=>setAdjFrom(e.target.value)} />
+            </div>
+            <div>
+              <label style={{ fontSize:'.78rem', color:'var(--text-muted)', display:'block', marginBottom:'4px' }}>To</label>
+              <input type="date" className="form-control" style={{ width:'auto' }} value={adjTo} onChange={e=>setAdjTo(e.target.value)} />
+            </div>
+            <button className="btn btn-primary" onClick={printAdjustmentsReport}>🖨️ Generate</button>
+            <span style={{ fontSize:'11px', color:'var(--text-muted)', paddingBottom:'8px' }}>Manual stock changes only</span>
+          </div>
+        </div>
+      )}
+
       {/* Generate button for other report types */}
-      {reportType && reportType !== 'purchase-invoice' && reportType !== 'product-margin' && reportType !== 'daily-business' && reportType !== 'attendance-late' && (
+      {reportType && reportType !== 'purchase-invoice' && reportType !== 'product-margin' && reportType !== 'daily-business' && reportType !== 'attendance-late' && reportType !== 'stock-adjustments' && (
         <div style={{ marginBottom:'12px' }}>
           <button className="btn btn-primary" onClick={() => loadReport()}>
             {loading ? 'Loading...' : `Generate ${REPORT_TYPES.find(r=>r.id===reportType)?.label}`}
