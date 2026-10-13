@@ -1265,12 +1265,14 @@ function AssignSalespersonModal({ onClose }) {
               ) : (
                 <div className="table-wrapper" style={{maxHeight:'55vh',overflowY:'auto'}}>
                   <table>
-                    <thead><tr><th>Date</th><th>Invoice #</th><th style={{width:'260px'}}>Assign Salesperson</th></tr></thead>
+                    <thead><tr><th>Invoice Date</th><th>Invoice #</th><th>Customer</th><th style={{textAlign:'right'}}>Net Sale</th><th style={{width:'260px'}}>Assign Salesperson</th></tr></thead>
                     <tbody>
                       {bills.map(b => (
                         <tr key={b.id}>
                           <td>{new Date(b.sale_date).toLocaleDateString('en-AE')}</td>
                           <td><strong>{b.invoice_number}</strong></td>
+                          <td>{b.customer_name || <span style={{color:'var(--text-muted)'}}>Walk-in</span>}</td>
+                          <td style={{textAlign:'right'}}><strong>{fmt(b.total_amount - (b.exchange_trade_in_value || 0))}</strong></td>
                           <td>
                             <select className="form-control" defaultValue=""
                               disabled={savingId === b.id}
