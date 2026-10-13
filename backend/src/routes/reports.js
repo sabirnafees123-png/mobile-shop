@@ -811,14 +811,16 @@ router.get('/daily-business', async (req, res) => {
       // "New Purchases > Paid" column, so it is excluded here to avoid showing it twice.
       query(`
         SELECT sh.name as shop_name, s.name as supplier_name,
-          COALESCE(SUM(ABS(sl.amount)),0) as amount_paid
+          COALESCE(-SUM(sl.amount),0) as amount_paid
         FROM supplier_ledger sl
         JOIN shops sh ON sh.id = sl.shop_id
         JOIN suppliers s ON s.id = sl.supplier_id
         WHERE sh.name IN ('AlAman','Blessing') AND sl.transaction_date = $1
           AND sl.transaction_type = 'payment'
           AND COALESCE(sl.description,'') NOT LIKE 'Payment with purchase%'
-        GROUP BY sh.name, s.name ORDER BY sh.name, s.name
+        GROUP BY sh.name, s.name
+        HAVING SUM(sl.amount) <> 0
+        ORDER BY sh.name, s.name
       `, [date]),
 
       // Expenses today — per shop + category (v2 schema: e.category is a text column, no category_id join)

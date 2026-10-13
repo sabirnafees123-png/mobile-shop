@@ -121,8 +121,8 @@ router.get("/:id/ledger", async (req, res) => {
         sl.description       AS note,
         sl.amount,
         sl.balance_after     AS balance,
-        CASE WHEN sl.transaction_type = 'purchase' THEN sl.amount ELSE 0 END AS debit,
-        CASE WHEN sl.transaction_type = 'payment'  THEN ABS(sl.amount) ELSE 0 END AS credit,
+        CASE WHEN sl.transaction_type IN ('purchase','return') THEN sl.amount ELSE 0 END AS debit,
+        CASE WHEN sl.transaction_type = 'payment'  THEN -sl.amount ELSE 0 END AS credit,
         COALESCE(p.purchase_number, '') AS reference,
         sl.payment_method
       FROM supplier_ledger sl
@@ -225,6 +225,18 @@ router.delete("/:id/payments/:pid", async (req, res) => {
     );
     if (!entry.rows.length) return res.status(404).json({ error: "Payment not found" });
     const row = entry.rows[0];
+
+    // Entries created by a purchase return (positive 'payment' rows) and payments that
+    // belong to a returned purchase are part of that return — they cannot be deleted here.
+    if (Number(row.amount) > 0) return res.status(400).json({ error: "This is a purchase-return entry and cannot be deleted" });
+    if (row.reference_type === "purchase" && row.reference_id) {
+      const linked = await client.query(
+        `SELECT 1 FROM purchases p
+         WHERE p.id = $1 AND EXISTS (SELECT 1 FROM purchases r WHERE r.purchase_number = p.purchase_number || '-R')`,
+        [row.reference_id]
+      );
+      if (linked.rows.length) return res.status(400).json({ error: "This payment belongs to a returned purchase and cannot be deleted" });
+    }
 
     await client.query("BEGIN");
     await client.query("UPDATE suppliers SET balance = balance + $1 WHERE id = $2", [Math.abs(Number(row.amount)), id]);

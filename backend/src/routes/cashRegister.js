@@ -15,9 +15,9 @@ router.get('/detail', async (req, res) => {
       query(`SELECT invoice_number, amount_paid FROM sales_invoices WHERE shop_id=$1 AND sale_date=$2 AND payment_method='cash' AND payment_status='returned' ORDER BY invoice_number`, [shop_id, date]),
       query(`SELECT COALESCE(e.category, 'Uncategorized') as category_name, e.amount, e.description FROM expenses e WHERE e.shop_id=$1 AND e.expense_date=$2 AND e.payment_method='cash' ORDER BY e.amount DESC`, [shop_id, date]),
       query(`
-        SELECT COALESCE(p.purchase_number, sl.description) as reference, ABS(sl.amount) as amount
+        SELECT COALESCE(p.purchase_number, sl.description) as reference, -sl.amount as amount
         FROM supplier_ledger sl LEFT JOIN purchases p ON p.id = sl.reference_id
-        WHERE sl.shop_id=$1 AND sl.transaction_date=$2 AND sl.transaction_type='payment' AND sl.amount<0
+        WHERE sl.shop_id=$1 AND sl.transaction_date=$2 AND sl.transaction_type='payment' AND sl.amount<>0
         ORDER BY amount DESC`, [shop_id, date]),
       query(`SELECT entry_type, amount, category, description FROM cash_manual_entries WHERE shop_id=$1 AND entry_date=$2 ORDER BY entry_type, amount DESC`, [shop_id, date]),
       query(`SELECT opening_balance FROM cash_register WHERE shop_id=$1 AND register_date=$2 LIMIT 1`, [shop_id, date]),
@@ -84,7 +84,7 @@ router.get('/today', async (req, res) => {
         WHERE sale_date = $1 AND payment_status != 'returned' AND shop_id = $2
       `, [today, shop_id]),
       query(`SELECT COALESCE(SUM(amount), 0) as total_expenses FROM expenses WHERE expense_date = $1 AND shop_id = $2 AND payment_method = 'cash'`, [today, shop_id]),
-      query(`SELECT COALESCE(SUM(ABS(amount)), 0) as total_paid FROM supplier_ledger WHERE transaction_type = 'payment' AND transaction_date = $1 AND amount < 0 AND shop_id = $2`, [today, shop_id]),
+      query(`SELECT COALESCE(-SUM(amount), 0) as total_paid FROM supplier_ledger WHERE transaction_type = 'payment' AND transaction_date = $1 AND shop_id = $2`, [today, shop_id]),
       query(`SELECT COALESCE(SUM(CASE WHEN type='inbound' AND status='pending' THEN amount ELSE 0 END),0) as pending_inbound, COALESCE(SUM(CASE WHEN type='outbound' AND status='pending' THEN amount ELSE 0 END),0) as pending_outbound FROM cheques WHERE shop_id = $1`, [shop_id]),
       // Manual cash entries for today
       query(`SELECT * FROM cash_manual_entries WHERE entry_date = $1 AND shop_id = $2 ORDER BY created_at DESC`, [today, shop_id]).catch(() => ({ rows: [] })),
@@ -101,7 +101,7 @@ router.get('/today', async (req, res) => {
     const [allSales, allExp, allPur, allMan] = await Promise.all([
       query(`SELECT sale_date::text as d, COALESCE(SUM(CASE WHEN payment_method='cash' THEN amount_paid ELSE 0 END),0) as cs, COALESCE(SUM(CASE WHEN payment_status='returned' AND payment_method='cash' THEN amount_paid ELSE 0 END),0) as cr FROM sales_invoices WHERE shop_id=$1 AND sale_date BETWEEN '2026-05-01' AND $2 GROUP BY sale_date`, [shop_id, today]),
       query(`SELECT expense_date::text as d, COALESCE(SUM(amount),0) as total FROM expenses WHERE shop_id=$1 AND expense_date BETWEEN '2026-05-01' AND $2 AND payment_method='cash' GROUP BY expense_date`, [shop_id, today]),
-      query(`SELECT transaction_date::text as d, COALESCE(SUM(ABS(amount)),0) as total FROM supplier_ledger WHERE transaction_type='payment' AND amount<0 AND shop_id=$2 AND transaction_date BETWEEN '2026-05-01' AND $1 GROUP BY transaction_date`, [today, shop_id]),
+      query(`SELECT transaction_date::text as d, COALESCE(-SUM(amount),0) as total FROM supplier_ledger WHERE transaction_type='payment' AND shop_id=$2 AND transaction_date BETWEEN '2026-05-01' AND $1 GROUP BY transaction_date`, [today, shop_id]),
       query(`SELECT entry_date::text as d, entry_type, category, COALESCE(SUM(amount),0) as total FROM cash_manual_entries WHERE shop_id=$1 AND entry_date BETWEEN '2026-05-01' AND $2 GROUP BY entry_date, entry_type, category`, [shop_id, today]),
     ]);
 
@@ -220,8 +220,8 @@ router.get('/history', async (req, res) => {
         FROM expenses WHERE shop_id=$1 AND expense_date BETWEEN $2 AND $3 AND payment_method='cash' GROUP BY expense_date`,
         [shop_id, calcFrom, toDate]),
       query(`
-        SELECT transaction_date::text as d, COALESCE(SUM(ABS(amount)),0) as total
-        FROM supplier_ledger WHERE transaction_type='payment' AND amount<0 AND shop_id=$3 AND transaction_date BETWEEN $1 AND $2
+        SELECT transaction_date::text as d, COALESCE(-SUM(amount),0) as total
+        FROM supplier_ledger WHERE transaction_type='payment' AND shop_id=$3 AND transaction_date BETWEEN $1 AND $2
         GROUP BY transaction_date`,
         [calcFrom, toDate, shop_id]),
       query(`
@@ -307,7 +307,7 @@ router.post('/recalculate', async (req, res) => {
       query(`SELECT * FROM cash_register WHERE register_date = $1 AND shop_id = $2 LIMIT 1`, [date, shop_id]),
       query(`SELECT COALESCE(SUM(CASE WHEN payment_method='cash' THEN amount_paid ELSE 0 END),0) as cash_sales FROM sales_invoices WHERE sale_date=$1 AND payment_status!='returned' AND shop_id=$2`, [date, shop_id]),
       query(`SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE expense_date=$1 AND shop_id=$2 AND payment_method='cash'`, [date, shop_id]),
-      query(`SELECT COALESCE(SUM(ABS(amount)),0) as total FROM supplier_ledger WHERE transaction_type='payment' AND transaction_date=$1 AND amount<0 AND shop_id=$2`, [date, shop_id]),
+      query(`SELECT COALESCE(-SUM(amount),0) as total FROM supplier_ledger WHERE transaction_type='payment' AND transaction_date=$1 AND shop_id=$2`, [date, shop_id]),
       query(`SELECT entry_type, COALESCE(SUM(amount),0) as total FROM cash_manual_entries WHERE entry_date=$1 AND shop_id=$2 GROUP BY entry_type`, [date, shop_id]).catch(() => ({ rows: [] })),
     ]);
 
@@ -416,7 +416,7 @@ router.post('/close', async (req, res) => {
     const [sales, expenses, supplierPayments, manualEntries] = await Promise.all([
       query(`SELECT COALESCE(SUM(CASE WHEN payment_method='cash' AND payment_status!='returned' THEN amount_paid ELSE 0 END),0) as cash_sales FROM sales_invoices WHERE sale_date=$1 AND shop_id=$2`, [registerDate, shop_id]),
       query(`SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE expense_date=$1 AND shop_id=$2 AND payment_method='cash'`, [registerDate, shop_id]),
-      query(`SELECT COALESCE(SUM(ABS(amount)),0) as total_paid FROM supplier_ledger WHERE transaction_type='payment' AND transaction_date=$1 AND amount<0 AND shop_id=$2`, [registerDate, shop_id]),
+      query(`SELECT COALESCE(-SUM(amount),0) as total_paid FROM supplier_ledger WHERE transaction_type='payment' AND transaction_date=$1 AND shop_id=$2`, [registerDate, shop_id]),
       query(`SELECT entry_type, COALESCE(SUM(amount),0) as total FROM cash_manual_entries WHERE entry_date=$1 AND shop_id=$2 GROUP BY entry_type`, [registerDate, shop_id]).catch(() => ({ rows: [] })),
     ]);
 
@@ -495,7 +495,7 @@ router.post('/transfer', async (req, res) => {
           query(`SELECT * FROM cash_register WHERE register_date=$1 AND shop_id=$2 LIMIT 1`, [d, sid]),
           query(`SELECT COALESCE(SUM(CASE WHEN payment_method='cash' THEN amount_paid ELSE 0 END),0) as cash_sales FROM sales_invoices WHERE sale_date=$1 AND payment_status!='returned' AND shop_id=$2`, [d, sid]),
           query(`SELECT COALESCE(SUM(amount),0) as total FROM expenses WHERE expense_date=$1 AND shop_id=$2 AND payment_method='cash'`, [d, sid]),
-          query(`SELECT COALESCE(SUM(ABS(amount)),0) as total FROM supplier_ledger WHERE transaction_type='payment' AND transaction_date=$1 AND amount<0 AND shop_id=$2`, [d, sid]),
+          query(`SELECT COALESCE(-SUM(amount),0) as total FROM supplier_ledger WHERE transaction_type='payment' AND transaction_date=$1 AND shop_id=$2`, [d, sid]),
           query(`SELECT entry_type, COALESCE(SUM(amount),0) as total FROM cash_manual_entries WHERE entry_date=$1 AND shop_id=$2 GROUP BY entry_type`, [d, sid]).catch(() => ({ rows: [] })),
         ]);
         if (!reg.rows.length) continue;

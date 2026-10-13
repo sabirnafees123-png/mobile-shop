@@ -28,6 +28,15 @@ async function generatePurchaseNumber(client) {
   return `PUR-${year}-${String(next).padStart(3, '0')}`;
 }
 
+
+// A purchase that has been returned (PUR-…-R exists) or a return entry itself
+// must not be paid or revised any more.
+async function assertNotReturned(client, purchaseNumber) {
+  if (/-R$/.test(purchaseNumber)) throw new Error('This is a return entry and cannot be changed');
+  const r = await client.query('SELECT 1 FROM purchases WHERE purchase_number = $1', [`${purchaseNumber}-R`]);
+  if (r.rows.length) throw new Error(`Purchase ${purchaseNumber} has been returned and cannot be changed`);
+}
+
 // GET /api/v1/purchases
 exports.getAllPurchases = async (req, res) => {
   try {
@@ -66,7 +75,8 @@ exports.getAllPurchases = async (req, res) => {
 
     // --- DATA query ---
     const dataSql = `
-      SELECT p.*, s.name as supplier_name, COUNT(pi.id) as item_count
+      SELECT p.*, s.name as supplier_name, COUNT(pi.id) as item_count,
+             EXISTS (SELECT 1 FROM purchases r WHERE r.purchase_number = p.purchase_number || '-R') AS is_returned
       FROM purchases p
       JOIN suppliers s ON s.id = p.supplier_id
       LEFT JOIN purchase_items pi ON pi.purchase_id = p.id
@@ -364,6 +374,7 @@ exports.recordPayment = async (req, res) => {
     const purchase = await client.query('SELECT * FROM purchases WHERE id = $1', [req.params.id]);
     if (!purchase.rows.length) throw new Error('Purchase not found');
     const p = purchase.rows[0];
+    await assertNotReturned(client, p.purchase_number);
     const newAmountPaid = parseFloat(p.amount_paid) + parseFloat(amount);
     if (newAmountPaid > parseFloat(p.total_amount)) throw new Error('Payment exceeds total amount');
 
@@ -439,6 +450,7 @@ exports.revisePurchasePrice = async (req, res) => {
     const pRes = await client.query('SELECT * FROM purchases WHERE id = $1 FOR UPDATE', [req.params.id]);
     if (!pRes.rows.length) throw new Error('Purchase not found');
     const p = pRes.rows[0];
+    await assertNotReturned(client, p.purchase_number);
 
     const itemsRes = await client.query(
       `SELECT pi.id, pi.product_id, pi.qty, pi.unit_cost,
@@ -590,6 +602,209 @@ exports.revisePurchasePrice = async (req, res) => {
     res.json({
       success: true,
       message: dryRun ? 'Preview only — nothing was saved' : 'Purchase price revised',
+      data: result,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK');
+    res.status(400).json({ success: false, message: err.message });
+  } finally {
+    client.release();
+  }
+};
+
+
+// POST /api/v1/purchases/return
+// Body: { purchase_number, note?, dry_run? }
+//
+// Purchase return = every entry the purchase made is reversed with a NEGATIVE
+// entry, on the ORIGINAL date and in the same place, inside one transaction:
+//   purchases        new row  <number>-R   (total / paid negative)
+//   purchase_items   same items, same price, negative qty
+//   supplier_ledger  per original row: purchase -> 'return' (-amount),
+//                    payment -> 'payment' (+amount), same date and shop
+//   suppliers.balance, inventory (-qty) and stock_movements ('out')
+// The cash register reads supplier payment rows live, so the positive payment
+// row cancels that day's cash-out automatically.
+// Blocked when any affected day's register is closed (same rule as a sales
+// return), when there is not enough stock to return, or when already returned.
+// <number>-R is UNIQUE, so a second return is impossible.
+// dry_run=true runs everything, returns the effects, then rolls back.
+exports.returnPurchase = async (req, res) => {
+  const client = await getClient();
+  const round2 = n => Math.round((parseFloat(n) + Number.EPSILON) * 100) / 100;
+  const dryRun = req.body.dry_run === true;
+  try {
+    await client.query('BEGIN');
+    const number = String(req.body.purchase_number || '').trim().toUpperCase();
+    const note   = String(req.body.note || '').trim();
+    if (!number) throw new Error('Purchase number is required');
+    if (/-R$/.test(number)) throw new Error('This is already a return entry and cannot be returned again');
+
+    const pRes = await client.query(
+      `SELECT p.*, p.purchase_date::text AS purchase_date_text, s.name AS supplier_name
+       FROM purchases p JOIN suppliers s ON s.id = p.supplier_id
+       WHERE p.purchase_number = $1 FOR UPDATE OF p`, [number]
+    );
+    if (!pRes.rows.length) throw new Error(`Purchase ${number} not found`);
+    const p = pRes.rows[0];
+    const returnNumber = `${p.purchase_number}-R`;
+    const dup = await client.query('SELECT 1 FROM purchases WHERE purchase_number = $1', [returnNumber]);
+    if (dup.rows.length) throw new Error(`Purchase ${p.purchase_number} has already been returned (${returnNumber})`);
+
+    const itemsRes = await client.query(
+      `SELECT pi.*, pr.name AS product_name, pr.brand, pr.is_service
+       FROM purchase_items pi JOIN products pr ON pr.id = pi.product_id
+       WHERE pi.purchase_id = $1 ORDER BY pi.id`, [p.id]
+    );
+    const items = itemsRes.rows;
+    if (!items.length) throw new Error('This purchase has no items');
+
+    const ledRes = await client.query(
+      `SELECT sl.*, sl.transaction_date::text AS txn_date,
+              (sl.created_at > (SELECT x.created_at FROM supplier_ledger x
+                                 WHERE x.reference_id = sl.reference_id
+                                   AND x.transaction_type = 'purchase' AND x.reference_type = 'purchase'
+                                 ORDER BY x.created_at LIMIT 1)) AS is_later
+       FROM supplier_ledger sl
+       WHERE sl.reference_id = $1
+       ORDER BY sl.created_at, (sl.transaction_type = 'payment'), sl.id`, [p.id]
+    );
+    const ledger = ledRes.rows;
+    if (ledger.filter(r => r.transaction_type === 'purchase').length !== 1)
+      throw new Error('Supplier ledger entry of this purchase was not found, so it cannot be returned safely');
+    if (ledger.some(r => !['purchase', 'payment'].includes(r.transaction_type)))
+      throw new Error('This purchase has an unexpected ledger entry, so it cannot be returned automatically');
+
+    // ── Closed register on any affected day blocks the return ────────────────────
+    const days = new Map();
+    if (p.shop_id) days.set(`${p.shop_id}|${p.purchase_date_text}`, { shop: p.shop_id, date: p.purchase_date_text });
+    ledger.forEach(r => { if (r.shop_id) days.set(`${r.shop_id}|${r.txn_date}`, { shop: r.shop_id, date: r.txn_date }); });
+    for (const d of days.values()) {
+      const reg = await client.query(
+        'SELECT status FROM cash_register WHERE register_date = $1 AND shop_id = $2', [d.date, d.shop]
+      );
+      if (reg.rows[0]?.status === 'closed') {
+        throw new Error(
+          `Cannot return this purchase — the cash register for ${d.date} is closed. ` +
+          `Please reopen that day's register before processing this return.`
+        );
+      }
+    }
+
+    // ── Enough stock to take back? ───────────────────────────────────────────────
+    const need = new Map();
+    items.forEach(it => {
+      if (it.is_service) return;
+      const shop = it.shop_id || p.shop_id;
+      const key = `${it.product_id}|${shop}`;
+      const cur = need.get(key) || { product_id: it.product_id, shop, qty: 0, label: `${it.brand ? it.brand + ' ' : ''}${it.product_name}` };
+      cur.qty += parseInt(it.qty) || 1;
+      need.set(key, cur);
+    });
+    for (const n of need.values()) {
+      const inv = await client.query(
+        'SELECT quantity FROM inventory WHERE product_id = $1 AND shop_id = $2 FOR UPDATE', [n.product_id, n.shop]
+      );
+      const have = inv.rows.length ? parseInt(inv.rows[0].quantity) : 0;
+      if (have < n.qty) throw new Error(`Not enough stock to return ${n.label} (needed ${n.qty}, in stock ${have})`);
+    }
+
+    // ── 1. purchases: negative row ───────────────────────────────────────────────
+    const T = round2(p.total_amount), paid = round2(p.amount_paid);
+    const status = paid >= T ? 'paid' : paid > 0 ? 'partial' : 'unpaid';
+    const retRes = await client.query(
+      `INSERT INTO purchases (purchase_number, supplier_id, purchase_date, total_amount, amount_paid, payment_status, notes, shop_id, created_by)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+      [returnNumber, p.supplier_id, p.purchase_date_text, -T, -paid, status,
+       `Return of ${p.purchase_number}${note ? ' — ' + note : ''}`, p.shop_id, req.user?.id || null]
+    );
+    const retId = retRes.rows[0].id;
+
+    // ── 2. purchase_items: same items, same price, negative qty ──────────────────
+    for (const it of items) {
+      await client.query(
+        `INSERT INTO purchase_items (purchase_id, product_id, serial_number, imei, qty, unit_cost, recommended_selling_price, shop_id)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
+        [retId, it.product_id, it.serial_number, it.imei, -(parseInt(it.qty) || 1), it.unit_cost,
+         it.recommended_selling_price || 0, it.shop_id]
+      );
+    }
+
+    // ── 3. supplier ledger + balance: a negative twin of every row ───────────────
+    const sup = await client.query('SELECT balance FROM suppliers WHERE id = $1 FOR UPDATE', [p.supplier_id]);
+    const balanceBefore = round2(sup.rows[0].balance);
+    let running = balanceBefore;
+    const ledgerAdded = [];
+    for (const row of ledger) {
+      const rev = round2(-parseFloat(row.amount));
+      running = round2(running + rev);
+      const isPurchaseRow = row.transaction_type === 'purchase';
+      const type = isPurchaseRow ? 'return' : 'payment';
+      const desc = isPurchaseRow
+        ? `Purchase return ${p.purchase_number} - ${items.length} item(s)`
+        : (String(row.description || '').startsWith('Payment with purchase')
+            ? `Payment with purchase ${returnNumber}`
+            : `Payment returned for ${p.purchase_number}`);
+      await client.query(
+        // clock_timestamp() (not the transaction's now()) so these rows keep their order:
+        // return row first, then its payment row — the ledger page sorts by created_at.
+        `INSERT INTO supplier_ledger (supplier_id, transaction_type, reference_id, reference_type, amount, balance_after, description, transaction_date, shop_id, created_at)
+         VALUES ($1,$2,$3,'purchase',$4,$5,$6,$7,$8, clock_timestamp())`,
+        [p.supplier_id, type, retId, rev, running, desc, row.txn_date, row.shop_id]
+      );
+      ledgerAdded.push({ type, amount: rev, date: row.txn_date, description: desc });
+
+      // A payment recorded later through "Pay" also bumped the register's stored
+      // total_expenses on its date — take that back too.
+      if (row.transaction_type === 'payment' && row.is_later && row.shop_id) {
+        await client.query(
+          'UPDATE cash_register SET total_expenses = total_expenses - $1 WHERE register_date = $2 AND shop_id = $3',
+          [Math.abs(parseFloat(row.amount)), row.txn_date, row.shop_id]
+        );
+      }
+    }
+    await client.query('UPDATE suppliers SET balance = $1 WHERE id = $2', [running, p.supplier_id]);
+
+    // ── 4. stock + stock movements (service items never had either) ──────────────
+    for (const n of need.values()) {
+      await client.query(
+        'UPDATE inventory SET quantity = quantity - $1, last_updated = NOW() WHERE product_id = $2 AND shop_id = $3',
+        [n.qty, n.product_id, n.shop]
+      );
+    }
+    for (const it of items.filter(i => !i.is_service)) {
+      await client.query(
+        `INSERT INTO stock_movements (product_id, type, quantity, note, created_by) VALUES ($1,'out',$2,$3,$4)`,
+        [it.product_id, parseInt(it.qty) || 1,
+         `Purchase Return: ${p.purchase_number}${it.serial_number ? ' — ' + it.serial_number : ''}`, req.user?.id || null]
+      );
+    }
+
+    const result = {
+      dry_run: dryRun,
+      purchase_number: p.purchase_number,
+      return_number: returnNumber,
+      supplier_name: p.supplier_name,
+      purchase_date: p.purchase_date_text,
+      total_amount: T,
+      amount_paid: paid,
+      items: items.map(it => ({
+        product: `${it.brand ? it.brand + ' ' : ''}${it.product_name}`,
+        qty: parseInt(it.qty) || 1, unit_cost: round2(it.unit_cost),
+        serial_number: it.serial_number || it.imei || null, service: !!it.is_service,
+      })),
+      ledger_added: ledgerAdded,
+      supplier_balance_before: balanceBefore,
+      supplier_balance_after: running,
+      registers_checked: [...days.values()].map(d => d.date),
+    };
+
+    if (dryRun) await client.query('ROLLBACK');
+    else        await client.query('COMMIT');
+
+    res.json({
+      success: true,
+      message: dryRun ? 'Preview only — nothing was saved' : `Purchase ${p.purchase_number} returned (${returnNumber})`,
       data: result,
     });
   } catch (err) {

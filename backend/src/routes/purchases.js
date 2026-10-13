@@ -8,5 +8,6 @@ router.get('/:id',     ctrl.getPurchase);
 router.post('/',       checkRegisterLock, ctrl.createPurchase);
 router.post('/:id/pay', checkRegisterLock, ctrl.recordPayment);
 router.post('/:id/revise-price', ctrl.revisePurchasePrice);
+router.post('/return', ctrl.returnPurchase);
 
 module.exports = router;

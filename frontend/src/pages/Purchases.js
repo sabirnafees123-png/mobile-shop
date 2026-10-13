@@ -277,6 +277,110 @@ function RevisePriceModal({ purchase, onClose, onDone }) {
   );
 }
 
+// ── Return Purchase: enter the purchase number, everything is reversed on its date ──
+function ReturnPurchaseModal({ onClose, onDone }) {
+  const [number, setNumber]   = useState('');
+  const [note, setNote]       = useState('');
+  const [preview, setPreview] = useState(null);
+  const [busy, setBusy]       = useState(false);
+  const [error, setError]     = useState('');
+
+  const run = async (dry) => {
+    const n = number.trim();
+    if (!n) return toast.error('Enter the purchase number');
+    setBusy(true); setError('');
+    try {
+      const r = await api.post('/purchases/return', { purchase_number: n, note: note.trim() || undefined, dry_run: dry });
+      if (dry) setPreview(r.data?.data || null);
+      else { toast.success(r.data?.message || 'Purchase returned'); onDone(); }
+    } catch (err) {
+      setPreview(null);
+      setError(err.response?.data?.message || 'Failed');
+    } finally { setBusy(false); }
+  };
+
+  const money = n => `AED ${Number(n || 0).toLocaleString('en-AE', { maximumFractionDigits: 2 })}`;
+  const th = { textAlign:'left', padding:'6px 10px', fontSize:'.76rem', color:'#64748b', borderBottom:'1px solid var(--border)' };
+  const td = { padding:'6px 10px', borderBottom:'1px solid var(--border)', fontSize:'.86rem' };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal" style={{ maxWidth:'720px', width:'96vw', maxHeight:'92vh', overflowY:'auto' }} onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <strong>↩️ Return Purchase</strong>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div className="form-group" style={{ marginBottom:'12px' }}>
+            <label className="form-label">Purchase number *</label>
+            <input className="form-control" placeholder="e.g. PUR-2026-642" value={number} autoFocus
+              onChange={e => { setNumber(e.target.value); setPreview(null); setError(''); }}
+              onKeyDown={e => { if (e.key === 'Enter' && !preview) run(true); }} />
+          </div>
+          <div className="form-group" style={{ marginBottom:'12px' }}>
+            <label className="form-label">Reason (optional)</label>
+            <input className="form-control" placeholder="e.g. supplier took the goods back" value={note}
+              onChange={e => setNote(e.target.value)} />
+          </div>
+
+          {error && (
+            <div style={{ border:'1px solid #fecaca', background:'#fef2f2', color:'#991b1b', borderRadius:'8px', padding:'10px 12px', fontSize:'.88rem', marginBottom:'12px' }}>
+              {error}
+            </div>
+          )}
+
+          {preview && (
+            <div style={{ border:'1px solid #bfdbfe', background:'#eff6ff', borderRadius:'8px', padding:'12px 14px', fontSize:'.88rem' }}>
+              <div style={{ fontWeight:700, marginBottom:'8px' }}>Review — nothing is saved yet</div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:'4px 18px', marginBottom:'10px' }}>
+                <div>Purchase: <strong>{preview.purchase_number}</strong></div>
+                <div>Return entry: <strong>{preview.return_number}</strong></div>
+                <div>Supplier: <strong>{preview.supplier_name}</strong></div>
+                <div>Date (same as purchase): <strong>{preview.purchase_date}</strong></div>
+                <div>Total: <strong>{money(preview.total_amount)}</strong></div>
+                <div>Paid: <strong>{money(preview.amount_paid)}</strong></div>
+              </div>
+
+              <table style={{ width:'100%', borderCollapse:'collapse', background:'#fff', marginBottom:'10px' }}>
+                <thead><tr><th style={th}>Item</th><th style={{ ...th, textAlign:'right' }}>Qty</th><th style={{ ...th, textAlign:'right' }}>Price</th></tr></thead>
+                <tbody>
+                  {preview.items.map((it, k) => (
+                    <tr key={k}>
+                      <td style={td}>{it.product}{it.serial_number && <span style={{ fontFamily:'monospace', fontSize:'.72rem', color:'#64748b' }}> · {it.serial_number}</span>}</td>
+                      <td style={{ ...td, textAlign:'right', color:'#dc2626' }}>−{it.qty}</td>
+                      <td style={{ ...td, textAlign:'right' }}>{money(it.unit_cost)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+
+              <div style={{ fontWeight:600, marginBottom:'4px' }}>Entries that will be added (same date, negative):</div>
+              {preview.ledger_added.map((l, k) => (
+                <div key={k}>• Supplier ledger — {l.type === 'return' ? 'Purchase Return' : 'Payment Returned'}: <strong>{l.amount < 0 ? '−' : '+'}{money(Math.abs(l.amount))}</strong> on {l.date}</div>
+              ))}
+              <div>• Stock: items taken out of stock, stock movement “Purchase Return”</div>
+              <div style={{ marginTop:'6px' }}>Supplier balance: <strong>{money(preview.supplier_balance_before)} → {money(preview.supplier_balance_after)}</strong></div>
+              <div style={{ color:'#475569', marginTop:'4px' }}>Registers checked (all open): {preview.registers_checked.join(', ')}</div>
+            </div>
+          )}
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          {!preview ? (
+            <button className="btn btn-primary" onClick={() => run(true)} disabled={busy || !number.trim()}>
+              {busy ? 'Checking...' : 'Check'}
+            </button>
+          ) : (
+            <button className="btn btn-primary" style={{ background:'#dc2626' }} onClick={() => run(false)} disabled={busy}>
+              {busy ? 'Returning...' : 'Confirm Return'}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Purchases() {
   const [purchases, setPurchases]     = useState([]);
   const [suppliers, setSuppliers]     = useState([]);
@@ -288,6 +392,7 @@ export default function Purchases() {
   const [viewLoading, setViewLoading]         = useState(false);
   const [showSupPay, setShowSupPay]           = useState(null);
   const [revisePurchase, setRevisePurchase]   = useState(null);
+  const [showReturn, setShowReturn]           = useState(false);
   const [supPayForm, setSupPayForm]           = useState({ amount: '', payment_date: new Date().toISOString().split('T')[0], payment_method: 'cash', note: '' });
   const [filterShop, setFilterShop]           = useState('');
   const [filterStatus, setFilterStatus]       = useState('');
@@ -652,6 +757,7 @@ export default function Purchases() {
             <option value="unpaid">Unpaid</option>
           </select>
           <button className="btn btn-ghost btn-sm" onClick={() => { setSearch(''); setFilterShop(''); setFilterStatus(''); }}>✕ Clear</button>
+          <button className="btn btn-ghost" style={{ color:'#dc2626' }} onClick={() => setShowReturn(true)}>↩️ Return Purchase</button>
           <button className="btn btn-primary" onClick={openAdd}>+ New Purchase</button>
         </div>
       </div>
@@ -689,7 +795,11 @@ export default function Purchases() {
                             {expandedRows[p.id] ? '−' : '+'}
                           </button>
                         </td>
-                        <td><span className="badge badge-blue">{p.purchase_number}</span></td>
+                        <td>
+                          <span className="badge badge-blue">{p.purchase_number}</span>
+                          {/-R$/.test(p.purchase_number) && <span className="badge badge-red" style={{ marginLeft:'6px' }}>↩️ Return</span>}
+                          {p.is_returned && <span className="badge badge-gray" style={{ marginLeft:'6px' }}>Returned</span>}
+                        </td>
                         <td>{p.supplier_name}</td>
                         <td>{fmtDate(p.purchase_date)}</td>
                         <td>{p.item_count}</td>
@@ -700,8 +810,10 @@ export default function Purchases() {
                         <td>
                           <div style={{ display:'flex', gap:'4px' }}>
                             <button className="btn btn-ghost btn-sm" onClick={() => openView(p)}>👁️</button>
-                            <button className="btn btn-ghost btn-sm" title="Revise item rates (discount / correction)" onClick={() => setRevisePurchase(p)}>💲 Revise</button>
-                            {(p.payment_status === 'unpaid' || p.payment_status === 'partial') && (
+                            {!/-R$/.test(p.purchase_number) && !p.is_returned && (
+                              <button className="btn btn-ghost btn-sm" title="Revise item rates (discount / correction)" onClick={() => setRevisePurchase(p)}>💲 Revise</button>
+                            )}
+                            {!/-R$/.test(p.purchase_number) && !p.is_returned && (p.payment_status === 'unpaid' || p.payment_status === 'partial') && (
                               <button
                                 className="btn btn-sm"
                                 style={{ background:'#fef3c7', color:'#92400e', border:'none', cursor:'pointer', fontSize:'.75rem', padding:'3px 8px', borderRadius:'6px' }}
@@ -1042,6 +1154,14 @@ export default function Purchases() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ── Return Purchase Modal ── */}
+      {showReturn && (
+        <ReturnPurchaseModal
+          onClose={() => setShowReturn(false)}
+          onDone={() => { setShowReturn(false); load(filterShop, page); }}
+        />
       )}
 
       {/* ── Revise Price Modal ── */}

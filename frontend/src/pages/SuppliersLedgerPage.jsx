@@ -266,13 +266,17 @@ function SupplierLedger({ supplier, onBack, onPayment }) {
                 {data.ledger.map((row, i) => (
                   <tr key={i} className={`row-${row.type}`}>
                     <td>{fmtDate(row.entry_date)}</td>
-                    <td><span className={`type-badge ${row.type}`}>{row.type === 'purchase' ? '📦 Purchase' : '💳 Payment'}</span></td>
+                    <td><span className={`type-badge ${row.type === 'return' || (row.type === 'payment' && Number(row.amount) > 0) ? 'return' : row.type}`}>
+                      {row.type === 'return' ? '↩️ Purchase Return'
+                        : row.type === 'payment' && Number(row.amount) > 0 ? '↩️ Payment Returned'
+                        : row.type === 'purchase' ? '📦 Purchase' : '💳 Payment'}
+                    </span></td>
                     <td className="ref">{row.reference || '—'}</td>
                     <td className="note-cell">{row.note || ''}{row.payment_method && row.payment_method !== 'cash' && <span className="method-chip">{row.payment_method}</span>}</td>
-                    <td className="num debit">{row.debit > 0 ? fmt(row.debit) : '—'}</td>
-                    <td className="num credit">{row.credit > 0 ? fmt(row.credit) : '—'}</td>
+                    <td className="num debit">{Number(row.debit) !== 0 ? fmt(row.debit) : '—'}</td>
+                    <td className="num credit">{Number(row.credit) !== 0 ? fmt(row.credit) : '—'}</td>
                     <td className={`num balance ${row.balance > 0 ? 'owing' : 'clear'}`}>{fmt(row.balance)}</td>
-                    <td>{row.type === 'payment' && <button className="btn-icon danger" onClick={() => handleDeletePayment(row.ref_id)} title="Delete">🗑</button>}</td>
+                    <td>{row.type === 'payment' && Number(row.amount) < 0 && <button className="btn-icon danger" onClick={() => handleDeletePayment(row.ref_id)} title="Delete">🗑</button>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -457,6 +461,7 @@ const CSS = `
   .type-badge { padding: 3px 8px; border-radius: 12px; font-size: .78rem; font-weight: 500; }
   .type-badge.purchase { background: #fef3c7; color: #92400e; }
   .type-badge.payment  { background: #d1fae5; color: #065f46; }
+  .type-badge.return   { background: #fee2e2; color: #991b1b; }
   .balance-pill, .balance-badge { padding: 4px 10px; border-radius: 12px; font-size: .82rem; font-weight: 600; }
   .balance-pill.owing, .balance-badge.owing { background: #fee2e2; color: #dc2626; }
   .balance-pill.clear, .balance-badge.clear { background: #d1fae5; color: #059669; }
