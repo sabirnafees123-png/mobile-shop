@@ -79,6 +79,7 @@ const attendanceRoutes   = require('./routes/attendance');
 const userLogRoutes      = require('./routes/userLog');
 const financeRoutes       = require('./routes/finance');
 const stockCountRoutes   = require('./routes/stockCount');
+const consignmentRoutes  = require('./routes/consignments');
 
 app.use('/api/v1/dashboard',      dashboardRoutes);
 app.use('/api/v1/products',       productRoutes);
@@ -97,6 +98,7 @@ app.use('/api/v1/attendance',     attendanceRoutes);
 app.use('/api/v1/user-log',        userLogRoutes);
 app.use('/api/v1/finance',        financeRoutes);
 app.use('/api/v1/stock-count',    stockCountRoutes);
+app.use('/api/v1/consignments',   consignmentRoutes);
 
 // ─── Health check ────────────────────────────────────────────────────────────
 app.get('/health', (req, res) => res.json({ status: 'OK', timestamp: new Date().toISOString() }));

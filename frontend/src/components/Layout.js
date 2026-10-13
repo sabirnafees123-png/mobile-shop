@@ -26,6 +26,7 @@ export default function Layout({ children, user, onLogout }) {
     { path: '/cheques',       label: 'Cheques',       icon: ChequesIcon,      roles: ['admin','accountant'] },
     { path: '/cash-register', label: 'Cash Register', icon: CashIcon,         roles: ['admin','accountant'] },
     { path: '/transfers',     label: 'Transfers',     icon: TransfersIcon,    roles: ['admin','accountant'] },
+    { path: '/consignment',   label: 'Consignment',   icon: ConsignmentIcon,  roles: ['admin','staff','accountant'] },
     { path: '/obligations',   label: 'Obligations',   icon: ObligationsIcon,  roles: ['admin','accountant'] },
     { path: '/finance',       label: 'Finance',       icon: FinanceIcon,      roles: ['admin','accountant'] },
     { path: '/user-log',      label: 'User Log',      icon: UserLogIcon,      roles: ['admin'] },
@@ -448,6 +449,11 @@ const TransfersIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <polyline points="17,1 21,5 17,9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/>
     <polyline points="7,23 3,19 7,15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>
+  </svg>
+);
+const ConsignmentIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 8l-9-5-9 5v8l9 5 9-5z"/><polyline points="3.3,7.5 12,12.5 20.7,7.5"/><line x1="12" y1="22" x2="12" y2="12.5"/>
   </svg>
 );
 const ObligationsIcon = () => (

@@ -3,6 +3,7 @@ const express = require('express');
 const router  = express.Router();
 const { query, getClient } = require('../config/database');
 const checkRegisterLock = require('../middleware/checkRegisterLock');
+const { assertFreeStock } = require('../utils/consignment');
 
 // GET all shops
 router.get('/', async (req, res) => {
@@ -90,6 +91,9 @@ router.post('/transfers', checkRegisterLock, async (req, res) => {
     );
     if (!src.rows.length || src.rows[0].quantity < quantity)
       throw new Error('Insufficient stock in source shop');
+
+    // Units lying with another shop on consignment cannot be transferred away
+    await assertFreeStock(client, product_id, from_shop_id, parseInt(src.rows[0].quantity), parseInt(quantity), 'Transfer');
 
     // Deduct from source
     await client.query(

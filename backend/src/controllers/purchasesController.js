@@ -1,5 +1,6 @@
 // src/controllers/purchasesController.js
 const { query, getClient } = require('../config/database');
+const { assertFreeStock } = require('../utils/consignment');
 
 // Product categories the purchase form lets the user choose from.
 // Older / alternative spellings are mapped to these (the database uses these names).
@@ -707,6 +708,7 @@ exports.returnPurchase = async (req, res) => {
       );
       const have = inv.rows.length ? parseInt(inv.rows[0].quantity) : 0;
       if (have < n.qty) throw new Error(`Not enough stock to return ${n.label} (needed ${n.qty}, in stock ${have})`);
+      await assertFreeStock(client, n.product_id, n.shop, have, n.qty, `Return ${n.label}`);
     }
 
     // ── 1. purchases: negative row ───────────────────────────────────────────────

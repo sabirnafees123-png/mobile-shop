@@ -1,5 +1,6 @@
 // src/controllers/inventoryController.js
 const { query, getClient } = require('../config/database');
+const { assertFreeStock } = require('../utils/consignment');
 
 // Category filter: case-insensitive, and includes the known older spellings stored in the database.
 const CATEGORY_ALIASES = {
@@ -127,6 +128,10 @@ const adjustStock = async (req, res) => {
 
     if (newQty < 0)
       return res.status(400).json({ success: false, message: 'Stock cannot go below 0' });
+
+    // Cannot reduce stock below the units lying with another shop on consignment
+    if (newQty < current.rows[0].quantity)
+      await assertFreeStock(client, product_id, shop_id, current.rows[0].quantity, current.rows[0].quantity - newQty, 'Adjust');
 
     const updated = await client.query(
       `UPDATE inventory SET quantity = $1, last_updated = NOW()

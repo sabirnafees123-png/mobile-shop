@@ -22,6 +22,7 @@ import UserLog     from './pages/UserLog';
 import Transfers from './pages/Transfers';
 import Attendance from './pages/Attendance';
 import StockCount from './pages/StockCount';
+import Consignment from './pages/Consignment';
 
 
 
@@ -141,6 +142,7 @@ export default function App() {
 		  <Route path="/user-log" element={<ProtectedRoute allowedRoles={['admin']}><UserLog /></ProtectedRoute>} />
 		  <Route path="/transfers" element={<ProtectedRoute allowedRoles={['admin','accountant']}><Transfers /></ProtectedRoute>} />
 		  <Route path="/attendance" element={<ProtectedRoute allowedRoles={['admin','accountant']}><Attendance user={user} /></ProtectedRoute>} />
+		  <Route path="/consignment" element={<Consignment />} />
 		  <Route path="/stock-count" element={<ProtectedRoute allowedRoles={['admin','accountant']}><StockCount user={user} /></ProtectedRoute>} />
 
                   {/* Expenses: admin and accountant only */}

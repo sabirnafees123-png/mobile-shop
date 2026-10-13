@@ -1,5 +1,6 @@
 // src/controllers/salesController.js
 const { query, getClient } = require('../config/database');
+const { consumeForSale } = require('../utils/consignment');
 
 async function generateInvoiceNumber(client) {
   // Use a sequence-safe approach: MAX on invoice_number for this year (index-friendly)
@@ -315,6 +316,13 @@ exports.createSale = async (req, res) => {
         mvParams
       );
     }
+
+    // ── Consignment: close sold units / protect units lying with another shop ──
+    await consumeForSale(client, {
+      items, shopId: shop_id, invoiceId,
+      saleDate: sale_date || new Date().toISOString().split('T')[0],
+      userId, serviceMap, stockMap, nameMap,
+    });
 
     // ── Exchange product handling ──────────────────────────────────────
     if (is_exchange && exchange_product_name) {

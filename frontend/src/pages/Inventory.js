@@ -240,6 +240,87 @@ function ExpressSaleModal({ item, onClose, onDone, isAdmin }) {
   );
 }
 
+function GiveConsignmentModal({ item, onClose, onDone }) {
+  const [shops, setShops]   = useState([]);
+  const [holder, setHolder] = useState('');
+  const [qty, setQty]       = useState(1);
+  const [notes, setNotes]   = useState('');
+  const [givenDate, setGivenDate] = useState(() => {
+    const d = new Date();
+    return new Date(d.getTime() - d.getTimezoneOffset()*60000).toISOString().split('T')[0];
+  });
+  const [saving, setSaving] = useState(false);
+  useEffect(() => {
+    api.get('/shops').then(r => setShops((r.data?.data || []).filter(s => s.id !== item.shop_id))).catch(() => setShops([]));
+  }, [item.shop_id]);
+  if (!item) return null;
+
+  const submit = async () => {
+    const q = parseInt(qty);
+    if (!holder) return toast.error('Select the shop that will keep this stock');
+    if (!q || q <= 0) return toast.error('Enter a valid quantity');
+    if (q > item.quantity) return toast.error(`Only ${item.quantity} in stock`);
+    setSaving(true);
+    try {
+      await api.post('/consignments', {
+        product_id: item.product_id,
+        owner_shop_id: item.shop_id,
+        holder_shop_id: parseInt(holder),
+        qty: q,
+        given_date: givenDate,
+        notes: notes || undefined,
+      });
+      toast.success('Given on consignment — see the Consignment page');
+      onDone(); onClose();
+    } catch (err) { toast.error(err.response?.data?.message || 'Failed'); }
+    finally { setSaving(false); }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal" style={{maxWidth:'420px'}} onClick={e=>e.stopPropagation()}>
+        <div className="modal-header">
+          <strong>🤝 Give on Consignment — {item.name}</strong>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+        <div className="modal-body">
+          <div style={{padding:'10px 12px',background:'var(--bg-secondary)',borderRadius:'8px',marginBottom:'14px',fontSize:'.82rem'}}>
+            <strong>{item.shop_name}</strong> keeps ownership. Stock stays in {item.shop_name}'s inventory;
+            when sold, the invoice is made under {item.shop_name}.
+            {item.serial_number ? ` S/N ${item.serial_number}.` : ''}
+          </div>
+          <div className="form-group" style={{marginBottom:'12px'}}>
+            <label className="form-label">Kept at (other shop)</label>
+            <select className="form-control" value={holder} onChange={e=>setHolder(e.target.value)}>
+              <option value="">Select shop…</option>
+              {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          </div>
+          <div className="form-group" style={{marginBottom:'12px'}}>
+            <label className="form-label">Quantity (in stock: {item.quantity})</label>
+            <input type="number" min="1" max={item.quantity} className="form-control" value={qty}
+              onChange={e=>setQty(e.target.value)} disabled={!!item.serial_number} />
+          </div>
+          <div className="form-group" style={{marginBottom:'12px'}}>
+            <label className="form-label">Date</label>
+            <input type="date" className="form-control" value={givenDate} onChange={e=>setGivenDate(e.target.value)} />
+          </div>
+          <div className="form-group">
+            <label className="form-label">Note (optional)</label>
+            <input type="text" className="form-control" value={notes} onChange={e=>setNotes(e.target.value)} />
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn btn-ghost" onClick={onClose}>Cancel</button>
+          <button className="btn btn-primary" onClick={submit} disabled={saving}>
+            {saving ? 'Saving…' : 'Give'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MovementsModal({ productId, productName, onClose }) {
   const [movements, setMovements] = useState([]);
   const [loading, setLoading]     = useState(true);
@@ -295,7 +376,7 @@ function MovementsModal({ productId, productName, onClose }) {
   );
 }
 
-function ActionsMenu({ item, onExpress, onAdjust, onPrice, onLedger, onTransfer }) {
+function ActionsMenu({ item, onExpress, onAdjust, onPrice, onLedger, onTransfer, onConsign }) {
   const [open, setOpen] = useState(false);
   const ref = useRef();
   useEffect(() => {
@@ -308,6 +389,7 @@ function ActionsMenu({ item, onExpress, onAdjust, onPrice, onLedger, onTransfer 
     { label: '± Adjust Stock', action: onAdjust },
     { label: '💰 Edit Price',  action: onPrice },
     item.quantity > 0 && { label: '🔄 Transfer', action: onTransfer },
+    item.quantity > 0 && { label: '🤝 Give on Consignment', action: onConsign },
     { label: '📋 Ledger',      action: onLedger },
   ].filter(Boolean);
   return (
@@ -348,6 +430,7 @@ export default function Inventory() {
   const [adjustItem, setAdjustItem]     = useState(null);
   const [expressItem, setExpressItem]   = useState(null);
   const [transferItem, setTransferItem] = useState(null);
+  const [consignItem, setConsignItem]   = useState(null);
   const [editPriceItem, setEditPriceItem] = useState(null);
   const [movementItem, setMovementItem] = useState(null);
 
@@ -453,6 +536,7 @@ export default function Inventory() {
       {adjustItem    && <AdjustModal    item={adjustItem}    onClose={()=>setAdjustItem(null)}    onDone={()=>fetchInventory(page)} isAdmin={isAdmin} />}
       {expressItem   && <ExpressSaleModal item={expressItem} onClose={()=>setExpressItem(null)}   onDone={()=>fetchInventory(page)} isAdmin={isAdmin} />}
       {transferItem  && <TransferModal initialItem={transferItem} onClose={()=>setTransferItem(null)} onDone={()=>fetchInventory(page)} />}
+      {consignItem   && <GiveConsignmentModal item={consignItem} onClose={()=>setConsignItem(null)} onDone={()=>fetchInventory(page)} />}
       {editPriceItem && <EditPriceModal item={editPriceItem} onClose={()=>setEditPriceItem(null)} onDone={()=>fetchInventory(page)} />}
       {movementItem  && <MovementsModal productId={movementItem.product_id} productName={movementItem.name} onClose={()=>setMovementItem(null)} />}
       <input ref={fileInputRef} type="file" accept=".csv" style={{display:'none'}} onChange={handleImport} />
@@ -674,7 +758,8 @@ export default function Inventory() {
                               onAdjust={()=>setAdjustItem(item)}
                               onPrice={()=>setEditPriceItem(item)}
                               onLedger={()=>setMovementItem(item)}
-                              onTransfer={()=>setTransferItem(item)} />
+                              onTransfer={()=>setTransferItem(item)}
+                              onConsign={()=>setConsignItem(item)} />
                           </td>
                       </tr>
                     );
