@@ -241,8 +241,10 @@ function ExpressSaleModal({ item, onClose, onDone, isAdmin }) {
 }
 
 function GiveConsignmentModal({ item, onClose, onDone }) {
-  const [shops, setShops]   = useState([]);
-  const [holder, setHolder] = useState('');
+  const [parties, setParties] = useState([]);
+  const [party, setParty]     = useState('');          // party id, or '__new__'
+  const [newName, setNewName]   = useState('');
+  const [newPhone, setNewPhone] = useState('');
   const [qty, setQty]       = useState(1);
   const [notes, setNotes]   = useState('');
   const [givenDate, setGivenDate] = useState(() => {
@@ -251,21 +253,27 @@ function GiveConsignmentModal({ item, onClose, onDone }) {
   });
   const [saving, setSaving] = useState(false);
   useEffect(() => {
-    api.get('/shops').then(r => setShops((r.data?.data || []).filter(s => s.id !== item.shop_id))).catch(() => setShops([]));
-  }, [item.shop_id]);
+    api.get('/consignments/parties').then(r => setParties(r.data?.data || [])).catch(() => setParties([]));
+  }, []);
   if (!item) return null;
 
   const submit = async () => {
     const q = parseInt(qty);
-    if (!holder) return toast.error('Select the shop that will keep this stock');
+    if (!party) return toast.error('Select the party who will keep this stock');
+    if (party === '__new__' && !newName.trim()) return toast.error('Enter the party name');
     if (!q || q <= 0) return toast.error('Enter a valid quantity');
     if (q > item.quantity) return toast.error(`Only ${item.quantity} in stock`);
     setSaving(true);
     try {
+      let partyId = party;
+      if (party === '__new__') {
+        const pr = await api.post('/consignments/parties', { name: newName.trim(), phone: newPhone.trim() });
+        partyId = pr.data?.data?.id;
+      }
       await api.post('/consignments', {
         product_id: item.product_id,
         owner_shop_id: item.shop_id,
-        holder_shop_id: parseInt(holder),
+        party_id: partyId,
         qty: q,
         given_date: givenDate,
         notes: notes || undefined,
@@ -285,17 +293,26 @@ function GiveConsignmentModal({ item, onClose, onDone }) {
         </div>
         <div className="modal-body">
           <div style={{padding:'10px 12px',background:'var(--bg-secondary)',borderRadius:'8px',marginBottom:'14px',fontSize:'.82rem'}}>
-            <strong>{item.shop_name}</strong> keeps ownership. Stock stays in {item.shop_name}'s inventory;
+            Stock goes to a B2B party to sell. It stays in <strong>{item.shop_name}</strong>'s inventory (still yours);
             when sold, the invoice is made under {item.shop_name}.
             {item.serial_number ? ` S/N ${item.serial_number}.` : ''}
           </div>
           <div className="form-group" style={{marginBottom:'12px'}}>
-            <label className="form-label">Kept at (other shop)</label>
-            <select className="form-control" value={holder} onChange={e=>setHolder(e.target.value)}>
-              <option value="">Select shop…</option>
-              {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            <label className="form-label">Party (who keeps the stock)</label>
+            <select className="form-control" value={party} onChange={e=>setParty(e.target.value)}>
+              <option value="">Select party…</option>
+              {parties.map(p => <option key={p.id} value={p.id}>{p.name}{p.phone ? ` — ${p.phone}` : ''}</option>)}
+              <option value="__new__">➕ Add new party…</option>
             </select>
           </div>
+          {party === '__new__' && (
+            <div style={{display:'flex',gap:'8px',marginBottom:'12px'}}>
+              <input type="text" className="form-control" placeholder="Party name" value={newName}
+                onChange={e=>setNewName(e.target.value)} />
+              <input type="text" className="form-control" placeholder="Phone (optional)" value={newPhone}
+                onChange={e=>setNewPhone(e.target.value)} />
+            </div>
+          )}
           <div className="form-group" style={{marginBottom:'12px'}}>
             <label className="form-label">Quantity (in stock: {item.quantity})</label>
             <input type="number" min="1" max={item.quantity} className="form-control" value={qty}

@@ -1,5 +1,5 @@
 // src/pages/Consignment.js
-// Consignment: stock stays in the OWNER shop's inventory but is physically kept in another shop.
+// Consignment: stock given to a B2B party to sell. It stays in the OWNER shop's inventory.
 // Invoices made here are created under the OWNER shop, so cash / profit / register stay with the owner.
 import React, { useEffect, useState, useCallback } from 'react';
 import toast from 'react-hot-toast';
@@ -39,7 +39,7 @@ function InvoiceModal({ item, onClose, onDone }) {
         discount: 0,
         sale_date: saleDate,
         customer_name: customerName || undefined,
-        notes: `Consignment sale — kept at ${item.holder_shop_name}`,
+        notes: `Consignment sale — party: ${item.party_name}`,
         items: [{
           product_id: item.product_id,
           qty: q,
@@ -67,7 +67,7 @@ function InvoiceModal({ item, onClose, onDone }) {
           <div style={{ padding: '10px 12px', background: '#eff6ff', borderRadius: '8px', marginBottom: '14px', fontSize: '.85rem' }}>
             Invoice will be made under <strong>{item.owner_shop_name}</strong> (owner).
             Cash and profit go to {item.owner_shop_name}.<br />
-            Item is kept at <strong>{item.holder_shop_name}</strong>
+            Item is with <strong>{item.party_name}</strong>
             {item.serial_number ? ` — S/N ${item.serial_number}` : ''}.
           </div>
           <div className="form-group" style={{ marginBottom: '12px' }}>
@@ -141,7 +141,7 @@ function ReturnModal({ item, onClose, onDone }) {
         </div>
         <div className="modal-body">
           <div style={{ fontSize: '.85rem', marginBottom: '14px', color: 'var(--text-muted)' }}>
-            {item.holder_shop_name} → {item.owner_shop_name}. Stock was never removed from {item.owner_shop_name}'s
+            {item.party_name} → {item.owner_shop_name}. Stock was never removed from {item.owner_shop_name}'s
             inventory, so only this record is closed.
           </div>
           <div className="form-group" style={{ marginBottom: '12px' }}>
@@ -172,7 +172,8 @@ export default function Consignment() {
   const [summary, setSummary]   = useState([]);
   const [shops, setShops]       = useState([]);
   const [ownerShop, setOwnerShop]   = useState('');
-  const [holderShop, setHolderShop] = useState('');
+  const [partyFilter, setPartyFilter] = useState('');
+  const [parties, setParties]   = useState([]);
   const [search, setSearch]     = useState('');
   const [loading, setLoading]   = useState(true);
   const [invoiceItem, setInvoiceItem] = useState(null);
@@ -180,6 +181,7 @@ export default function Consignment() {
 
   useEffect(() => {
     api.get('/shops').then(r => setShops(r.data?.data || [])).catch(() => setShops([]));
+    api.get('/consignments/parties').then(r => setParties(r.data?.data || [])).catch(() => setParties([]));
   }, []);
 
   const load = useCallback(async () => {
@@ -187,7 +189,7 @@ export default function Consignment() {
     try {
       const params = { status: tab };
       if (ownerShop)  params.owner_shop_id  = ownerShop;
-      if (holderShop) params.holder_shop_id = holderShop;
+      if (partyFilter) params.party_id = partyFilter;
       if (search.trim()) params.search = search.trim();
       const [list, sum] = await Promise.all([
         api.get('/consignments', { params }),
@@ -198,7 +200,7 @@ export default function Consignment() {
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to load consignments');
     } finally { setLoading(false); }
-  }, [tab, ownerShop, holderShop, search]);
+  }, [tab, ownerShop, partyFilter, search]);
 
   useEffect(() => {
     const t = setTimeout(load, search ? 350 : 0);
@@ -226,8 +228,8 @@ export default function Consignment() {
         <div>
           <div className="page-title">🤝 Consignment</div>
           <div className="page-subtitle">
-            Stock given by one shop to another to sell. It stays in the owner shop's inventory; invoices are made
-            under the owner shop. To give stock: Inventory → ⋮ → Give on Consignment.
+            Stock given to B2B parties to sell. It stays in your shop's inventory; invoices are made under the
+            owner shop. To give stock: Inventory → ⋮ → Give on Consignment (new parties can be added there).
           </div>
         </div>
       </div>
@@ -235,9 +237,9 @@ export default function Consignment() {
       {/* Summary: which shop's stock is lying where */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(230px, 1fr))', gap: '12px', marginBottom: '1.25rem' }}>
         {summary.map(s => (
-          <div key={`${s.owner_shop_id}-${s.holder_shop_id}`} className="card" style={{ padding: '1rem' }}>
+          <div key={`${s.owner_shop_id}-${s.party_id}`} className="card" style={{ padding: '1rem' }}>
             <div style={{ fontSize: '.8rem', color: 'var(--text-muted)' }}>
-              <strong>{s.owner_shop_name}</strong> stock lying at <strong>{s.holder_shop_name}</strong>
+              <strong>{s.owner_shop_name}</strong> stock lying with <strong>{s.party_name}</strong>
             </div>
             <div style={{ fontSize: '1.4rem', fontWeight: 700, marginTop: '4px' }}>{s.units} units</div>
             <div style={{ fontSize: '.85rem', color: 'var(--text-muted)' }}>Cost value {fmt(s.cost_value)}</div>
@@ -254,7 +256,7 @@ export default function Consignment() {
         <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
           <div style={{ display: 'flex', gap: '6px' }}>
             <button className={`btn btn-sm ${tab === 'open' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('open')}>
-              At other shop
+              With parties
             </button>
             <button className={`btn btn-sm ${tab === 'closed' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setTab('closed')}>
               History
@@ -268,10 +270,10 @@ export default function Consignment() {
             </select>
           </div>
           <div>
-            <label className="form-label">Kept at</label>
-            <select className="form-control" value={holderShop} onChange={e => setHolderShop(e.target.value)}>
+            <label className="form-label">Party</label>
+            <select className="form-control" value={partyFilter} onChange={e => setPartyFilter(e.target.value)}>
               <option value="">All</option>
-              {shops.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {parties.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
           <div style={{ flex: 1, minWidth: '180px' }}>
@@ -290,7 +292,7 @@ export default function Consignment() {
             <table>
               <thead>
                 <tr>
-                  <th>Given</th><th>Product</th><th>IMEI / Serial</th><th>Owner</th><th>Kept at</th>
+                  <th>Given</th><th>Product</th><th>IMEI / Serial</th><th>Owner</th><th>Party</th>
                   <th>{tab === 'open' ? 'Open qty' : 'Result'}</th>
                   <th>Cost</th>
                   {tab === 'closed' && <th>Invoice</th>}
@@ -300,7 +302,7 @@ export default function Consignment() {
               <tbody>
                 {rows.length === 0 ? (
                   <tr><td colSpan={9} style={{ textAlign: 'center', padding: '28px', color: 'var(--text-muted)' }}>
-                    {tab === 'open' ? 'Nothing is lying at another shop.' : 'No history yet.'}
+                    {tab === 'open' ? 'Nothing is lying with any party.' : 'No history yet.'}
                   </td></tr>
                 ) : rows.map(c => {
                   const open = Number(c.open_qty);
@@ -314,7 +316,7 @@ export default function Consignment() {
                       </td>
                       <td style={{ fontFamily: 'monospace', fontSize: '.8rem' }}>{c.serial_number || '—'}</td>
                       <td><span className="badge badge-blue">{c.owner_shop_name}</span></td>
-                      <td><span className="badge badge-yellow">{c.holder_shop_name}</span></td>
+                      <td><span className="badge badge-yellow">{c.party_name}</span>{c.party_phone && <div style={{ fontSize: '.72rem', color: 'var(--text-muted)' }}>{c.party_phone}</div>}</td>
                       <td>
                         {tab === 'open' ? (
                           <strong>{open}{Number(c.qty) !== open ? <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> / {c.qty}</span> : null}</strong>

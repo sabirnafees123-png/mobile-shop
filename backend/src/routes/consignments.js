@@ -1,5 +1,5 @@
 // src/routes/consignments.js
-// Consignment: stock stays in the OWNER shop's inventory, physically kept in another shop.
+// Consignment: stock given to an outside B2B party to sell. It stays in the OWNER shop's inventory.
 // Invoices are created through the normal POST /sales (items[].consignment_id) under the owner shop.
 const express = require('express');
 const router  = express.Router();
@@ -17,7 +17,7 @@ const BASE_SELECT = `
          COALESCE(p.base_cost, 0)                                             AS base_cost,
          COALESCE(p.selling_price, 0)                                         AS selling_price,
          COALESCE(p.base_cost, 0) * (c.qty - c.sold_qty - c.returned_qty)     AS open_cost_value,
-         os.name AS owner_shop_name, hs.name AS holder_shop_name,
+         os.name AS owner_shop_name, pt.name AS party_name, pt.phone AS party_phone,
          (SELECT string_agg(DISTINCT si.invoice_number, ', ')
             FROM consignment_events e JOIN sales_invoices si ON si.id = e.invoice_id
            WHERE e.consignment_id = c.id AND e.event_type = 'sold')           AS invoices,
@@ -26,19 +26,19 @@ const BASE_SELECT = `
   FROM consignments c
   JOIN products p ON p.id = c.product_id
   JOIN shops os   ON os.id = c.owner_shop_id
-  JOIN shops hs   ON hs.id = c.holder_shop_id
+  JOIN consignment_parties pt ON pt.id = c.party_id
 `;
 
-// GET /consignments?status=open|closed|all&owner_shop_id=&holder_shop_id=&search=
+// GET /consignments?status=open|closed|all&owner_shop_id=&party_id=&search=
 router.get('/', async (req, res) => {
   try {
-    const { status = 'open', owner_shop_id, holder_shop_id, search } = req.query;
+    const { status = 'open', owner_shop_id, party_id, search } = req.query;
     const where = [];
     const params = [];
     if (status === 'open')   where.push('(c.qty - c.sold_qty - c.returned_qty) > 0');
     if (status === 'closed') where.push('(c.qty - c.sold_qty - c.returned_qty) = 0');
     if (owner_shop_id)  { params.push(parseInt(owner_shop_id));  where.push(`c.owner_shop_id = $${params.length}`); }
-    if (holder_shop_id) { params.push(parseInt(holder_shop_id)); where.push(`c.holder_shop_id = $${params.length}`); }
+    if (party_id)       { params.push(party_id);                 where.push(`c.party_id = $${params.length}`); }
     if (search && search.trim()) {
       params.push(`%${search.trim().replace(/\s+/g, '')}%`);
       where.push(`(REPLACE(p.name,' ','') ILIKE $${params.length}
@@ -54,22 +54,22 @@ router.get('/', async (req, res) => {
   }
 });
 
-// GET /consignments/summary — what each owner shop has lying with each other shop (open stock only)
+// GET /consignments/summary — what each owner shop has lying with each party (open stock only)
 router.get('/summary', async (req, res) => {
   try {
     const r = await query(`
       SELECT c.owner_shop_id, os.name AS owner_shop_name,
-             c.holder_shop_id, hs.name AS holder_shop_name,
+             c.party_id, pt.name AS party_name,
              COUNT(*)::int                                                    AS records,
              SUM(c.qty - c.sold_qty - c.returned_qty)::int                    AS units,
              COALESCE(SUM((c.qty - c.sold_qty - c.returned_qty) * COALESCE(p.base_cost,0)), 0) AS cost_value
       FROM consignments c
       JOIN products p ON p.id = c.product_id
       JOIN shops os   ON os.id = c.owner_shop_id
-      JOIN shops hs   ON hs.id = c.holder_shop_id
+      JOIN consignment_parties pt ON pt.id = c.party_id
       WHERE c.qty - c.sold_qty - c.returned_qty > 0
-      GROUP BY c.owner_shop_id, os.name, c.holder_shop_id, hs.name
-      ORDER BY os.name, hs.name
+      GROUP BY c.owner_shop_id, os.name, c.party_id, pt.name
+      ORDER BY os.name, pt.name
     `);
     res.json({ success: true, data: r.rows });
   } catch (err) {
@@ -77,18 +77,71 @@ router.get('/summary', async (req, res) => {
   }
 });
 
-// POST /consignments — give stock of the owner shop to another shop
+// GET /consignments/parties — B2B parties (with how much of our stock each one holds)
+router.get('/parties', async (req, res) => {
+  try {
+    const r = await query(`
+      SELECT pt.id, pt.name, pt.phone, pt.is_active,
+             COALESCE(SUM(c.qty - c.sold_qty - c.returned_qty), 0)::int AS open_units
+      FROM consignment_parties pt
+      LEFT JOIN consignments c ON c.party_id = pt.id
+      WHERE pt.is_active = true
+      GROUP BY pt.id
+      ORDER BY pt.name
+    `);
+    res.json({ success: true, data: r.rows });
+  } catch (err) {
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+// POST /consignments/parties — add a party { name, phone? }
+router.post('/parties', async (req, res) => {
+  try {
+    const name  = (req.body.name || '').trim();
+    const phone = (req.body.phone || '').trim() || null;
+    if (!name) return res.status(400).json({ success: false, message: 'Party name is required' });
+    const dup = await query(
+      `SELECT id FROM consignment_parties WHERE LOWER(TRIM(name)) = LOWER($1)`, [name]);
+    if (dup.rows.length)
+      return res.status(400).json({ success: false, message: `Party "${name}" already exists` });
+    const r = await query(
+      `INSERT INTO consignment_parties (name, phone) VALUES ($1,$2) RETURNING *`, [name, phone]);
+    res.status(201).json({ success: true, data: r.rows[0], message: 'Party added' });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// PUT /consignments/parties/:id — fix name / phone
+router.put('/parties/:id', async (req, res) => {
+  try {
+    const name  = (req.body.name || '').trim();
+    const phone = (req.body.phone || '').trim() || null;
+    if (!name) return res.status(400).json({ success: false, message: 'Party name is required' });
+    const dup = await query(
+      `SELECT id FROM consignment_parties WHERE LOWER(TRIM(name)) = LOWER($1) AND id <> $2`, [name, req.params.id]);
+    if (dup.rows.length)
+      return res.status(400).json({ success: false, message: `Party "${name}" already exists` });
+    const r = await query(
+      `UPDATE consignment_parties SET name = $1, phone = $2 WHERE id = $3 RETURNING *`,
+      [name, phone, req.params.id]);
+    if (!r.rows.length) return res.status(404).json({ success: false, message: 'Party not found' });
+    res.json({ success: true, data: r.rows[0] });
+  } catch (err) {
+    res.status(400).json({ success: false, message: err.message });
+  }
+});
+
+// POST /consignments — give stock of the owner shop to a B2B party
 router.post('/', async (req, res) => {
   const client = await getClient();
   try {
-    const { product_id, owner_shop_id, holder_shop_id, given_date, notes } = req.body;
+    const { product_id, owner_shop_id, party_id, given_date, notes } = req.body;
     const qty = parseInt(req.body.qty);
     const owner  = parseInt(owner_shop_id);
-    const holder = parseInt(holder_shop_id);
-    if (!product_id || !owner || !holder || !qty || qty <= 0)
-      return res.status(400).json({ success: false, message: 'Product, owner shop, other shop and qty are required' });
-    if (owner === holder)
-      return res.status(400).json({ success: false, message: 'Owner shop and other shop must be different' });
+    if (!product_id || !owner || !party_id || !qty || qty <= 0)
+      return res.status(400).json({ success: false, message: 'Product, owner shop, party and qty are required' });
 
     await client.query('BEGIN');
 
@@ -100,8 +153,10 @@ router.post('/', async (req, res) => {
     const hasSerial = !!(prod.rows[0].serial_number && String(prod.rows[0].serial_number).trim());
     if (hasSerial && qty !== 1) throw new Error('This item has an IMEI/serial — quantity must be 1');
 
-    const shops = await client.query(`SELECT id FROM shops WHERE id = ANY($1) AND is_active = true`, [[owner, holder]]);
-    if (shops.rows.length !== 2) throw new Error('Shop not found');
+    const shops = await client.query(`SELECT id FROM shops WHERE id = $1 AND is_active = true`, [owner]);
+    if (!shops.rows.length) throw new Error('Shop not found');
+    const party = await client.query(`SELECT id FROM consignment_parties WHERE id = $1 AND is_active = true`, [party_id]);
+    if (!party.rows.length) throw new Error('Party not found');
 
     // lock the owner's inventory row so two people cannot give the same unit twice
     const inv = await client.query(
@@ -116,9 +171,9 @@ router.post('/', async (req, res) => {
     }
 
     const r = await client.query(
-      `INSERT INTO consignments (product_id, owner_shop_id, holder_shop_id, qty, given_date, notes, created_by)
+      `INSERT INTO consignments (product_id, owner_shop_id, party_id, qty, given_date, notes, created_by)
        VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING *`,
-      [product_id, owner, holder, qty, given_date || today(), notes || null, req.user?.id || null]
+      [product_id, owner, party_id, qty, given_date || today(), notes || null, req.user?.id || null]
     );
     await client.query('COMMIT');
     res.status(201).json({ success: true, data: r.rows[0], message: 'Given on consignment' });

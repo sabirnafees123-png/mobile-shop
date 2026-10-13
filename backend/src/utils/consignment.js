@@ -1,23 +1,30 @@
 // src/utils/consignment.js
-// Consignment = stock that stays in the OWNER shop's inventory (and books) but is
-// physically kept in another shop. Nothing moves in `inventory`; a record in
-// `consignments` says "N units of this product are with shop X".
-// Sales are invoiced under the owner shop, so cash / profit / register stay with the owner.
+// Consignment = stock given to an outside B2B party to sell. It stays in the OWNER shop's
+// inventory (and books); nothing moves in `inventory`. A record in `consignments` says
+// "N units of this product are with party X". Sales are invoiced under the owner shop,
+// so cash / profit / register stay with the owner.
 
 const CREATE_SQL = [
+  `CREATE TABLE IF NOT EXISTS consignment_parties (
+     id         UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+     name       VARCHAR(150) NOT NULL,
+     phone      VARCHAR(50),
+     is_active  BOOLEAN NOT NULL DEFAULT true,
+     created_at TIMESTAMPTZ DEFAULT NOW()
+   )`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS uq_consignment_parties_name ON consignment_parties (LOWER(TRIM(name)))`,
   `CREATE TABLE IF NOT EXISTS consignments (
-     id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-     product_id     UUID NOT NULL REFERENCES products(id),
-     owner_shop_id  INTEGER NOT NULL REFERENCES shops(id),
-     holder_shop_id INTEGER NOT NULL REFERENCES shops(id),
-     qty            INTEGER NOT NULL CHECK (qty > 0),
-     sold_qty       INTEGER NOT NULL DEFAULT 0 CHECK (sold_qty >= 0),
-     returned_qty   INTEGER NOT NULL DEFAULT 0 CHECK (returned_qty >= 0),
-     given_date     DATE NOT NULL DEFAULT CURRENT_DATE,
-     notes          TEXT,
-     created_by     UUID REFERENCES users(id),
-     created_at     TIMESTAMPTZ DEFAULT NOW(),
-     CHECK (owner_shop_id <> holder_shop_id),
+     id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+     product_id    UUID NOT NULL REFERENCES products(id),
+     owner_shop_id INTEGER NOT NULL REFERENCES shops(id),
+     party_id      UUID NOT NULL REFERENCES consignment_parties(id),
+     qty           INTEGER NOT NULL CHECK (qty > 0),
+     sold_qty      INTEGER NOT NULL DEFAULT 0 CHECK (sold_qty >= 0),
+     returned_qty  INTEGER NOT NULL DEFAULT 0 CHECK (returned_qty >= 0),
+     given_date    DATE NOT NULL DEFAULT CURRENT_DATE,
+     notes         TEXT,
+     created_by    UUID REFERENCES users(id),
+     created_at    TIMESTAMPTZ DEFAULT NOW(),
      CHECK (sold_qty + returned_qty <= qty)
    )`,
   `CREATE TABLE IF NOT EXISTS consignment_events (
@@ -45,7 +52,7 @@ async function tableExists(client) {
   return !!r.rows[0].t;
 }
 
-// Units of a product in a shop that are currently lying with another shop.
+// Units of a product in a shop that are currently lying with a B2B party.
 async function openConsigned(client, productId, shopId) {
   if (!(await tableExists(client))) return 0;
   const r = await client.query(
@@ -63,7 +70,7 @@ async function assertFreeStock(client, productId, shopId, onHand, qtyOut, label)
   if (open > 0 && onHand - qtyOut < open) {
     const free = Math.max(onHand - open, 0);
     throw new Error(
-      `${label ? label + ': ' : ''}${open} unit(s) are on consignment with another shop — ` +
+      `${label ? label + ': ' : ''}${open} unit(s) are on consignment with a party — ` +
       `only ${free} free here. Return the consignment first.`
     );
   }
@@ -81,7 +88,7 @@ async function markSold(client, c, take, invoiceId, saleDate, userId) {
 // Called by createSale INSIDE its transaction, after the invoice + stock deduction.
 //  - item.consignment_id given  -> sells from that consignment record (Consignment page).
 //  - item has an IMEI/serial    -> any open consignment of that product is closed as sold.
-//  - plain qty item, no record  -> must not use units that are lying with another shop.
+//  - plain qty item, no record  -> must not use units that are lying with a party.
 async function consumeForSale(client, { items, shopId, invoiceId, saleDate, userId, serviceMap, stockMap, nameMap }) {
   const exists = await tableExists(client);
   if (!exists) {
@@ -130,7 +137,7 @@ async function consumeForSale(client, { items, shopId, invoiceId, saleDate, user
       if (before - qty < openSum) {
         const label = nameMap?.[item.product_id] || 'Item';
         throw new Error(
-          `"${label}": ${openSum} unit(s) are with another shop on consignment — only ` +
+          `"${label}": ${openSum} unit(s) are with a party on consignment — only ` +
           `${Math.max(before - openSum, 0)} free here. Sell consigned units from the Consignment page.`
         );
       }
