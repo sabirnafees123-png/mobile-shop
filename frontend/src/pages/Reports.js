@@ -259,7 +259,6 @@ export default function Reports() {
       const totalMargin = totalSale - totalCost;
       const totalExp     = d.expenses.reduce((s,r)=>s+parseFloat(r.total||0),0);
       const totalNewPurch = d.purchases_new.reduce((s,r)=>s+parseFloat(r.total_amount||0),0);
-      const totalPayOnly  = d.payments_only.reduce((s,r)=>s+parseFloat(r.amount_paid||0),0);
       const totalStock    = d.stock_value.reduce((s,r)=>s+parseFloat(r.cost_value||0),0);
 
       const buildTbl = (headers, rows) => `
@@ -282,30 +281,42 @@ export default function Reports() {
       ];
 
       const purchRows = d.purchases_new.map(r => [r.shop_name, r.supplier_name, fmtN(r.total_amount), fmtN(r.amount_paid), fmtN(r.amount_due)]);
-      const payRows = d.payments_only.map(r => [r.shop_name, r.supplier_name, fmtN(r.amount_paid)]);
-      const expCats = [...new Set(d.expenses.filter(e=>parseFloat(e.total)>0).map(e=>e.category))];
-      const expRows = expCats.map(cat => {
-        const vals = shopNames.map(sh => fmtN(d.expenses.find(e=>e.shop_name===sh&&e.category===cat)?.total||0));
-        const total = d.expenses.filter(e=>e.category===cat).reduce((s,e)=>s+parseFloat(e.total||0),0);
-        return [cat, ...vals, fmtN(total)];
-      });
-      // Use the Cash Register page's own calculation (same numbers as that page: live closing for open days)
+      // Same endpoint the Cash Register page uses for its day-detail window, so both always match
       const cashByShop = {};
       await Promise.all(d.shops.map(async sh => {
         try {
-          const r = await api.get('/cash-register/history', { params: { shop_id: sh.id, from: d.date, to: d.date } });
-          cashByShop[sh.name] = (r.data?.data || []).find(x => x.register_date === d.date) || null;
+          const r = await api.get('/cash-register/detail', { params: { shop_id: sh.id, date: d.date } });
+          cashByShop[sh.name] = r.data?.data || null;
         } catch { cashByShop[sh.name] = null; }
       }));
-      const cashRows = d.cash_register.map(r => {
-        const live = cashByShop[r.shop_name];
-        const opening = live ? live.opening_balance : r.opening_balance;
-        const closing = live ? live.closing_balance : r.closing_balance;
-        const state = live ? (live.is_locked ? 'Closed' : 'Open (live)') : (r.status === 'closed' ? 'Closed' : (r.status ? 'Open' : 'No register'));
-        return [r.shop_name, state, fmtN(opening||0), closing != null ? fmtN(closing) : '—'];
-      });
-      const custRows = d.customer_receipts.map(r => [r.customer_name, r.shop_name||'—', r.reference||'—', r.payment_method||'cash', fmtN(r.amount)]);
-      const totalCustRecv = d.customer_receipts.reduce((s,r)=>s+parseFloat(r.amount||0),0);
+      const line = (label, amt, color, items, sign) => {
+        if (!items || !items.length) return '';
+        return `<div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;font-weight:700;color:${color};font-size:13px;margin-bottom:3px"><span>${label}</span><span>${sign} ${fmtN(amt)}</span></div>
+          ${items.map(i=>`<div style="display:flex;justify-content:space-between;padding-left:16px;color:#64748b;font-size:12px;margin-bottom:2px"><span>${i.text}</span><span>${fmtN(i.amount)}</span></div>`).join('')}
+        </div>`;
+      };
+      const cashBlock = shName => {
+        const c = cashByShop[shName];
+        if (!c) return '<div style="font-size:12px;color:#94a3b8">Cash register data not available.</div>';
+        const it = (arr, f) => (arr?.items || []).map(f);
+        const nonCashExp = parseFloat(d.expenses.filter(e=>e.shop_name===shName).reduce((t,e)=>t+parseFloat(e.total||0),0)) - parseFloat(c.expenses.total||0);
+        return `<div style="border:1px solid #e2e8f0;border-radius:8px;padding:12px 14px;margin-bottom:12px;page-break-inside:avoid">
+          <div style="font-size:13px;font-weight:800;color:#6366f1;margin-bottom:8px">${shName}</div>
+          <div style="display:flex;justify-content:space-between;font-weight:700;font-size:13px;padding-bottom:6px;border-bottom:2px solid #e2e8f0;margin-bottom:8px"><span>Opening Balance</span><span>${fmtN(c.opening)}</span></div>
+          ${line('Cash Sales', c.sales.total, '#059669', it(c.sales, i=>({text:i.invoice_number+(i.is_exchange?' (exchange)':''), amount:i.amount_paid})), '+')}
+          ${line('Returns', c.returns.total, '#dc2626', it(c.returns, i=>({text:i.invoice_number, amount:i.amount_paid})), '−')}
+          ${line('Transfer In', c.transfer_in.total, '#6366f1', it(c.transfer_in, i=>({text:i.description||i.category, amount:i.amount})), '+')}
+          ${line('Bank / Finance', c.bank_receipts?.total, '#0369a1', it(c.bank_receipts, i=>({text:i.account_name+(i.description?' — '+i.description:''), amount:i.amount})), '+')}
+          ${line('Cash In', c.manual_in.total, '#f59e0b', it(c.manual_in, i=>({text:i.description||i.category, amount:i.amount})), '+')}
+          ${line('Purchases Paid', c.purchases.total, '#dc2626', it(c.purchases, i=>({text:i.reference, amount:i.amount})), '−')}
+          ${line('Expenses', c.expenses.total, '#dc2626', it(c.expenses, i=>({text:i.category_name+(i.description?' — '+i.description:''), amount:i.amount})), '−')}
+          ${line('Cash Out', c.manual_out.total, '#dc2626', it(c.manual_out, i=>({text:i.description||i.category, amount:i.amount})), '−')}
+          ${line('Transfer Out', c.transfer_out.total, '#7c3aed', it(c.transfer_out, i=>({text:i.description||i.category, amount:i.amount})), '−')}
+          <div style="display:flex;justify-content:space-between;font-weight:800;font-size:15px;border-top:2px solid #e2e8f0;padding-top:8px;margin-top:6px"><span>Closing Balance</span><span style="color:#6366f1">${fmtN(c.closing)}</span></div>
+          ${nonCashExp > 0.5 ? `<div style="font-size:10px;color:#94a3b8;margin-top:6px">Other expenses paid by card / bank (not in cash register): ${fmtN(nonCashExp)}</div>` : ''}
+        </div>`;
+      };
       const stockCats = [...new Set(d.stock_value.map(r=>r.category))];
       const stockRows = stockCats.map(cat => {
         const vals = shopNames.map(sh => fmtN(d.stock_value.find(r=>r.shop_name===sh&&r.category===cat)?.cost_value||0));
@@ -343,19 +354,7 @@ export default function Reports() {
         ${section('🛒','Purchases — New (Today)', purchRows.length
           ? buildTbl(['Shop','Supplier','Total','Paid','Due'], purchRows)
           : '<div style="font-size:12px;color:#94a3b8">No new purchases today.</div>')}
-        ${section('🛒','Purchases — Payments Only (Against Previous Purchases)', payRows.length
-          ? buildTbl(['Shop','Supplier','Amount Paid'], payRows) + `<div style="text-align:right;font-size:12px;font-weight:700;color:#6366f1;margin-top:4px">Total: ${fmtN(totalPayOnly)}</div>`
-          : '<div style="font-size:12px;color:#94a3b8">No standalone supplier payments today.</div>')}
-
-        ${section('💸','Expenses', expRows.length
-          ? buildTbl(['Category',...shopNames,'Total'], expRows)
-          : '<div style="font-size:12px;color:#94a3b8">No expenses recorded today.</div>')}
-
-        ${section('🧾','Cash Register', buildTbl(['Shop','Status','Opening Balance','Closing Balance'], cashRows))}
-
-        ${section('👤','Customer Receivables (Collected Today)', custRows.length
-          ? buildTbl(['Customer','Shop','Reference','Method','Amount'], custRows) + `<div style="text-align:right;font-size:12px;font-weight:700;color:#6366f1;margin-top:4px">Total: ${fmtN(totalCustRecv)}</div><div style="font-size:10px;color:#94a3b8;margin-top:2px">Includes payments received on credit invoices and receipts entered on the Customers page (refunds excluded). Customers-page receipts have no shop. Later payments on invoices that were originally marked cash are not recorded by date, so they cannot appear here.</div>`
-          : '<div style="font-size:12px;color:#94a3b8">No customer payments received today.</div>')}
+        ${section('🧾','Cash Register', shopNames.map(cashBlock).join(''))}
 
         ${section('🏪','Stock Value (Cost Price) — End of Day', buildTbl(['Category',...shopNames,'Total'], stockRows) +
           `<div style="text-align:right;font-size:13px;font-weight:800;color:#6366f1;margin-top:4px">Grand Total: ${fmtN(totalStock)}</div>` +
