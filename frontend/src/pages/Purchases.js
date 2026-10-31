@@ -9,7 +9,7 @@ const fmtDate = d => new Date(d).toLocaleDateString('en-AE');
 const PRODUCT_TYPES = ['New (Box Pack)', 'Used', 'Refurbished', 'Parts', 'Accessories', 'Wholesale'];
 
 // What kind of product is this? (saved as the product's category in Inventory)
-const ITEM_CATEGORIES = ['MOBILE', 'TAB', 'LAPTOP', 'ACCESSORIES'];
+const ITEM_CATEGORIES = ['MOBILE', 'TAB', 'LAPTOP', 'ACCESSORIES', 'PARTS'];
 const CATEGORY_ALIASES = { 'MOBILE PHONE': 'MOBILE', 'IPAD': 'TAB', 'TABLET': 'TAB', 'MACBOOK': 'LAPTOP' };
 const normalizeCategory = (c) => {
   const k = String(c || '').replace(/\s+/g, ' ').trim().toUpperCase();
@@ -668,7 +668,7 @@ export default function Purchases() {
     if (form.items.some(i => !i.serial_number && !i.product_name)) { setSubmitting(false); return toast.error('Each item needs a serial number or product name'); }
     if (form.items.some(i => !i.unit_cost)) { setSubmitting(false); return toast.error('Each item needs a cost price'); }
     if (form.items.some(i => !i.shop_id)) { setSubmitting(false); return toast.error('Each item needs a shop selected'); }
-    if (form.items.some(i => !i.category)) { setSubmitting(false); return toast.error('Select a category (Mobile / Tab / Laptop / Accessories) for every item'); }
+    if (form.items.some(i => !i.category)) { setSubmitting(false); return toast.error('Select a category (Mobile / Tab / Laptop / Accessories / Parts) for every item'); }
     try {
       const payload = {
         supplier_id:   form.supplier_id,

@@ -5,7 +5,7 @@ import api from '../utils/api';
 
 const TYPES = ['New (Box Pack)', 'Used', 'Refurbished', 'Parts', 'Accessories', 'Wholesale'];
 // Category names are the same as in the database (and the Purchase / Inventory pages)
-const CATEGORIES = ['MOBILE', 'TAB', 'LAPTOP', 'ACCESSORIES'];
+const CATEGORIES = ['MOBILE', 'TAB', 'LAPTOP', 'ACCESSORIES', 'PARTS'];
 const CATEGORY_ALIASES = { 'MOBILE PHONE': 'MOBILE', 'IPAD': 'TAB', 'TABLET': 'TAB', 'MACBOOK': 'LAPTOP' };
 // 'Mobile Phone ' -> 'MOBILE', 'Ipad' -> 'TAB' ...  ('' if it is not one of the 4, e.g. 'Exchange')
 const normalizeCategory = (c) => {

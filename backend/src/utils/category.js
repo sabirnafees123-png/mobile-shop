@@ -3,7 +3,7 @@
 //   MOBILE, TAB, LAPTOP, ACCESSORIES
 // (Other special categories such as 'Exchange' or 'Service' are left exactly as they are.)
 
-const CANONICAL = ['MOBILE', 'TAB', 'LAPTOP', 'ACCESSORIES'];
+const CANONICAL = ['MOBILE', 'TAB', 'LAPTOP', 'ACCESSORIES', 'PARTS'];
 
 // Older / alternative spellings -> the canonical name
 const ALIASES = { 'MOBILE PHONE': 'MOBILE', 'IPAD': 'TAB', 'TABLET': 'TAB', 'MACBOOK': 'LAPTOP' };
@@ -14,6 +14,7 @@ const FILTER_GROUPS = {
   TAB:         ['TAB', 'IPAD', 'TABLET'],
   LAPTOP:      ['LAPTOP', 'MACBOOK'],
   ACCESSORIES: ['ACCESSORIES'],
+  PARTS:       ['PARTS'],
 };
 
 const clean = (c) => String(c == null ? '' : c).replace(/\s+/g, ' ').trim().toUpperCase();

@@ -532,7 +532,7 @@ router.get('/purchase-invoice', async (req, res) => {
 // include the known variants stored in the database ('MOBILE', 'Mobile Phone', 'IPAD', 'MACBOOK', ...).
 const CATEGORY_ALIASES = {
   MOBILE: ['MOBILE','MOBILE PHONE'], TAB: ['TAB','IPAD','TABLET'], IPAD: ['IPAD'],
-  LAPTOP: ['LAPTOP','MACBOOK'], ACCESSORIES: ['ACCESSORIES'],
+  LAPTOP: ['LAPTOP','MACBOOK'], ACCESSORIES: ['ACCESSORIES'], PARTS: ['PARTS'],
 };
 const categoryList = (c) => { const k = String(c).trim().toUpperCase(); return CATEGORY_ALIASES[k] || [k]; };
 

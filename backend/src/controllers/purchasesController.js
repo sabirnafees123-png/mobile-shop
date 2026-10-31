@@ -5,7 +5,7 @@ const { assertFreeStock } = require('../utils/consignment');
 // Product categories the purchase form lets the user choose from.
 // Older / alternative spellings are mapped to these (the database uses these names).
 const CATEGORY_ALIASES = { 'MOBILE PHONE': 'MOBILE', 'IPAD': 'TAB', 'TABLET': 'TAB', 'MACBOOK': 'LAPTOP' };
-const ALLOWED_CATEGORIES = ['MOBILE', 'TAB', 'LAPTOP', 'ACCESSORIES'];
+const ALLOWED_CATEGORIES = ['MOBILE', 'TAB', 'LAPTOP', 'ACCESSORIES', 'PARTS'];
 const normCategory = (c) => {
   const k = String(c || '').replace(/\s+/g, ' ').trim().toUpperCase();
   const v = CATEGORY_ALIASES[k] || k;

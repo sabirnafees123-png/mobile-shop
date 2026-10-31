@@ -6,7 +6,7 @@ import api from '../utils/api';
 import TransferModal from '../components/TransferModal';
 
 const fmt = n => `AED ${Math.round(Number(n||0)).toLocaleString()}`;
-const ITEM_CATEGORIES = ['MOBILE','TAB','LAPTOP','ACCESSORIES'];
+const ITEM_CATEGORIES = ['MOBILE','TAB','LAPTOP','ACCESSORIES','PARTS'];
 
 function AdjustModal({ item, onClose, onDone, isAdmin }) {
   const [type, setType]       = useState('in');

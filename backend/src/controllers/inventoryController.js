@@ -5,7 +5,7 @@ const { assertFreeStock } = require('../utils/consignment');
 // Category filter: case-insensitive, and includes the known older spellings stored in the database.
 const CATEGORY_ALIASES = {
   MOBILE: ['MOBILE', 'MOBILE PHONE'], TAB: ['TAB', 'IPAD', 'TABLET'],
-  LAPTOP: ['LAPTOP', 'MACBOOK'],      ACCESSORIES: ['ACCESSORIES'],
+  LAPTOP: ['LAPTOP', 'MACBOOK'],      ACCESSORIES: ['ACCESSORIES'], PARTS: ['PARTS'],
 };
 const categoryList = (c) => { const k = String(c).trim().toUpperCase(); return CATEGORY_ALIASES[k] || [k]; };
 
