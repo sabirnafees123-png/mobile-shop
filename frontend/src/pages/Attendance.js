@@ -22,6 +22,8 @@ const TIME_OPTIONS = (() => {
   return opts;
 })();
 
+// 45 -> '45m', 60 -> '1h', 90 -> '1h 30m', 120 -> '2h'
+const fmtLate = m => { m = parseInt(m) || 0; if (m < 60) return `${m}m`; const h = Math.floor(m/60), r = m % 60; return r ? `${h}h ${r}m` : `${h}h`; };
 const toMins = t => { if (!t) return 0; const [h,m] = t.split(':').map(Number); return h*60+m; };
 const fmtTime = t => { if (!t) return '—'; const [h,m] = t.split(':').map(Number); const h12=h>12?h-12:h===0?12:h; return `${h12}:${String(m).padStart(2,'0')} ${h<12?'AM':'PM'}`; };
 const fmtDate = d => d ? new Date(d+'T00:00:00').toLocaleDateString('en-AE',{day:'numeric',month:'short',year:'numeric'}) : '—';
@@ -103,7 +105,7 @@ export default function Attendance({ user }) {
     try {
       await api.post('/attendance/shifts', {
         user_id:s.user_id, shift_start:s.shift_start||null, shift_end:s.shift_end||null,
-        break_start:s.break_start||null, break_end:s.break_end||null, grace_minutes:s.grace_minutes||15
+        break_start:s.break_start||null, break_end:s.break_end||null, grace_minutes:s.grace_minutes||5
       });
       toast.success(`Shift saved — ${s.name}`);
     } catch (err) { toast.error(err.response?.data?.message||'Failed'); }
@@ -209,7 +211,7 @@ export default function Attendance({ user }) {
                         ) : (
                           <div style={{fontSize:'.72rem',color:'#f59e0b',marginTop:'2px'}}>⚠️ No shift set</div>
                         )}
-                        {r.is_late && <span className="late-badge">⏰ Late {r.late_minutes}m</span>}
+                        {r.is_late && <span className="late-badge">⏰ Late {fmtLate(r.late_minutes)}</span>}
                       </td>
                       <td>
                         <select style={{padding:'4px 6px',border:'1px solid var(--border)',borderRadius:'6px',fontSize:'.8rem',background:'var(--bg-card)'}}
@@ -297,7 +299,7 @@ export default function Attendance({ user }) {
                           <td style={{whiteSpace:'nowrap'}}>{fmtTime(r.clock_out)}</td>
                           <td style={{fontWeight:700,color:'#2563eb'}}>{r.total_hours ? `${parseFloat(r.total_hours).toFixed(1)}h` : '—'}</td>
                           <td><span style={{padding:'2px 8px',borderRadius:'99px',fontSize:'.75rem',fontWeight:600,background:s.bg,color:s.color}}>{s.label}</span></td>
-                          <td>{r.is_late ? <span className="late-badge">{r.late_minutes}m late</span> : <span style={{color:'#059669',fontSize:'.78rem'}}>On time</span>}</td>
+                          <td>{r.is_late ? <span className="late-badge">{fmtLate(r.late_minutes)} late</span> : <span style={{color:'#059669',fontSize:'.78rem'}}>On time</span>}</td>
                           <td style={{color:'var(--text-muted)',fontSize:'.8rem'}}>{r.notes||'—'}</td>
                         </tr>
                       );
@@ -352,7 +354,7 @@ export default function Attendance({ user }) {
                     <td><input type="time" className="shift-input" value={s.shift_end||''} onChange={e=>updateShift(s.user_id,'shift_end',e.target.value)} /></td>
                     <td><input type="time" className="shift-input" value={s.break_start||''} onChange={e=>updateShift(s.user_id,'break_start',e.target.value)} /></td>
                     <td><input type="time" className="shift-input" value={s.break_end||''} onChange={e=>updateShift(s.user_id,'break_end',e.target.value)} /></td>
-                    <td><input type="number" className="shift-input" style={{width:'70px'}} value={s.grace_minutes||15} min="0" max="120" onChange={e=>updateShift(s.user_id,'grace_minutes',parseInt(e.target.value))} /></td>
+                    <td><input type="number" className="shift-input" style={{width:'70px'}} value={s.grace_minutes||5} min="0" max="120" onChange={e=>updateShift(s.user_id,'grace_minutes',parseInt(e.target.value))} /></td>
                     <td>
                       <button className="btn btn-primary btn-sm" onClick={()=>saveShift(s)} disabled={savingShift===s.user_id}>
                         {savingShift===s.user_id?'...':'Save'}

@@ -33,7 +33,7 @@ router.post('/shifts', async (req, res) => {
         break_start=EXCLUDED.break_start, break_end=EXCLUDED.break_end,
         grace_minutes=EXCLUDED.grace_minutes, updated_by=EXCLUDED.updated_by, updated_at=NOW()
       RETURNING *
-    `, [user_id, shift_start||null, shift_end||null, break_start||null, break_end||null, grace_minutes||15, req.user?.id||null]);
+    `, [user_id, shift_start||null, shift_end||null, break_start||null, break_end||null, grace_minutes||5, req.user?.id||null]);
     res.json({ success: true, data: result.rows[0] });
   } catch (err) { res.status(500).json({ success: false, message: err.message }); }
 });
@@ -47,7 +47,7 @@ router.get('/', async (req, res) => {
     const users = await query(`
       SELECT u.id, u.name, u.role,
         us.shift_start, us.shift_end, us.break_start, us.break_end,
-        COALESCE(us.grace_minutes, 15) as grace_minutes
+        COALESCE(us.grace_minutes, 5) as grace_minutes
       FROM users u
       LEFT JOIN user_shifts us ON us.user_id = u.id
       WHERE u.is_active = true ORDER BY u.name
@@ -96,7 +96,7 @@ router.post('/', async (req, res) => {
       if (r.clock_in && shiftMap[r.user_id]?.shift_start) {
         const shift = shiftMap[r.user_id];
         const diff = toMins(r.clock_in) - toMins(shift.shift_start);
-        const grace = parseInt(shift.grace_minutes) || 15;
+        const grace = parseInt(shift.grace_minutes) || 5;
         if (diff > grace) { late_minutes = diff; is_late = true; }
       }
 
@@ -135,7 +135,7 @@ router.get('/report', async (req, res) => {
       SELECT
         u.name as user_name, u.role,
         us.shift_start, us.shift_end, us.break_start, us.break_end,
-        COALESCE(us.grace_minutes,15) as grace_minutes,
+        COALESCE(us.grace_minutes,5) as grace_minutes,
         a.date, a.clock_in, a.clock_out, a.break_out, a.break_in,
         a.total_hours, a.late_minutes, a.is_late, a.status, a.notes,
         s.name as shop_name
@@ -143,7 +143,7 @@ router.get('/report', async (req, res) => {
       LEFT JOIN attendance a ON a.user_id = u.id AND a.date BETWEEN $1 AND $2
       LEFT JOIN shops s ON s.id = a.shop_id
       LEFT JOIN user_shifts us ON us.user_id = u.id
-      WHERE u.is_active = true
+      WHERE u.is_active = true AND u.role <> 'admin'
       ORDER BY a.date DESC, u.name
     `, [from, to]);
     res.json({ success: true, data: result.rows });
